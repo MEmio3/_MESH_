@@ -30,7 +30,8 @@
       "Bash(ls \"C:/Users/maruf/AppData/Local/electron-builder/Cache/nsis/125804583/\" cat \"C:/Users/maruf/AppData/Local/electron-builder/Cache/nsis/125804583/\"*)",
       "Bash(mkdir -p \"C:/Users/maruf/AppData/Local/electron-builder/Cache/nsis/nsis-resources-3.4.1\")",
       "Bash(cp -r C:/Users/maruf/AppData/Local/electron-builder/Cache/nsis-resources-3.4.1/. C:/Users/maruf/AppData/Local/electron-builder/Cache/nsis/nsis-resources-3.4.1/)",
-      "Bash(ls -la \"E:/MESH/release/\"*.exe)"
+      "Bash(ls -la \"E:/MESH/release/\"*.exe)",
+      "Bash(node *)"
     ]
   }
 }

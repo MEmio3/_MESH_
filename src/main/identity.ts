@@ -22,7 +22,10 @@ function getIdentityPath(): string {
 }
 
 export async function initSodium(): Promise<void> {
+  console.log('[identity] initializing libsodium...')
+  const start = Date.now()
   await sodium.ready
+  console.log('[identity] libsodium initialized in', Date.now() - start, 'ms')
 }
 
 /**
@@ -98,28 +101,35 @@ export async function generateIdentity(
   avatarColor: string | null
 ): Promise<{ userId: string; publicKey: string }> {
   await sodium.ready
+  console.log('[identity] generating keypair for:', username)
 
-  const keypair = sodium.crypto_sign_keypair()
-  const publicKeyHex = sodium.to_hex(keypair.publicKey)
-  const privateKeyHex = sodium.to_hex(keypair.privateKey)
-  const userId = `usr_${publicKeyHex.substring(0, 16)}`
+  try {
+    const keypair = sodium.crypto_sign_keypair()
+    const publicKeyHex = sodium.to_hex(keypair.publicKey)
+    const privateKeyHex = sodium.to_hex(keypair.privateKey)
+    const userId = `usr_${publicKeyHex.substring(0, 16)}`
 
-  const { encrypted, salt, useSafeStorage } = encryptPrivateKey(privateKeyHex)
+    const { encrypted, salt, useSafeStorage } = encryptPrivateKey(privateKeyHex)
 
-  const stored: StoredIdentity = {
-    publicKey: publicKeyHex,
-    encryptedPrivateKey: encrypted,
-    salt,
-    userId,
-    username,
-    avatarColor,
-    createdAt: Date.now(),
-    useSafeStorage
+    const stored: StoredIdentity = {
+      publicKey: publicKeyHex,
+      encryptedPrivateKey: encrypted,
+      salt,
+      userId,
+      username,
+      avatarColor,
+      createdAt: Date.now(),
+      useSafeStorage
+    }
+
+    writeFileSync(getIdentityPath(), JSON.stringify(stored, null, 2), 'utf-8')
+    console.log('[identity] keypair generated successfully, userId:', userId)
+
+    return { userId, publicKey: publicKeyHex }
+  } catch (err) {
+    console.error('[identity] keypair generation failed:', err)
+    throw err
   }
-
-  writeFileSync(getIdentityPath(), JSON.stringify(stored, null, 2), 'utf-8')
-
-  return { userId, publicKey: publicKeyHex }
 }
 
 /**

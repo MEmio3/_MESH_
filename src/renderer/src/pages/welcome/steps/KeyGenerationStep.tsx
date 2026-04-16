@@ -17,15 +17,28 @@ function KeyGenerationStep({ username, avatarColor, onNext }: KeyGenerationStepP
     let cancelled = false
 
     async function generate(): Promise<void> {
-      // Run real keygen + minimum animation delay in parallel
-      const [kp] = await Promise.all([
-        window.api.identityGenerate({ username, avatarColor }),
-        new Promise((r) => setTimeout(r, 800))
-      ])
+      try {
+        // Run real keygen with timeout + minimum animation delay in parallel
+        const [result] = await Promise.all([
+          Promise.race([
+            window.api.identityGenerate({ username, avatarColor }),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error('Identity generation timed out after 10 seconds')), 10000)
+            )
+          ]),
+          new Promise((r) => setTimeout(r, 800))
+        ])
 
-      if (!cancelled) {
-        setKeypair(kp)
-        setPhase('done')
+        if (!cancelled) {
+          setKeypair(result)
+          setPhase('done')
+        }
+      } catch (err) {
+        console.error('KeyGenerationStep: identity generation failed:', err)
+        if (!cancelled) {
+          // Still show done phase but with null keypair to unblock UI
+          setPhase('done')
+        }
       }
     }
 
