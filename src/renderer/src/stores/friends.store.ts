@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { Friend, FriendRequest, MessageRequest, MessageRequestThreadMessage, BlockedUser } from '@/types/social'
 import { useIdentityStore } from './identity.store'
+import { useMessagesStore } from './messages.store'
 import { notify } from '@/lib/notify'
 
 interface FriendsStore {
@@ -99,6 +100,14 @@ export const useFriendsStore = create<FriendsStore>((set, get) => ({
         await window.api.friendRequest.acceptedRemote(p)
         const [friends, requests] = await Promise.all([reloadFriends(), reloadRequests()])
         set({ friends, friendRequests: requests })
+        // Refresh DM sidebar so the new friend's conversation appears live.
+        await useMessagesStore.getState().initialize()
+        notify({
+          type: 'friend-request',
+          title: 'Friend request accepted',
+          body: `${p.fromUsername} is now your friend`,
+          route: '/channels/@me'
+        })
       })
     )
 
@@ -178,6 +187,8 @@ export const useFriendsStore = create<FriendsStore>((set, get) => ({
     if (res.success) {
       const [friends, requests] = await Promise.all([reloadFriends(), reloadRequests()])
       set({ friends, friendRequests: requests })
+      // Refresh DM sidebar so the new friend's conversation appears live.
+      await useMessagesStore.getState().initialize()
     }
   },
 
