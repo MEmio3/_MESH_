@@ -12,13 +12,22 @@
     "start": "electron-vite preview",
     "signaling": "tsx src/server/signaling.ts",
     "postinstall": "electron-builder install-app-deps",
-    "dist": "electron-vite build && electron-builder --win"
+    "dist": "electron-vite build && electron-builder --win",
+    "dist:linux": "electron-vite build && electron-builder --linux"
   },
   "build": {
     "appId": "com.mesh.app",
     "productName": "MESH",
+    "asar": true,
     "directories": {
-      "output": "release"
+      "output": "dist_linux"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Network"
     },
     "win": {
       "target": "nsis",
@@ -32,7 +41,7 @@
       "shortcutName": "MESH"
     },
     "files": [
-      "dist/**/*",
+      "out/**/*",
       "node_modules/**/*",
       "package.json"
     ]
@@ -71,7 +80,7 @@
     "@vitejs/plugin-react": "^4.3.0",
     "cross-env": "^10.1.0",
     "electron": "^33.0.0",
-    "electron-builder": "^25.1.8",
+    "electron-builder": "^26.8.1",
     "electron-vite": "^2.3.0",
     "tailwindcss": "^4.0.0",
     "tsx": "^4.21.0",

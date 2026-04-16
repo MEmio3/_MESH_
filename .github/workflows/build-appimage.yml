@@ -1,0 +1,39 @@
+name: Build Linux AppImage
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fakeroot build-essential libarchive-tools
+
+      - name: Install Node dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Build AppImage and DEB
+        run: npm run dist:linux
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload AppImage Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MESH-Linux-AppImage
+          path: dist_linux/*.AppImage
