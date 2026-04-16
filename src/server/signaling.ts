@@ -326,15 +326,19 @@ io.on('connection', (socket) => {
         banned: new Set(payload.banned)
       }
       servers.set(payload.serverId, entry)
+      console.log(`[server] registered: ${payload.serverId} by ${payload.hostUserId}`)
     } else {
-      entry.hostSocketId = socket.id
+      // Only update if hostSocketId changed (prevents spam logs)
+      if (entry.hostSocketId !== socket.id) {
+        entry.hostSocketId = socket.id
+        console.log(`[server] re-registered: ${payload.serverId} by ${payload.hostUserId}`)
+      }
       entry.banned = new Set(payload.banned)
     }
     // Reset member list with host authoritative snapshot
     entry.members.clear()
     for (const m of payload.members) entry.members.set(m.userId, m)
     socket.join(roomName(payload.serverId))
-    console.log(`[server] registered: ${payload.serverId} by ${payload.hostUserId}`)
   })
 
   // Member requests to join. We validate + broadcast + send state to joiner.

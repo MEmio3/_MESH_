@@ -7,6 +7,7 @@ let reconnectTimer: NodeJS.Timeout | null = null
 let reconnectAttempts: number = 0
 let currentUrl: string = ''
 let currentUserId: string = ''
+let isConnecting = false
 
 export function setMainWindow(win: BrowserWindow): void {
   mainWindow = win
@@ -19,6 +20,17 @@ function sendToRenderer(channel: string, ...args: unknown[]): void {
 }
 
 export function connectToSignaling(serverUrl: string, userId: string): Promise<void> {
+  // Prevent duplicate connections
+  if (isConnecting) {
+    console.log('[socket-client] connection already in progress, ignoring')
+    return Promise.resolve()
+  }
+  if (socket?.connected && currentUrl === serverUrl && currentUserId === userId) {
+    console.log('[socket-client] already connected to same server, ignoring')
+    return Promise.resolve()
+  }
+
+  isConnecting = true
   currentUrl = serverUrl
   currentUserId = userId
 
@@ -32,6 +44,7 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
   })
 
   socket.on('connect', () => {
+    isConnecting = false
     if (reconnectTimer) {
       clearTimeout(reconnectTimer)
       reconnectTimer = null
@@ -48,6 +61,7 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
   })
 
   socket.on('connect_error', (err) => {
+    isConnecting = false
     sendToRenderer('signaling:error', err.message)
   })
 
@@ -157,6 +171,10 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
   ]
   for (const evt of serverEvents) {
     socket.on(evt, (payload: unknown) => {
+      // Log join-ack for debugging
+      if (evt === 'server:join-ack') {
+        console.log('[socket-client] server:join-ack received:', JSON.stringify(payload, null, 2).slice(0, 500))
+      }
       sendToRenderer(`signaling:${evt}`, payload)
     })
   }

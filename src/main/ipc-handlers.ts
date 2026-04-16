@@ -677,36 +677,48 @@ export function registerServerHandlers(): void {
     members: Array<{ userId: string; username: string; avatarColor: string | null; role: string; isMuted: boolean }>
     yourRole: string
   }) => {
-    db.addServer({
-      id: payload.server.id,
-      name: payload.server.name,
-      iconColor: payload.server.iconColor,
-      role: payload.yourRole,
-      textChannelName: payload.server.textChannelName,
-      voiceRoomName: payload.server.voiceRoomName,
-      memberCount: payload.members.length,
-      onlineMemberCount: payload.members.length,
-      hostUserId: payload.server.hostUserId,
-      hostUsername: payload.server.hostUsername,
-      hostAvatarColor: payload.server.hostAvatarColor,
-      banned: '[]',
-      passwordHash: null // Will be populated if known, or we just keep null on member side
-    })
-    // Replace member list: remove stale, then add current.
-    const existing = db.getServerMembers(payload.server.id)
-    for (const m of existing) db.removeServerMember(payload.server.id, m.userId)
-    for (const m of payload.members) {
-      db.addServerMember({
-        serverId: payload.server.id,
-        userId: m.userId,
-        username: m.username,
-        avatarColor: m.avatarColor,
-        role: m.role,
-        status: 'online',
-        isMuted: m.isMuted ? 1 : 0
-      })
+    // Validate payload structure to prevent crashes
+    if (!payload || !payload.server || !payload.server.id) {
+      console.error('[server:join-ack-persist] Invalid payload:', payload)
+      return { success: false, error: 'Invalid server join response' }
     }
-    return { success: true }
+
+    try {
+      db.addServer({
+        id: payload.server.id,
+        name: payload.server.name,
+        iconColor: payload.server.iconColor,
+        role: payload.yourRole,
+        textChannelName: payload.server.textChannelName,
+        voiceRoomName: payload.server.voiceRoomName,
+        memberCount: payload.members.length,
+        onlineMemberCount: payload.members.length,
+        hostUserId: payload.server.hostUserId,
+        hostUsername: payload.server.hostUsername,
+        hostAvatarColor: payload.server.hostAvatarColor,
+        banned: '[]',
+        passwordHash: null
+      })
+      // Replace member list: remove stale, then add current.
+      const existing = db.getServerMembers(payload.server.id)
+      for (const m of existing) db.removeServerMember(payload.server.id, m.userId)
+      for (const m of payload.members) {
+        db.addServerMember({
+          serverId: payload.server.id,
+          userId: m.userId,
+          username: m.username,
+          avatarColor: m.avatarColor,
+          role: m.role,
+          status: 'online',
+          isMuted: m.isMuted ? 1 : 0
+        })
+      }
+      console.log('[server:join-ack-persist] Successfully joined server:', payload.server.id)
+      return { success: true }
+    } catch (err) {
+      console.error('[server:join-ack-persist] Failed to persist:', err)
+      return { success: false, error: err instanceof Error ? err.message : String(err) }
+    }
   })
 
   // Leave a server (both host and members can call).

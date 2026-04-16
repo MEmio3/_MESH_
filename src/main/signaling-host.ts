@@ -11,6 +11,8 @@ import { ipcMain } from 'electron'
 import { startSignalingServer, stopSignalingServer, isSignalingRunning, getSignalingPort } from '../server/signaling'
 
 let lastError: string | null = null
+let isStarting = false
+let isStopping = false
 
 export type IpScope = 'home' | 'isp' | 'public'
 
@@ -69,19 +71,49 @@ export function detectLocalIps(): DetectedIp[] {
 }
 
 export async function startHosting(port = 3000): Promise<{ success: boolean; error?: string; port?: number }> {
+  if (isStarting) {
+    console.log('[signaling-host] start already in progress, ignoring duplicate call')
+    return { success: true, port: getSignalingPort() }
+  }
+  if (isSignalingRunning()) {
+    console.log('[signaling-host] already running on port', getSignalingPort())
+    return { success: true, port: getSignalingPort() }
+  }
   try {
+    isStarting = true
     lastError = null
     const res = await startSignalingServer(port)
+    console.log('[signaling-host] started successfully on port', res.port)
     return { success: true, port: res.port }
   } catch (err) {
     lastError = err instanceof Error ? err.message : String(err)
+    console.error('[signaling-host] start failed:', lastError)
     return { success: false, error: lastError }
+  } finally {
+    isStarting = false
   }
 }
 
 export async function stopHosting(): Promise<{ success: boolean }> {
-  await stopSignalingServer()
-  return { success: true }
+  if (isStopping) {
+    console.log('[signaling-host] stop already in progress, ignoring duplicate call')
+    return { success: true }
+  }
+  if (!isSignalingRunning()) {
+    console.log('[signaling-host] not running, nothing to stop')
+    return { success: true }
+  }
+  try {
+    isStopping = true
+    await stopSignalingServer()
+    console.log('[signaling-host] stopped successfully')
+    return { success: true }
+  } catch (err) {
+    console.error('[signaling-host] stop failed:', err)
+    return { success: false }
+  } finally {
+    isStopping = false
+  }
 }
 
 export function registerSignalingHostHandlers(): void {

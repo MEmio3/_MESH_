@@ -284,9 +284,21 @@ export const useServersStore = create<ServersStore>((set, get) => ({
     const unsubs: Array<() => void> = []
 
     unsubs.push(window.api.signaling.onServerEvent('join-ack', async (payload) => {
-      await window.api.server.joinAckPersist(payload)
-      await get().reloadFromDb()
-      set({ pendingJoin: null })
+      console.log('[servers.store] join-ack received:', payload)
+      // Validate payload structure before processing
+      if (!payload || typeof payload !== 'object' || !('server' in payload) || !payload.server) {
+        console.error('[servers.store] Invalid join-ack payload:', payload)
+        set({ pendingJoin: null, lastError: 'Invalid server response from signaling' })
+        return
+      }
+      try {
+        await window.api.server.joinAckPersist(payload)
+        await get().reloadFromDb()
+        set({ pendingJoin: null })
+      } catch (err) {
+        console.error('[servers.store] join-ack-persist failed:', err)
+        set({ pendingJoin: null, lastError: 'Failed to join server: ' + (err instanceof Error ? err.message : String(err)) })
+      }
     }))
 
     unsubs.push(window.api.signaling.onServerEvent('join-denied', (payload) => {
