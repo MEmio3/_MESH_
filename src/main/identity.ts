@@ -43,13 +43,18 @@ function encryptPrivateKey(privateKeyHex: string): { encrypted: string; salt: st
   }
 
   // Fallback: derive key from machine-specific values
-  const salt = sodium.randombytes_buf(sodium.crypto_pwhash_SALTBYTES)
+  // Use hardcoded constants instead of sodium.crypto_pwhash_SALTBYTES (can be undefined in WASM build)
+  const SALTBYTES = 16
+  const NONCEBYTES = 24
+  const KEYBYTES = 32
+
+  const salt = sodium.randombytes_buf(SALTBYTES)
   const machineId = `${hostname()}:${userInfo().username}:${app.getPath('userData')}`
-  const machineHash = sodium.crypto_generichash(32, sodium.from_string(machineId))
+  const machineHash = sodium.crypto_generichash(KEYBYTES, sodium.from_string(machineId))
 
   // Derive an encryption key from machine hash + salt
-  const key = sodium.crypto_generichash(sodium.crypto_secretbox_KEYBYTES, new Uint8Array([...machineHash, ...salt]))
-  const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES)
+  const key = sodium.crypto_generichash(KEYBYTES, new Uint8Array([...machineHash, ...salt]))
+  const nonce = sodium.randombytes_buf(NONCEBYTES)
   const ciphertext = sodium.crypto_secretbox_easy(
     sodium.from_string(privateKeyHex),
     nonce,
