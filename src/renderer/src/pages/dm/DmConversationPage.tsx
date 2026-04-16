@@ -31,9 +31,23 @@ function DmConversationPage(): JSX.Element {
   const toggleReaction = useMessagesStore((s) => s.toggleReaction)
   const markAsRead = useMessagesStore((s) => s.markAsRead)
   const setActiveConversation = useMessagesStore((s) => s.setActiveConversation)
+  const ensureConversationForFriend = useMessagesStore((s) => s.ensureConversationForFriend)
   const selfId = useIdentityStore((s) => s.identity?.userId)
 
-  const conversation = conversations.find((c) => c.id === dmId)
+  // Accept either a conversation id ("dm_usr_xxx") or a bare friend id ("usr_xxx").
+  const normalizedId = dmId
+    ? dmId.startsWith('dm_')
+      ? dmId
+      : `dm_${dmId}`
+    : undefined
+  const conversation = conversations.find((c) => c.id === normalizedId)
+  const [autoCreateTried, setAutoCreateTried] = useState(false)
+
+  useEffect(() => {
+    if (!normalizedId || conversation || autoCreateTried) return
+    setAutoCreateTried(true)
+    ensureConversationForFriend(normalizedId).catch(() => {})
+  }, [normalizedId, conversation, autoCreateTried, ensureConversationForFriend])
 
   // ── Reply state ──
   const [replyTarget, setReplyTarget] = useState<Message | null>(null)
@@ -75,32 +89,34 @@ function DmConversationPage(): JSX.Element {
   }, [selfId, conversation])
 
   useEffect(() => {
-    if (dmId) {
-      setActiveConversation(dmId)
-      markAsRead(dmId)
+    if (normalizedId) {
+      setActiveConversation(normalizedId)
+      markAsRead(normalizedId)
 
       // Request a P2P connection attempt to the recipient.
       // The signaling layer will route user-joined events and trigger WebRTC negotiation.
       // Data channel for P2P DM delivery is established in webrtcManager.createPeerConnection.
       if (conversation) {
-        window.api.signaling.emit('join-room', `dm:${dmId}`)
+        window.api.signaling.emit('join-room', `dm:${normalizedId}`)
       }
     }
     return () => {
       setActiveConversation(null)
-      if (dmId) {
+      if (normalizedId) {
         window.api.signaling.emit('leave-room')
       }
     }
-  }, [dmId, setActiveConversation, markAsRead, conversation])
+  }, [normalizedId, setActiveConversation, markAsRead, conversation])
 
   if (!conversation) {
+    // While the auto-create is in flight, show a tiny loading shell instead of
+    // a "not found" message — the conversation will appear in the next render.
     return (
       <div className="flex flex-col h-full items-center justify-center">
         <div className="h-16 w-16 rounded-2xl bg-mesh-bg-tertiary flex items-center justify-center mb-4">
-          <MessageSquare className="h-8 w-8 text-mesh-text-muted" />
+          <MessageSquare className="h-8 w-8 text-mesh-text-muted animate-pulse" />
         </div>
-        <p className="text-sm text-mesh-text-muted">Conversation not found</p>
+        <p className="text-sm text-mesh-text-muted">Opening conversation…</p>
       </div>
     )
   }

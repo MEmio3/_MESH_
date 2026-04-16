@@ -23,7 +23,7 @@ function FriendItem({ friend }: FriendItemProps): JSX.Element {
   const { removeFriend, blockUser } = useFriendsStore()
 
   const contextItems: ContextMenuEntry[] = [
-    { label: 'Message', icon: <MessageSquare className="h-4 w-4" />, onClick: () => navigate(`/channels/@me/${friend.userId}`) },
+    { label: 'Message', icon: <MessageSquare className="h-4 w-4" />, onClick: () => navigate(`/channels/@me/dm_${friend.userId}`) },
     { label: 'Voice Call', icon: <Phone className="h-4 w-4" />, onClick: () => {} },
     { label: 'Video Call', icon: <Video className="h-4 w-4" />, onClick: () => {} },
     { separator: true },
@@ -33,7 +33,10 @@ function FriendItem({ friend }: FriendItemProps): JSX.Element {
 
   return (
     <ContextMenu items={contextItems}>
-      <div className="flex items-center h-16 border-t border-mesh-border px-3 hover:bg-mesh-bg-tertiary/40 rounded-lg mx-2 my-1 transition-colors group cursor-pointer">
+      <div
+        onClick={() => navigate(`/channels/@me/dm_${friend.userId}`)}
+        className="flex items-center h-16 border-t border-mesh-border px-3 hover:bg-mesh-bg-tertiary/40 rounded-lg mx-2 my-1 transition-colors group cursor-pointer"
+      >
         {/* Avatar */}
         <Avatar
           fallback={friend.username}
@@ -58,7 +61,7 @@ function FriendItem({ friend }: FriendItemProps): JSX.Element {
             <button
               onClick={(e) => {
                 e.stopPropagation()
-                navigate(`/channels/@me/${friend.userId}`)
+                navigate(`/channels/@me/dm_${friend.userId}`)
               }}
               className="h-9 w-9 rounded-full flex items-center justify-center bg-mesh-bg-secondary hover:bg-mesh-bg-tertiary text-mesh-text-secondary hover:text-mesh-text-primary transition-colors"
             >

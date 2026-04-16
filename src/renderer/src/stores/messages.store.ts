@@ -10,6 +10,7 @@ interface MessagesStore {
 
   initialize: () => Promise<void>
   loadMessages: (conversationId: string) => Promise<void>
+  ensureConversationForFriend: (friendUserId: string) => Promise<Conversation | null>
   setActiveConversation: (id: string | null) => void
   sendMessage: (conversationId: string, content: string, replyTo?: { messageId: string; senderName: string; content: string }) => void
   sendFileMessage: (conversationId: string, filePath: string) => Promise<void>
@@ -101,6 +102,51 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
           : conv
       )
     }))
+  },
+
+  /**
+   * Get the conversation for a friend, creating an empty one if it doesn't exist.
+   * Supports the flow where clicking a friend in Online/All tab opens their DM
+   * even before any messages have been exchanged.
+   */
+  ensureConversationForFriend: async (friendUserId) => {
+    const conversationId = friendUserId.startsWith('dm_') ? friendUserId : `dm_${friendUserId}`
+    const recipientId = conversationId.startsWith('dm_') ? conversationId.slice(3) : friendUserId
+
+    const existing = get().conversations.find((c) => c.id === conversationId)
+    if (existing) return existing
+
+    const friends = (await window.api.db.friends.list()) as Array<{
+      userId: string
+      username: string
+      avatarColor: string | null
+      status: string
+    }>
+    const friend = friends.find((f) => f.userId === recipientId)
+    if (!friend) return null
+
+    const row = {
+      id: conversationId,
+      recipientId: friend.userId,
+      recipientName: friend.username,
+      recipientAvatarColor: friend.avatarColor,
+      recipientStatus: friend.status,
+      unreadCount: 0
+    }
+    await window.api.db.conversations.upsert(row)
+
+    const conv: Conversation = {
+      id: row.id,
+      recipientId: row.recipientId,
+      recipientName: row.recipientName,
+      recipientAvatarColor: row.recipientAvatarColor,
+      recipientStatus: row.recipientStatus as Conversation['recipientStatus'],
+      messages: [],
+      unreadCount: 0,
+      lastMessage: null
+    }
+    set((state) => ({ conversations: [...state.conversations, conv] }))
+    return conv
   },
 
   setActiveConversation: (id) => set({ activeConversationId: id }),
