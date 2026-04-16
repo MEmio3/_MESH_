@@ -6,6 +6,7 @@ import { VoiceConnectionBar, UserPanel } from '@/components/navigation/UserPanel
 import { StreamPickerModal } from '@/components/server/StreamPickerModal'
 import { SelfPreviewPiP } from '@/components/server/SelfPreviewPiP'
 import { StreamViewerModal } from '@/components/server/StreamViewerModal'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { useVoiceStore } from '@/stores/voice.store'
 
 function AppShell(): JSX.Element {
@@ -41,7 +42,9 @@ function AppShell(): JSX.Element {
 
         {/* Main Content Area */}
         <main className="flex-1 min-w-0 bg-mesh-bg-primary">
-          <Outlet />
+          <ErrorBoundary key={location.pathname}>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
 
