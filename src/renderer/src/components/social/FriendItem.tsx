@@ -1,7 +1,6 @@
 import { useNavigate } from 'react-router-dom'
-import { MessageSquare, Phone, Video, MoreVertical } from 'lucide-react'
-import { cn } from '@/lib/utils'
-import { Avatar } from '@/components/ui/Avatar'
+import { MessageSquare, Phone, Video } from 'lucide-react'
+import { UserAvatar } from '@/components/ui/UserAvatar'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { ContextMenu, type ContextMenuEntry } from '@/components/ui/ContextMenu'
 import type { Friend } from '@/types/social'
@@ -38,11 +37,11 @@ function FriendItem({ friend }: FriendItemProps): JSX.Element {
         className="flex items-center h-16 border-t border-mesh-border px-3 hover:bg-mesh-bg-tertiary/40 rounded-lg mx-2 my-1 transition-colors group cursor-pointer"
       >
         {/* Avatar */}
-        <Avatar
+        <UserAvatar
+          userId={friend.userId}
           fallback={friend.username}
           size="md"
           status={friend.status}
-          src={null}
         />
 
         {/* Info */}

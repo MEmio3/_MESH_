@@ -1,5 +1,5 @@
-import { Phone, Video, Search, MoreVertical } from 'lucide-react'
-import { Avatar } from '@/components/ui/Avatar'
+import { Phone, Video, Search } from 'lucide-react'
+import { UserAvatar } from '@/components/ui/UserAvatar'
 import { Tooltip } from '@/components/ui/Tooltip'
 import type { Conversation } from '@/types/messages'
 
@@ -12,7 +12,8 @@ function ChatHeader({ conversation }: ChatHeaderProps): JSX.Element {
     <div className="flex items-center justify-between h-12 px-4 border-b border-mesh-border/50 shrink-0">
       {/* Left: user info */}
       <div className="flex items-center gap-2.5 min-w-0">
-        <Avatar
+        <UserAvatar
+          userId={conversation.recipientId}
           fallback={conversation.recipientName}
           size="sm"
           status={conversation.recipientStatus}

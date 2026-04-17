@@ -4,6 +4,32 @@ import { useIdentityStore } from './identity.store'
 import { webrtcManager } from '@/lib/webrtc'
 import { notify } from '@/lib/notify'
 
+/**
+ * The `reactions` column is persisted as a JSON string in SQLite. When rows
+ * come back through the IPC boundary untouched, that string leaks into the
+ * Message shape and `Object.entries(...)` on it yields character-index pairs
+ * like `["0","{"], ["1","}"]` — which rendered as fake "0"/"1" reaction chips
+ * after every restart. Normalise at the boundary so the store only ever
+ * holds a real `Record<string, string[]>`.
+ */
+export function normalizeReactions(raw: unknown): Record<string, string[]> {
+  if (!raw) return {}
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw)
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? (parsed as Record<string, string[]>)
+        : {}
+    } catch {
+      return {}
+    }
+  }
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    return raw as Record<string, string[]>
+  }
+  return {}
+}
+
 interface MessagesStore {
   conversations: Conversation[]
   activeConversationId: string | null
@@ -72,6 +98,7 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
             filePath: msg.filePath
           }
         }
+        msg.reactions = normalizeReactions(msg.reactions)
         return msg as Message
       })
       conv.lastMessage = conv.messages.length > 0 ? conv.messages[conv.messages.length - 1] : null
@@ -93,6 +120,7 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
           filePath: msg.filePath
         }
       }
+      msg.reactions = normalizeReactions(msg.reactions)
       return msg as Message
     })
     set((state) => ({

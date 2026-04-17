@@ -49,6 +49,11 @@ class WebRTCManager {
   onFileProgress: ((userId: string, fileId: string, progress: number) => void) | null = null
   onPeerConnected: ((userId: string) => void) | null = null
   onPeerDisconnected: ((userId: string) => void) | null = null
+  // Fires each time a data channel to `userId` transitions to 'open'.
+  // Consumers use this to push payloads that require a ready channel — e.g.
+  // the avatar store pushes the self image to the new peer so profile
+  // pictures appear without the user having to re-upload.
+  onDataChannelReady: ((userId: string) => void) | null = null
   onIceCandidate: ((socketId: string, candidate: RTCIceCandidateInit) => void) | null = null
   // Called whenever an existing peer connection needs to renegotiate (e.g. a
   // new media track was added mid-call). Consumer should emit the offer via
@@ -156,6 +161,9 @@ class WebRTCManager {
 
   private setupDataChannel(dc: RTCDataChannel, userId: string): void {
     dc.binaryType = 'arraybuffer'
+    dc.onopen = () => {
+      this.onDataChannelReady?.(userId)
+    }
     dc.onmessage = (event) => {
       if (typeof event.data === 'string') {
         // Try to detect file-transfer control messages

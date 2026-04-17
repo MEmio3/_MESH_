@@ -2,6 +2,8 @@ import { create } from 'zustand'
 import type { Server, ServerMember } from '@/types/server'
 import type { Message } from '@/types/messages'
 import { useIdentityStore } from './identity.store'
+import { useAvatarStore } from './avatar.store'
+import { normalizeReactions } from './messages.store'
 import { notify } from '@/lib/notify'
 
 interface ServersStore {
@@ -78,7 +80,13 @@ export const useServersStore = create<ServersStore>((set, get) => ({
         isMuted: m.isMuted === 1
       }))
       const msgRows = await window.api.db.serverMessages.list({ serverId: srv.id, limit: 50 })
-      serverMessages[srv.id] = msgRows.reverse() as Message[]
+      // Parse the reactions JSON column; without this a `"{}"` string leaks
+      // into the store and renders as ghost "0"/"1" reaction chips.
+      serverMessages[srv.id] = msgRows.reverse().map((m) => {
+        const msg = m as Message
+        msg.reactions = normalizeReactions(msg.reactions)
+        return msg
+      })
     }
     set({ servers, serverMembers, serverMessages })
   },
@@ -112,6 +120,21 @@ export const useServersStore = create<ServersStore>((set, get) => ({
       avatarColor: (identity as unknown as { avatarPath?: string | null }).avatarPath ?? null,
       passwordHash
     })
+    if (!res.success) {
+      // Send failed at the IPC layer — clear the pending state immediately
+      // so the UI doesn't sit on a spinner.
+      set({ pendingJoin: null, lastError: res.error ?? 'Failed to join server' })
+      return res
+    }
+    // Safety timeout: if join-ack / join-denied / server:error never arrives
+    // (signaling dropped mid-flight, host offline), clear the pending state
+    // after 15s so the user sees an actionable error instead of an endless spinner.
+    setTimeout(() => {
+      const state = get()
+      if (state.pendingJoin === serverId && !state.servers.find((s) => s.id === serverId)) {
+        set({ pendingJoin: null, lastError: 'Join timed out. The server may be offline or unreachable.' })
+      }
+    }, 15000)
     return res
   },
 
@@ -295,6 +318,12 @@ export const useServersStore = create<ServersStore>((set, get) => ({
         await window.api.server.joinAckPersist(payload)
         await get().reloadFromDb()
         set({ pendingJoin: null })
+        // Broadcast our avatar to every existing server member so they see
+        // our real picture immediately. Uses P2P when available, otherwise
+        // signaling-relayed DM — every member has a known userId either way.
+        const memberIds = ((payload as { members?: Array<{ userId: string }> }).members ?? [])
+          .map((m) => m.userId)
+        useAvatarStore.getState().broadcastToUsers(memberIds).catch(() => {})
       } catch (err) {
         console.error('[servers.store] join-ack-persist failed:', err)
         set({ pendingJoin: null, lastError: 'Failed to join server: ' + (err instanceof Error ? err.message : String(err)) })
@@ -309,6 +338,12 @@ export const useServersStore = create<ServersStore>((set, get) => ({
     unsubs.push(window.api.signaling.onServerEvent('member-joined', async (payload) => {
       await window.api.server.memberJoinedPersist(payload)
       await get().reloadFromDb()
+      // Send our avatar to the newcomer so we're not just coloured initials
+      // in their member list.
+      const newMemberId = (payload as { member?: { userId: string } }).member?.userId
+      if (newMemberId) {
+        useAvatarStore.getState().sendToPeer(newMemberId).catch(() => {})
+      }
     }))
 
     unsubs.push(window.api.signaling.onServerEvent('member-left', (payload) => {
@@ -418,7 +453,10 @@ export const useServersStore = create<ServersStore>((set, get) => ({
 
     unsubs.push(window.api.signaling.onServerEvent('error', (payload) => {
       const p = payload as { reason: string }
-      set({ lastError: p.reason })
+      // Clear any in-flight join so the ServerPage exits the spinner state and
+      // renders the error UI. Without this, a failed join leaves pendingJoin set
+      // and the user stares at a spinner forever.
+      set({ pendingJoin: null, lastError: p.reason })
     }))
 
     unsubs.push(window.api.signaling.onServerEvent('message-edit', async (payload) => {

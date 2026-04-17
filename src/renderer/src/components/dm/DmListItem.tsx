@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils'
-import { Avatar } from '@/components/ui/Avatar'
+import { UserAvatar } from '@/components/ui/UserAvatar'
 import { X } from 'lucide-react'
 import type { Conversation } from '@/types/messages'
 
@@ -35,7 +35,8 @@ function DmListItem({ conversation, isActive, onClick }: DmListItemProps): JSX.E
           : 'text-mesh-text-secondary hover:bg-mesh-bg-tertiary/60 hover:text-mesh-text-primary'
       )}
     >
-      <Avatar
+      <UserAvatar
+        userId={conversation.recipientId}
         fallback={conversation.recipientName}
         size="sm"
         status={conversation.recipientStatus}

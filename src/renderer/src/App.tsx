@@ -15,6 +15,7 @@ import { useAvatarStore } from '@/stores/avatar.store'
 import { handleIncomingPeerMessage, useMessagesStore } from '@/stores/messages.store'
 import { useSettingsStore } from '@/stores/settings.store'
 import { initializeAllStores } from '@/stores/init'
+import { webrtcManager } from '@/lib/webrtc'
 
 function LoadingScreen(): JSX.Element {
   return (
@@ -54,6 +55,19 @@ function App(): JSX.Element {
       if (await window.api.block.isBlocked({ userId: fromUserId })) return
       handleIncomingPeerMessage(fromUserId, message)
     })
+  }, [])
+
+  // Push our avatar to any peer the moment its data channel opens so profile
+  // pictures light up without the user having to reupload. The receiver saves
+  // the PNG to disk via `avatar:save-for-user`, so it also persists across
+  // restarts on both ends.
+  useEffect(() => {
+    const prev = webrtcManager.onDataChannelReady
+    webrtcManager.onDataChannelReady = (userId) => {
+      try { prev?.(userId) } catch { /* ignore */ }
+      useAvatarStore.getState().sendToPeer(userId).catch(() => {})
+    }
+    return () => { webrtcManager.onDataChannelReady = prev }
   }, [])
 
   // Feature 2 and 3: signaling fallback for DM edit/delete/reaction when no P2P channel exists.

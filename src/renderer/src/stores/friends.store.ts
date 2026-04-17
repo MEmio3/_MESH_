@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { Friend, FriendRequest, MessageRequest, MessageRequestThreadMessage, BlockedUser } from '@/types/social'
 import { useIdentityStore } from './identity.store'
 import { useMessagesStore } from './messages.store'
+import { useAvatarStore } from './avatar.store'
 import { notify } from '@/lib/notify'
 
 interface FriendsStore {
@@ -102,6 +103,10 @@ export const useFriendsStore = create<FriendsStore>((set, get) => ({
         set({ friends, friendRequests: requests })
         // Refresh DM sidebar so the new friend's conversation appears live.
         await useMessagesStore.getState().initialize()
+        // Push our avatar to the new friend so their FriendItem / DM shows a
+        // real picture instead of coloured initials. Falls back to signaling
+        // when the P2P data channel isn't open yet.
+        useAvatarStore.getState().sendToPeer(p.fromUserId).catch(() => {})
         notify({
           type: 'friend-request',
           title: 'Friend request accepted',
@@ -189,6 +194,11 @@ export const useFriendsStore = create<FriendsStore>((set, get) => ({
       set({ friends, friendRequests: requests })
       // Refresh DM sidebar so the new friend's conversation appears live.
       await useMessagesStore.getState().initialize()
+      // Push our avatar to the person we just accepted so they see our real
+      // picture on their side (and not just coloured initials).
+      if (res.friend?.userId) {
+        useAvatarStore.getState().sendToPeer(res.friend.userId).catch(() => {})
+      }
     }
   },
 

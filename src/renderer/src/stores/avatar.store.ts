@@ -10,6 +10,7 @@ interface AvatarStore {
   uploadSelf: () => Promise<{ success: boolean; error?: string }>
   ensureFor: (userId: string) => Promise<string | null>
   sendToPeer: (userId: string) => Promise<void>
+  broadcastToUsers: (userIds: string[]) => Promise<void>
   handleIncoming: (userId: string, base64: string) => Promise<void>
 }
 
@@ -47,12 +48,30 @@ export const useAvatarStore = create<AvatarStore>((set, get) => ({
     if (!identity) return
     const base64 = await window.api.avatar.getSelfBase64()
     if (!base64) return
-    try {
-      webrtcManager.sendDataMessage?.(
-        userId,
-        JSON.stringify({ type: 'avatar-sync', fromUserId: identity.userId, base64 })
-      )
-    } catch { /* data channel may not be open */ }
+    const payload = JSON.stringify({ type: 'avatar-sync', fromUserId: identity.userId, base64 })
+    // Prefer the P2P data channel. Fall back to signaling-relayed DM so the
+    // avatar still propagates when the channel isn't open yet (e.g. right
+    // after a friend is added, or for server members we never had a DM with).
+    const delivered = webrtcManager.sendDataMessage?.(userId, payload) ?? false
+    if (!delivered) {
+      try { window.api.signaling.emit('dm-message', userId, payload) } catch { /* ignore */ }
+    }
+  },
+
+  broadcastToUsers: async (userIds) => {
+    if (!userIds.length) return
+    const identity = useIdentityStore.getState().identity
+    if (!identity) return
+    const base64 = await window.api.avatar.getSelfBase64()
+    if (!base64) return
+    const payload = JSON.stringify({ type: 'avatar-sync', fromUserId: identity.userId, base64 })
+    for (const uid of userIds) {
+      if (uid === identity.userId) continue
+      const delivered = webrtcManager.sendDataMessage?.(uid, payload) ?? false
+      if (!delivered) {
+        try { window.api.signaling.emit('dm-message', uid, payload) } catch { /* ignore */ }
+      }
+    }
   },
 
   handleIncoming: async (userId, base64) => {

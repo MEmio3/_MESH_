@@ -658,6 +658,9 @@ export function registerServerHandlers(): void {
     if (srv && srv.passwordHash && srv.passwordHash !== payload.passwordHash) {
       return { success: false, error: 'Incorrect password.' }
     }
+    if (!socketClient.isConnected()) {
+      return { success: false, error: 'Not connected to signaling server. Check your network settings.' }
+    }
     socketClient.emitSignaling('server:join', payload)
     return { success: true }
   })

@@ -1,9 +1,10 @@
-import { useParams, Navigate } from 'react-router-dom'
-import { Hash } from 'lucide-react'
+import { useNavigate, useParams } from 'react-router-dom'
+import { Hash, AlertTriangle } from 'lucide-react'
 import { useServersStore } from '@/stores/servers.store'
 import { ServerTextChannel } from './ServerTextChannel'
 
 function ServerPage(): JSX.Element {
+  const navigate = useNavigate()
   const { serverId } = useParams<{ serverId: string }>()
   const servers = useServersStore((s) => s.servers)
   const pendingJoin = useServersStore((s) => s.pendingJoin)
@@ -13,39 +14,38 @@ function ServerPage(): JSX.Element {
   // Show loading state while joining
   if (pendingJoin === serverId) {
     return (
-      <div className="flex flex-col h-full items-center justify-center">
+      <div className="flex flex-col h-full items-center justify-center bg-mesh-bg-primary">
         <div className="h-16 w-16 rounded-2xl bg-mesh-bg-tertiary flex items-center justify-center mb-4">
           <div className="h-8 w-8 rounded-full border-2 border-mesh-green border-t-transparent animate-spin" />
         </div>
-        <p className="text-sm text-mesh-text-muted">Joining server...</p>
+        <p className="text-sm text-mesh-text-muted">Joining server…</p>
       </div>
     )
   }
 
-  // Show error state
-  if (lastError && !server) {
-    return (
-      <div className="flex flex-col h-full items-center justify-center">
-        <div className="h-16 w-16 rounded-2xl bg-mesh-bg-tertiary flex items-center justify-center mb-4">
-          <Hash className="h-8 w-8 text-mesh-danger" />
-        </div>
-        <p className="text-sm text-mesh-danger">{lastError}</p>
-      </div>
-    )
-  }
-
+  // Show error state — either the join failed or the server we navigated to
+  // isn't in our store. Give the user an explicit way back so they aren't
+  // stuck on what would otherwise look like a blank page.
   if (!server) {
-    // If we have a serverId param but no server data, redirect to home
-    if (serverId && serverId !== '@me') {
-      console.warn('[ServerPage] Server not found:', serverId, '- redirecting to home')
-      return <Navigate to="/channels/@me" replace />
-    }
+    const message = lastError
+      || (serverId && serverId !== '@me' ? 'This server is not available. It may be offline or you may have left it.' : 'Select a server to view')
+    const isError = !!lastError || (serverId && serverId !== '@me')
     return (
-      <div className="flex flex-col h-full items-center justify-center">
-        <div className="h-16 w-16 rounded-2xl bg-mesh-bg-tertiary flex items-center justify-center mb-4">
-          <Hash className="h-8 w-8 text-mesh-text-muted" />
+      <div className="flex flex-col h-full items-center justify-center gap-3 px-6 text-center bg-mesh-bg-primary">
+        <div className={`h-14 w-14 rounded-2xl flex items-center justify-center ${isError ? 'bg-mesh-danger/15' : 'bg-mesh-bg-tertiary'}`}>
+          {isError
+            ? <AlertTriangle className="h-7 w-7 text-mesh-danger" />
+            : <Hash className="h-7 w-7 text-mesh-text-muted" />}
         </div>
-        <p className="text-sm text-mesh-text-muted">Select a server to view</p>
+        <p className={`text-sm max-w-md ${isError ? 'text-mesh-text-primary' : 'text-mesh-text-muted'}`}>{message}</p>
+        {isError && (
+          <button
+            onClick={() => navigate('/channels/@me')}
+            className="mt-2 inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-mesh-green text-white text-xs font-semibold hover:bg-mesh-green/90 transition-colors"
+          >
+            Back to Home
+          </button>
+        )}
       </div>
     )
   }
