@@ -127,6 +127,7 @@ function InlineEditor({ initial, onSave, onCancel }: InlineEditorProps): JSX.Ele
 function MessageBubble({ message, isGrouped, isOwnMessage, canDelete, onEdit, onDelete, onToggleReaction, onReply }: MessageBubbleProps): JSX.Element {
   const [isEditing, setIsEditing] = useState(false)
   const [showPicker, setShowPicker] = useState(false)
+  const pickerBtnRef = useRef<HTMLButtonElement>(null)
   const selfId = useIdentityStore((s) => s.identity?.userId)
   const selfAvatar = useAvatarStore((s) => s.self)
   const peerAvatar = useAvatarStore((s) => s.byUser[message.senderId])
@@ -218,6 +219,7 @@ function MessageBubble({ message, isGrouped, isOwnMessage, canDelete, onEdit, on
             {!!onToggleReaction && (
               <div className="relative flex items-center justify-center">
                 <button
+                  ref={pickerBtnRef}
                   onClick={() => setShowPicker(!showPicker)}
                   className="w-7 h-7 rounded flex items-center justify-center text-mesh-text-secondary hover:bg-mesh-bg-tertiary hover:text-mesh-text-primary transition-colors cursor-pointer"
                   title="Add Reaction"
@@ -226,6 +228,7 @@ function MessageBubble({ message, isGrouped, isOwnMessage, canDelete, onEdit, on
                 </button>
                 {showPicker && (
                   <ReactionPicker
+                    anchorRef={pickerBtnRef}
                     onSelect={(emojiId) => onToggleReaction(message.id, emojiId)}
                     onClose={() => setShowPicker(false)}
                   />

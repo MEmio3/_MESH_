@@ -14,9 +14,13 @@ function formatTime(ts: number): string {
 }
 
 function MessageRequestPanel(): JSX.Element {
-  const messageRequests = useFriendsStore((s) => s.messageRequests)
+  const allRequests = useFriendsStore((s) => s.messageRequests)
   const { ignoreMessageRequest, blockFromMessageRequest } = useFriendsStore()
   const navigate = useNavigate()
+
+  // A replied request is, by definition, an active conversation — it already
+  // appears in the DM sidebar, so surfacing it here as well is redundant.
+  const messageRequests = allRequests.filter((r) => r.status !== 'replied')
 
   if (messageRequests.length === 0) {
     return (

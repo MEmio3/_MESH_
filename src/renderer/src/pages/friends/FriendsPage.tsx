@@ -36,7 +36,12 @@ const tabs: TabDef[] = [
 function FriendsPage(): JSX.Element {
   const [activeTab, setActiveTab] = useState<Tab>('online')
   const pendingCount = useFriendsStore((s) => s.friendRequests.filter((r) => r.direction === 'incoming').length)
-  const messageCount = useFriendsStore((s) => s.messageRequests.length)
+  // Only surface requests that still need attention — once a request has been
+  // replied to, the thread already lives in the DM sidebar and doesn't belong
+  // in "Requests" anymore.
+  const messageCount = useFriendsStore(
+    (s) => s.messageRequests.filter((r) => r.status !== 'replied').length
+  )
   const userId = useIdentityStore((s) => s.identity?.userId)
   const [copied, setCopied] = useState(false)
   const [connected, setConnected] = useState(true)

@@ -127,6 +127,44 @@ function DmConversationPage(): JSX.Element {
   const [requestError, setRequestError] = useState('')
   const threadScrollRef = useRef<HTMLDivElement>(null)
 
+  // ── Historical message-request messages surfaced inside an established DM ──
+  // When two users exchanged cold messages before becoming friends, those
+  // messages live in the `message_request_messages` table and never migrate
+  // into the DM conversation row. Load them once per conversation and merge
+  // them chronologically into the feed so the thread looks continuous.
+  const [historyMessages, setHistoryMessages] = useState<Message[]>([])
+  useEffect(() => {
+    if (!conversation || !otherUserId) {
+      setHistoryMessages([])
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const thread = await loadMessageRequestThread(otherUserId)
+        if (cancelled || !thread || thread.length === 0) return
+        const mapped: Message[] = thread.map((m) => ({
+          id: `mrhist_${m.id}`,
+          conversationId: conversation.id,
+          senderId: m.senderId,
+          senderName: m.senderName,
+          content: m.content,
+          timestamp: m.timestamp,
+          status: 'read',
+          file: null,
+          reactions: {},
+          replyTo: null
+        }))
+        setHistoryMessages(mapped)
+      } catch { /* ignore */ }
+    })()
+    return () => { cancelled = true }
+  }, [conversation?.id, otherUserId, loadMessageRequestThread])
+
+  const mergedMessages: Message[] = conversation
+    ? [...historyMessages, ...conversation.messages].sort((a, b) => a.timestamp - b.timestamp)
+    : []
+
   useEffect(() => {
     if (conversation || !request || !otherUserId) return
     let cancelled = false
@@ -262,11 +300,22 @@ function DmConversationPage(): JSX.Element {
     <div className="flex flex-col h-full">
       <ChatHeader conversation={conversation} />
       <MessageFeed
-        messages={conversation.messages}
+        messages={mergedMessages}
         recipientName={conversation.recipientName}
-        onEditMessage={(messageId, newContent) => editMessage(conversation.id, messageId, newContent)}
-        onDeleteMessage={(messageId) => deleteMessage(conversation.id, messageId)}
-        onToggleReaction={(messageId, emojiId) => toggleReaction(conversation.id, messageId, emojiId)}
+        onEditMessage={(messageId, newContent) => {
+          // History messages (from the legacy message-request thread) are
+          // read-only — editing is only valid against the DM table entries.
+          if (messageId.startsWith('mrhist_')) return
+          editMessage(conversation.id, messageId, newContent)
+        }}
+        onDeleteMessage={(messageId) => {
+          if (messageId.startsWith('mrhist_')) return
+          deleteMessage(conversation.id, messageId)
+        }}
+        onToggleReaction={(messageId, emojiId) => {
+          if (messageId.startsWith('mrhist_')) return
+          toggleReaction(conversation.id, messageId, emojiId)
+        }}
         onReply={setReplyTarget}
       />
 
