@@ -1,7 +1,39 @@
 import { useEffect, useRef, useState } from 'react'
-import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff, PhoneIncoming, PhoneOutgoing } from 'lucide-react'
+import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff, PhoneIncoming, PhoneOutgoing, Settings, Volume2 } from 'lucide-react'
 import { useCallStore } from '@/stores/call.store'
 import { UserAvatar } from '@/components/ui/UserAvatar'
+
+interface DeviceLists {
+  mics: MediaDeviceInfo[]
+  cams: MediaDeviceInfo[]
+  speakers: MediaDeviceInfo[]
+}
+
+function useMediaDevices(enabled: boolean): DeviceLists {
+  const [devices, setDevices] = useState<DeviceLists>({ mics: [], cams: [], speakers: [] })
+  useEffect(() => {
+    if (!enabled) return
+    let cancelled = false
+    const refresh = async (): Promise<void> => {
+      try {
+        const list = await navigator.mediaDevices.enumerateDevices()
+        if (cancelled) return
+        setDevices({
+          mics: list.filter((d) => d.kind === 'audioinput'),
+          cams: list.filter((d) => d.kind === 'videoinput'),
+          speakers: list.filter((d) => d.kind === 'audiooutput')
+        })
+      } catch { /* ignore */ }
+    }
+    refresh()
+    navigator.mediaDevices.addEventListener?.('devicechange', refresh)
+    return () => {
+      cancelled = true
+      navigator.mediaDevices.removeEventListener?.('devicechange', refresh)
+    }
+  }, [enabled])
+  return devices
+}
 
 function formatDuration(ms: number): string {
   const total = Math.floor(ms / 1000)
@@ -38,6 +70,15 @@ function CallOverlay(): JSX.Element | null {
   const end = useCallStore((s) => s.end)
   const toggleMute = useCallStore((s) => s.toggleMute)
   const toggleCamera = useCallStore((s) => s.toggleCamera)
+  const micDeviceId = useCallStore((s) => s.micDeviceId)
+  const cameraDeviceId = useCallStore((s) => s.cameraDeviceId)
+  const speakerDeviceId = useCallStore((s) => s.speakerDeviceId)
+  const setMicDevice = useCallStore((s) => s.setMicDevice)
+  const setCameraDevice = useCallStore((s) => s.setCameraDevice)
+  const setSpeakerDevice = useCallStore((s) => s.setSpeakerDevice)
+
+  const [showSettings, setShowSettings] = useState(false)
+  const devices = useMediaDevices(showSettings)
 
   const audioRef = useRef<HTMLAudioElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -64,6 +105,15 @@ function CallOverlay(): JSX.Element | null {
       localVideoRef.current.play().catch(() => {})
     }
   }, [localStream])
+
+  // Apply selected speaker (output sink). Only supported on Chromium.
+  useEffect(() => {
+    const el = audioRef.current as (HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }) | null
+    if (!el || !el.setSinkId) return
+    el.setSinkId(speakerDeviceId || 'default').catch((err) => {
+      console.warn('setSinkId failed:', err)
+    })
+  }, [speakerDeviceId, remoteStream])
 
   if (status === 'idle' || !peerId) return null
 
@@ -173,7 +223,77 @@ function CallOverlay(): JSX.Element | null {
       </div>
 
       {/* Controls */}
-      <div className="h-20 border-t border-mesh-border/50 flex items-center justify-center gap-3 shrink-0">
+      <div className="relative h-20 border-t border-mesh-border/50 flex items-center justify-center gap-3 shrink-0">
+        {showSettings && (
+          <div className="absolute bottom-20 left-1/2 -translate-x-1/2 w-[380px] rounded-xl bg-mesh-bg-secondary border border-mesh-border shadow-2xl p-4 flex flex-col gap-3 z-10">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wide text-mesh-text-muted">Audio & Video devices</span>
+              <button
+                onClick={() => setShowSettings(false)}
+                className="text-xs text-mesh-text-muted hover:text-mesh-text-primary"
+              >
+                Close
+              </button>
+            </div>
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] text-mesh-text-secondary flex items-center gap-1.5"><Mic className="h-3 w-3" /> Microphone</span>
+              <select
+                value={micDeviceId || ''}
+                onChange={(e) => setMicDevice(e.target.value || null)}
+                className="bg-mesh-bg-tertiary text-mesh-text-primary text-sm rounded px-2 py-1.5 border border-mesh-border outline-none focus:border-mesh-green"
+              >
+                <option value="">System default</option>
+                {devices.mics.map((d) => (
+                  <option key={d.deviceId} value={d.deviceId}>{d.label || `Mic ${d.deviceId.slice(0, 6)}`}</option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] text-mesh-text-secondary flex items-center gap-1.5"><Volume2 className="h-3 w-3" /> Speaker</span>
+              <select
+                value={speakerDeviceId || ''}
+                onChange={(e) => setSpeakerDevice(e.target.value || null)}
+                className="bg-mesh-bg-tertiary text-mesh-text-primary text-sm rounded px-2 py-1.5 border border-mesh-border outline-none focus:border-mesh-green"
+              >
+                <option value="">System default</option>
+                {devices.speakers.map((d) => (
+                  <option key={d.deviceId} value={d.deviceId}>{d.label || `Speaker ${d.deviceId.slice(0, 6)}`}</option>
+                ))}
+              </select>
+              {devices.speakers.length === 0 && (
+                <span className="text-[10px] text-mesh-text-muted">Speaker selection may be unavailable in this environment.</span>
+              )}
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] text-mesh-text-secondary flex items-center gap-1.5"><Video className="h-3 w-3" /> Camera</span>
+              <select
+                value={cameraDeviceId || ''}
+                onChange={(e) => setCameraDevice(e.target.value || null)}
+                className="bg-mesh-bg-tertiary text-mesh-text-primary text-sm rounded px-2 py-1.5 border border-mesh-border outline-none focus:border-mesh-green"
+              >
+                <option value="">System default</option>
+                {devices.cams.map((d) => (
+                  <option key={d.deviceId} value={d.deviceId}>{d.label || `Camera ${d.deviceId.slice(0, 6)}`}</option>
+                ))}
+              </select>
+            </label>
+            <p className="text-[10px] text-mesh-text-muted leading-snug">
+              If the other side can&apos;t hear you, try a different microphone here. Device labels are only shown once
+              you&apos;ve granted mic/camera permission.
+            </p>
+          </div>
+        )}
+        <button
+          onClick={() => setShowSettings((v) => !v)}
+          className={`h-12 w-12 rounded-full flex items-center justify-center transition-colors ${
+            showSettings
+              ? 'bg-mesh-green text-white'
+              : 'bg-mesh-bg-tertiary text-mesh-text-primary hover:bg-mesh-bg-hover'
+          }`}
+          title="Audio & video devices"
+        >
+          <Settings className="h-5 w-5" />
+        </button>
         <button
           onClick={toggleMute}
           className={`h-12 w-12 rounded-full flex items-center justify-center transition-colors ${

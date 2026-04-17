@@ -275,8 +275,11 @@ class WebRTCManager {
 
   // ── Media Controls ──
 
-  async startAudio(): Promise<MediaStream> {
-    this.localAudioStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+  async startAudio(deviceId?: string): Promise<MediaStream> {
+    const constraints: MediaStreamConstraints = deviceId
+      ? { audio: { deviceId: { exact: deviceId } } }
+      : { audio: true }
+    this.localAudioStream = await navigator.mediaDevices.getUserMedia(constraints)
     // Add tracks to all existing peers
     for (const peer of this.peers.values()) {
       for (const track of this.localAudioStream.getTracks()) {
@@ -303,8 +306,61 @@ class WebRTCManager {
     }
   }
 
-  async startVideo(): Promise<MediaStream> {
-    this.localVideoStream = await navigator.mediaDevices.getUserMedia({ video: true })
+  /**
+   * Swap the microphone mid-call. Grabs a new MediaStream from the given
+   * deviceId, replaces the existing outbound audio track on every peer
+   * RTCRtpSender via `RTCRtpSender.replaceTrack` (no renegotiation), then
+   * releases the old tracks.
+   */
+  async replaceAudioDevice(deviceId?: string): Promise<MediaStream> {
+    const constraints: MediaStreamConstraints = deviceId
+      ? { audio: { deviceId: { exact: deviceId } } }
+      : { audio: true }
+    const next = await navigator.mediaDevices.getUserMedia(constraints)
+    const newTrack = next.getAudioTracks()[0] ?? null
+    for (const peer of this.peers.values()) {
+      const sender = peer.pc.getSenders().find((s) => s.track?.kind === 'audio')
+      if (sender && newTrack) {
+        try { await sender.replaceTrack(newTrack) } catch { /* ignore */ }
+      } else if (newTrack) {
+        peer.pc.addTrack(newTrack, next)
+      }
+    }
+    // Stop the previous local stream's tracks so the old mic releases.
+    if (this.localAudioStream) {
+      for (const t of this.localAudioStream.getTracks()) t.stop()
+    }
+    this.localAudioStream = next
+    return next
+  }
+
+  /** Same as replaceAudioDevice but for the camera. */
+  async replaceVideoDevice(deviceId?: string): Promise<MediaStream> {
+    const constraints: MediaStreamConstraints = deviceId
+      ? { video: { deviceId: { exact: deviceId } } }
+      : { video: true }
+    const next = await navigator.mediaDevices.getUserMedia(constraints)
+    const newTrack = next.getVideoTracks()[0] ?? null
+    for (const peer of this.peers.values()) {
+      const sender = peer.pc.getSenders().find((s) => s.track?.kind === 'video')
+      if (sender && newTrack) {
+        try { await sender.replaceTrack(newTrack) } catch { /* ignore */ }
+      } else if (newTrack) {
+        peer.pc.addTrack(newTrack, next)
+      }
+    }
+    if (this.localVideoStream) {
+      for (const t of this.localVideoStream.getTracks()) t.stop()
+    }
+    this.localVideoStream = next
+    return next
+  }
+
+  async startVideo(deviceId?: string): Promise<MediaStream> {
+    const constraints: MediaStreamConstraints = deviceId
+      ? { video: { deviceId: { exact: deviceId } } }
+      : { video: true }
+    this.localVideoStream = await navigator.mediaDevices.getUserMedia(constraints)
     for (const peer of this.peers.values()) {
       for (const track of this.localVideoStream.getTracks()) {
         peer.pc.addTrack(track, this.localVideoStream)

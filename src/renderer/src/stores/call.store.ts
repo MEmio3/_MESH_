@@ -31,6 +31,11 @@ interface CallState {
   remoteStream: MediaStream | null
   localStream: MediaStream | null
 
+  // Selected input/output device ids (persisted to localStorage).
+  micDeviceId: string | null
+  cameraDeviceId: string | null
+  speakerDeviceId: string | null
+
   startOutgoing: (peerId: string, peerName: string, kind: 'voice' | 'video') => void
   receiveIncoming: (peerId: string, peerName: string, kind: 'voice' | 'video') => void
   accept: () => Promise<void>
@@ -40,11 +45,22 @@ interface CallState {
   end: (notifyPeer?: boolean) => void
   toggleMute: () => void
   toggleCamera: () => Promise<void>
+  setMicDevice: (deviceId: string | null) => Promise<void>
+  setCameraDevice: (deviceId: string | null) => Promise<void>
+  setSpeakerDevice: (deviceId: string | null) => void
   _setRemoteStream: (stream: MediaStream | null) => void
 }
 
-function dmRoomFor(peerId: string): string {
-  return `dm:dm_${peerId}`
+/**
+ * Canonical 1-to-1 call room. Both peers must land in the SAME signaling room
+ * so the server's onUserJoined handler can pair them up for WebRTC offer/
+ * answer exchange. DM rooms are per-user (each peer's DM room is named after
+ * the OTHER user) so they cannot be reused here — they'd put the two peers
+ * into different rooms and no peer connection would ever form.
+ */
+function callRoomFor(selfId: string, peerId: string): string {
+  const [a, b] = [selfId, peerId].sort()
+  return `call:${a}:${b}`
 }
 
 function navigateToDm(peerId: string): void {
@@ -55,12 +71,35 @@ function navigateToDm(peerId: string): void {
   }
 }
 
-async function startMedia(kind: 'voice' | 'video'): Promise<MediaStream> {
-  const audio = await webrtcManager.startAudio()
+const LS_MIC = 'mesh.call.mic'
+const LS_CAM = 'mesh.call.cam'
+const LS_SPK = 'mesh.call.spk'
+
+function readPersistedDevices(): { mic: string | null; cam: string | null; spk: string | null } {
+  try {
+    return {
+      mic: localStorage.getItem(LS_MIC) || null,
+      cam: localStorage.getItem(LS_CAM) || null,
+      spk: localStorage.getItem(LS_SPK) || null
+    }
+  } catch { return { mic: null, cam: null, spk: null } }
+}
+function persistDevice(key: string, id: string | null): void {
+  try {
+    if (id) localStorage.setItem(key, id); else localStorage.removeItem(key)
+  } catch { /* ignore */ }
+}
+
+async function startMedia(
+  kind: 'voice' | 'video',
+  micDeviceId?: string | null,
+  cameraDeviceId?: string | null
+): Promise<MediaStream> {
+  const audio = await webrtcManager.startAudio(micDeviceId || undefined)
   let video: MediaStream | null = null
   if (kind === 'video') {
     try {
-      video = await webrtcManager.startVideo()
+      video = await webrtcManager.startVideo(cameraDeviceId || undefined)
     } catch (err) {
       console.warn('Camera unavailable, continuing as voice-only:', err)
     }
@@ -68,6 +107,8 @@ async function startMedia(kind: 'voice' | 'video'): Promise<MediaStream> {
   const tracks = [...audio.getTracks(), ...(video ? video.getTracks() : [])]
   return new MediaStream(tracks)
 }
+
+const persisted = readPersistedDevices()
 
 export const useCallStore = create<CallState>((set, get) => ({
   status: 'idle',
@@ -79,6 +120,9 @@ export const useCallStore = create<CallState>((set, get) => ({
   startedAt: null,
   remoteStream: null,
   localStream: null,
+  micDeviceId: persisted.mic,
+  cameraDeviceId: persisted.cam,
+  speakerDeviceId: persisted.spk,
 
   startOutgoing: (peerId, peerName, kind) => {
     if (get().status !== 'idle') return
@@ -118,13 +162,16 @@ export const useCallStore = create<CallState>((set, get) => ({
   accept: async () => {
     const { peerId, kind, status } = get()
     if (!peerId || status !== 'incoming') return
+    const selfId = useIdentityStore.getState().identity?.userId
+    if (!selfId) return
     window.api.signaling.emit('call-accept', peerId)
-    // Both peers must sit in the same signaling room so webrtc peer + offer
-    // flow through the existing join-room / onUserJoined plumbing.
+    // Both peers must sit in the SAME signaling room so the server's
+    // onUserJoined handler pairs them for offer/answer exchange.
     navigateToDm(peerId)
-    window.api.signaling.emit('join-room', dmRoomFor(peerId))
+    window.api.signaling.emit('join-room', callRoomFor(selfId, peerId))
     try {
-      const local = await startMedia(kind)
+      const { micDeviceId, cameraDeviceId } = get()
+      const local = await startMedia(kind, micDeviceId, cameraDeviceId)
       set({ status: 'active', startedAt: Date.now(), localStream: local })
     } catch (err) {
       console.error('Failed to start call media:', err)
@@ -150,10 +197,13 @@ export const useCallStore = create<CallState>((set, get) => ({
   remoteAccepted: async () => {
     const { peerId, kind, status } = get()
     if (!peerId || status !== 'outgoing') return
+    const selfId = useIdentityStore.getState().identity?.userId
+    if (!selfId) return
     navigateToDm(peerId)
-    window.api.signaling.emit('join-room', dmRoomFor(peerId))
+    window.api.signaling.emit('join-room', callRoomFor(selfId, peerId))
     try {
-      const local = await startMedia(kind)
+      const { micDeviceId, cameraDeviceId } = get()
+      const local = await startMedia(kind, micDeviceId, cameraDeviceId)
       set({ status: 'active', startedAt: Date.now(), localStream: local })
     } catch (err) {
       console.error('Failed to start call media:', err)
@@ -207,18 +257,52 @@ export const useCallStore = create<CallState>((set, get) => ({
   },
 
   toggleCamera: async () => {
-    const { isCameraOn } = get()
+    const { isCameraOn, cameraDeviceId } = get()
     if (isCameraOn) {
       webrtcManager.stopVideo()
       set({ isCameraOn: false })
     } else {
       try {
-        await webrtcManager.startVideo()
+        await webrtcManager.startVideo(cameraDeviceId || undefined)
         set({ isCameraOn: true, kind: 'video' })
       } catch (err) {
         console.warn('Failed to start camera:', err)
       }
     }
+  },
+
+  setMicDevice: async (deviceId) => {
+    persistDevice(LS_MIC, deviceId)
+    set({ micDeviceId: deviceId })
+    const { status, isMuted, localStream } = get()
+    if (status !== 'active') return
+    try {
+      const nextAudio = await webrtcManager.replaceAudioDevice(deviceId || undefined)
+      if (isMuted) webrtcManager.setAudioEnabled(false)
+      const videoTracks = localStream?.getVideoTracks() ?? []
+      set({ localStream: new MediaStream([...nextAudio.getTracks(), ...videoTracks]) })
+    } catch (err) {
+      console.error('Failed to switch microphone:', err)
+    }
+  },
+
+  setCameraDevice: async (deviceId) => {
+    persistDevice(LS_CAM, deviceId)
+    set({ cameraDeviceId: deviceId })
+    const { status, isCameraOn, localStream } = get()
+    if (status !== 'active' || !isCameraOn) return
+    try {
+      const nextVideo = await webrtcManager.replaceVideoDevice(deviceId || undefined)
+      const audioTracks = localStream?.getAudioTracks() ?? []
+      set({ localStream: new MediaStream([...audioTracks, ...nextVideo.getTracks()]) })
+    } catch (err) {
+      console.error('Failed to switch camera:', err)
+    }
+  },
+
+  setSpeakerDevice: (deviceId) => {
+    persistDevice(LS_SPK, deviceId)
+    set({ speakerDeviceId: deviceId })
   },
 
   _setRemoteStream: (stream) => set({ remoteStream: stream })
@@ -245,5 +329,3 @@ webrtcManager.onPeerDisconnected = (userId) => {
   }
 }
 
-// Silence unused-var on identity import when tree-shaking is aggressive.
-void useIdentityStore

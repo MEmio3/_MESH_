@@ -6,6 +6,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Avatar } from '@/components/ui/Avatar'
 import { useServersStore } from '@/stores/servers.store'
+import type { ServerMember } from '@/types/server'
 import { useVoiceStore } from '@/stores/voice.store'
 import { useIdentityStore } from '@/stores/identity.store'
 import { useAvatarStore } from '@/stores/avatar.store'
@@ -14,12 +15,23 @@ interface ServerSidePanelProps {
   serverId: string
 }
 
+// Stable empty reference so selectors that fall back to [] don't produce a
+// fresh array on every render — Zustand would treat it as a new snapshot and
+// trigger an endless re-render loop / "getSnapshot should be cached" warning.
+const EMPTY_MEMBERS: ServerMember[] = []
+
 function ServerSidePanel({ serverId }: ServerSidePanelProps): JSX.Element {
   const navigate = useNavigate()
   const servers = useServersStore((s) => s.servers)
   const leaveServer = useServersStore((s) => s.leaveServer)
-  const members = useServersStore((s) => s.serverMembers[serverId] || [])
-  const { isConnected, currentServerId, participants, joinRoom, streamingUsers } = useVoiceStore()
+  const members = useServersStore((s) => s.serverMembers[serverId]) || EMPTY_MEMBERS
+  // Select each slice individually so we don't subscribe to the whole voice
+  // store (which would re-render this component every tick a peer updates).
+  const isConnected = useVoiceStore((s) => s.isConnected)
+  const currentServerId = useVoiceStore((s) => s.currentServerId)
+  const participants = useVoiceStore((s) => s.participants)
+  const joinRoom = useVoiceStore((s) => s.joinRoom)
+  const streamingUsers = useVoiceStore((s) => s.streamingUsers)
   const selfId = useIdentityStore((s) => s.identity?.userId)
   const selfAvatar = useAvatarStore((s) => s.self)
   const avatarsByUser = useAvatarStore((s) => s.byUser)

@@ -55,12 +55,15 @@ function DmListItem({ conversation, isActive, onClick }: DmListItemProps): JSX.E
       </div>
 
       <div className="flex items-center shrink-0">
-        <button 
-          className="opacity-0 group-hover:opacity-100 p-1 mr-1 text-mesh-text-muted hover:text-mesh-text-primary transition-opacity"
+        <span
+          role="button"
+          tabIndex={0}
+          className="opacity-0 group-hover:opacity-100 p-1 mr-1 text-mesh-text-muted hover:text-mesh-text-primary transition-opacity cursor-pointer"
           onClick={(e) => { e.stopPropagation(); /* Close logic */ }}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); /* Close logic */ } }}
         >
           <X className="h-3.5 w-3.5" />
-        </button>
+        </span>
         {conversation.unreadCount > 0 && (
           <div className="bg-mesh-green text-white text-[10px] font-bold min-w-[18px] h-[18px] rounded-full flex items-center justify-center px-1">
             {conversation.unreadCount}
