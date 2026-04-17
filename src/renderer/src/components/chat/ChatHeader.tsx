@@ -1,6 +1,7 @@
 import { Phone, Video, Search } from 'lucide-react'
 import { UserAvatar } from '@/components/ui/UserAvatar'
 import { Tooltip } from '@/components/ui/Tooltip'
+import { useCallStore } from '@/stores/call.store'
 import type { Conversation } from '@/types/messages'
 
 interface ChatHeaderProps {
@@ -8,6 +9,7 @@ interface ChatHeaderProps {
 }
 
 function ChatHeader({ conversation }: ChatHeaderProps): JSX.Element {
+  const startOutgoing = useCallStore((s) => s.startOutgoing)
   return (
     <div className="flex items-center justify-between h-12 px-4 border-b border-mesh-border/50 shrink-0">
       {/* Left: user info */}
@@ -29,7 +31,7 @@ function ChatHeader({ conversation }: ChatHeaderProps): JSX.Element {
       <div className="flex items-center gap-1">
         <Tooltip content="Voice Call" side="bottom">
           <button
-            onClick={() => window.api.signaling.emit('call-invite', conversation.recipientId, { kind: 'voice' })}
+            onClick={() => startOutgoing(conversation.recipientId, conversation.recipientName, 'voice')}
             className="h-8 w-8 rounded-md flex items-center justify-center text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary transition-colors"
           >
             <Phone className="h-4.5 w-4.5" />
@@ -37,7 +39,7 @@ function ChatHeader({ conversation }: ChatHeaderProps): JSX.Element {
         </Tooltip>
         <Tooltip content="Video Call" side="bottom">
           <button
-            onClick={() => window.api.signaling.emit('call-invite', conversation.recipientId, { kind: 'video' })}
+            onClick={() => startOutgoing(conversation.recipientId, conversation.recipientName, 'video')}
             className="h-8 w-8 rounded-md flex items-center justify-center text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary transition-colors"
           >
             <Video className="h-4.5 w-4.5" />

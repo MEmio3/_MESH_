@@ -14,8 +14,10 @@ import { useStatusStore } from '@/stores/status.store'
 import { useAvatarStore } from '@/stores/avatar.store'
 import { handleIncomingPeerMessage, useMessagesStore } from '@/stores/messages.store'
 import { useSettingsStore } from '@/stores/settings.store'
+import { useCallStore } from '@/stores/call.store'
 import { initializeAllStores } from '@/stores/init'
 import { webrtcManager } from '@/lib/webrtc'
+import { CallOverlay } from '@/components/call/CallOverlay'
 
 function LoadingScreen(): JSX.Element {
   return (
@@ -68,6 +70,29 @@ function App(): JSX.Element {
       useAvatarStore.getState().sendToPeer(userId).catch(() => {})
     }
     return () => { webrtcManager.onDataChannelReady = prev }
+  }, [])
+
+  // 1-to-1 call signaling bridge → call store.
+  useEffect(() => {
+    const offInvite = window.api.signaling.onCallInvite(async (fromUserId, callData) => {
+      if (await window.api.block.isBlocked({ userId: fromUserId })) return
+      const friend = useFriendsStore.getState().friends.find((f) => f.userId === fromUserId)
+      const kind = ((callData as { kind?: 'voice' | 'video' } | null)?.kind) === 'video' ? 'video' : 'voice'
+      useCallStore.getState().receiveIncoming(fromUserId, friend?.username || fromUserId, kind)
+    })
+    const offAccept = window.api.signaling.onCallAccept((fromUserId) => {
+      const st = useCallStore.getState()
+      if (st.peerId === fromUserId) st.remoteAccepted().catch(console.error)
+    })
+    const offReject = window.api.signaling.onCallReject((fromUserId) => {
+      const st = useCallStore.getState()
+      if (st.peerId === fromUserId) st.remoteRejected()
+    })
+    const offEnd = window.api.signaling.onCallEnd((fromUserId) => {
+      const st = useCallStore.getState()
+      if (st.peerId === fromUserId) st.end(false)
+    })
+    return () => { offInvite(); offAccept(); offReject(); offEnd() }
   }, [])
 
   // Feature 2 and 3: signaling fallback for DM edit/delete/reaction when no P2P channel exists.
@@ -144,6 +169,7 @@ function App(): JSX.Element {
 
   return (
     <HashRouter>
+      <CallOverlay />
       <Routes>
         {/* Root — redirect based on onboarding state */}
         <Route path="/" element={<AppRoot />} />
