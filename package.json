@@ -61,7 +61,8 @@
         "libatspi2.0-0",
         "libdrm2",
         "libgbm1"
-      ]
+      ],
+      "artifactName": "${productName}-${version}.${arch}.${ext}"
     },
     "publish": {
       "provider": "github",
