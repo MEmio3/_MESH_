@@ -4,6 +4,7 @@ import { Avatar } from '@/components/ui/Avatar'
 import { useIdentityStore } from '@/stores/identity.store'
 import { useServersStore } from '@/stores/servers.store'
 import { useAvatarStore } from '@/stores/avatar.store'
+import { useLiveStatus } from '@/lib/useLiveStatus'
 import type { ServerMember, ServerRole } from '@/types/server'
 
 interface MemberListPanelProps {
@@ -77,36 +78,13 @@ function MemberListPanel({ serverId, members }: MemberListPanelProps): JSX.Eleme
             </span>
           </div>
           {group.members.map((member) => (
-            <div
+            <MemberRow
               key={member.userId}
+              member={member}
+              avatarSrc={member.userId === selfId ? selfAvatar : avatarsByUser[member.userId]}
               onContextMenu={(e) => openMenu(e, member)}
-              className="flex items-center gap-2.5 px-4 py-1.5 hover:bg-mesh-bg-tertiary/50 transition-colors cursor-pointer"
-            >
-              <Avatar fallback={member.username} size="sm" status={member.status} src={member.userId === selfId ? selfAvatar : avatarsByUser[member.userId]} />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span className={cn(
-                    'text-sm truncate',
-                    member.status === 'offline' ? 'text-mesh-text-muted' : 'text-mesh-text-primary'
-                  )}>
-                    {member.username}
-                  </span>
-                  {member.role !== 'member' && (
-                    <span className={cn(
-                      'text-[9px] font-bold uppercase px-1 py-0.5 rounded',
-                      roleBadgeColors[member.role]
-                    )}>
-                      {member.role === 'host' ? 'HOST' : 'MOD'}
-                    </span>
-                  )}
-                  {member.isMuted && (
-                    <span className="text-[9px] font-bold uppercase px-1 py-0.5 rounded bg-mesh-bg-tertiary text-mesh-text-muted">
-                      MUTED
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
+              roleBadgeColor={roleBadgeColors[member.role]}
+            />
           ))}
         </div>
       ))}
@@ -157,6 +135,57 @@ function MemberListPanel({ serverId, members }: MemberListPanelProps): JSX.Eleme
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * Split out so each row can call `useLiveStatus` — hooks can't run inside a
+ * `.map` callback but they can run in a child component. The live presence
+ * keeps the dot in sync with `useStatusStore` the moment `status:changed`
+ * fires, without each server needing its own subscription.
+ */
+function MemberRow({
+  member,
+  avatarSrc,
+  onContextMenu,
+  roleBadgeColor,
+}: {
+  member: ServerMember
+  avatarSrc: string | undefined
+  onContextMenu: (e: React.MouseEvent) => void
+  roleBadgeColor: string
+}): JSX.Element {
+  const status = useLiveStatus(member.userId, member.status)
+  return (
+    <div
+      onContextMenu={onContextMenu}
+      className="flex items-center gap-2.5 px-4 py-1.5 hover:bg-mesh-bg-tertiary/50 transition-colors cursor-pointer"
+    >
+      <Avatar fallback={member.username} size="sm" status={status} src={avatarSrc} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          <span className={cn(
+            'text-sm truncate',
+            status === 'offline' ? 'text-mesh-text-muted' : 'text-mesh-text-primary'
+          )}>
+            {member.username}
+          </span>
+          {member.role !== 'member' && (
+            <span className={cn(
+              'text-[9px] font-bold uppercase px-1 py-0.5 rounded',
+              roleBadgeColor
+            )}>
+              {member.role === 'host' ? 'HOST' : 'MOD'}
+            </span>
+          )}
+          {member.isMuted && (
+            <span className="text-[9px] font-bold uppercase px-1 py-0.5 rounded bg-mesh-bg-tertiary text-mesh-text-muted">
+              MUTED
+            </span>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

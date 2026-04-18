@@ -2,6 +2,7 @@ import { Phone, Video, Search } from 'lucide-react'
 import { UserAvatar } from '@/components/ui/UserAvatar'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { useCallStore } from '@/stores/call.store'
+import { useLiveStatus } from '@/lib/useLiveStatus'
 import type { Conversation } from '@/types/messages'
 
 interface ChatHeaderProps {
@@ -10,6 +11,7 @@ interface ChatHeaderProps {
 
 function ChatHeader({ conversation }: ChatHeaderProps): JSX.Element {
   const startOutgoing = useCallStore((s) => s.startOutgoing)
+  const status = useLiveStatus(conversation.recipientId, conversation.recipientStatus)
   return (
     <div className="flex items-center justify-between h-12 px-4 border-b border-mesh-border/50 shrink-0">
       {/* Left: user info */}
@@ -18,7 +20,7 @@ function ChatHeader({ conversation }: ChatHeaderProps): JSX.Element {
           userId={conversation.recipientId}
           fallback={conversation.recipientName}
           size="sm"
-          status={conversation.recipientStatus}
+          status={status}
         />
         <div className="min-w-0">
           <span className="text-sm font-semibold text-mesh-text-primary block truncate">

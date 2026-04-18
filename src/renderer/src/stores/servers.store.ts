@@ -5,6 +5,7 @@ import { useIdentityStore } from './identity.store'
 import { useAvatarStore } from './avatar.store'
 import { normalizeReactions } from './messages.store'
 import { notify } from '@/lib/notify'
+import { playServerMessage } from '@/lib/sounds'
 
 interface ServersStore {
   servers: Server[]
@@ -361,6 +362,7 @@ export const useServersStore = create<ServersStore>((set, get) => ({
     unsubs.push(window.api.signaling.onServerEvent('message', async (payload) => {
       const p = payload as { serverId: string; message: { id: string; senderId: string; senderName: string; content: string; timestamp: number; channelId?: string | null } }
       await window.api.server.messageRemote(p)
+      let appended = false
       set((s) => {
         const existing = s.serverMessages[p.serverId] || []
         if (existing.some((m) => m.id === p.message.id)) return {}
@@ -374,8 +376,13 @@ export const useServersStore = create<ServersStore>((set, get) => ({
           status: 'delivered',
           channelId: p.message.channelId ?? null
         }
+        appended = true
         return { serverMessages: { ...s.serverMessages, [p.serverId]: [...existing, msg] } }
       })
+      // Soft ding for fresh server messages — suppress for self-sent and for
+      // dedupe hits (messages we've already seen via echo/refresh).
+      const selfId = useIdentityStore.getState().identity?.userId
+      if (appended && p.message.senderId !== selfId) playServerMessage()
     }))
 
     unsubs.push(window.api.signaling.onServerEvent('member-muted', async (payload) => {

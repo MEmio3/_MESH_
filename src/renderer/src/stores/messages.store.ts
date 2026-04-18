@@ -3,6 +3,7 @@ import type { Conversation, Message, FileAttachment } from '@/types/messages'
 import { useIdentityStore } from './identity.store'
 import { webrtcManager } from '@/lib/webrtc'
 import { notify } from '@/lib/notify'
+import { playDmReceived } from '@/lib/sounds'
 
 /**
  * The `reactions` column is persisted as a JSON string in SQLite. When rows
@@ -425,6 +426,11 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
     // Ack delivery
     sendControlToPeer(fromUserId, { type: 'dm-ack', messageId: msg.id, status: 'delivered' })
 
+    // Audible chime — only when the message isn't from ourselves (can't happen
+    // on the receive path, but guard anyway for future bulk imports).
+    const selfId = useIdentityStore.getState().identity?.userId
+    if (fromUserId !== selfId) playDmReceived()
+
     notify({
       type: 'dm',
       title: fromUsername || 'New file',
@@ -536,6 +542,10 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
     if (get().activeConversationId === conversationId) {
       sendControlToPeer(fromUserId, { type: 'dm-ack', messageId: msg.id, status: 'read' })
     }
+
+    // Audible chime for an incoming DM that isn't from ourselves.
+    const selfId = useIdentityStore.getState().identity?.userId
+    if (fromUserId !== selfId) playDmReceived()
 
     // Desktop notification — skipped if window is focused on this conversation.
     notify({

@@ -3,6 +3,18 @@ import type { VoiceParticipant } from '@/types/server'
 import { useIdentityStore } from './identity.store'
 import { useAudioPrefsStore } from './audioPrefs.store'
 import { webrtcManager } from '@/lib/webrtc'
+import {
+  playVoiceSelfJoin,
+  playVoiceSelfLeave,
+  playPeerJoinVoice,
+  playPeerLeaveVoice,
+  playMute,
+  playUnmute,
+  playDeafen,
+  playUndeafen,
+  playStreamStart,
+  playStreamStop
+} from '@/lib/sounds'
 
 export type StreamQuality = 'SD' | 'HD'
 
@@ -145,14 +157,19 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     // channelId) on a shared room so existing behavior is unchanged.
     const roomId = `voice:${serverId}:${nextChannelId ?? 'legacy'}`
     window.api.signaling.emit('join-room', roomId)
+    // Only play the self-join chime on a fresh join; room-hopping within the
+    // same server shouldn't ding twice.
+    if (!isSwitching) playVoiceSelfJoin()
   },
 
   leaveRoom: () => {
+    const wasConnected = get().isConnected
     webrtcManager.stopAudio()
     webrtcManager.stopVideo()
     webrtcManager.stopScreenShare()
     webrtcManager.closeAll()
     window.api.signaling.emit('leave-room')
+    if (wasConnected) playVoiceSelfLeave()
     set({
       isConnected: false,
       currentServerId: null,
@@ -210,6 +227,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     const next = !get().isMuted
     webrtcManager.setAudioEnabled(!next)
     set({ isMuted: next })
+    if (next) playMute(); else playUnmute()
   },
 
   toggleDeafen: () => {
@@ -217,13 +235,24 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     if (next) {
       webrtcManager.setAudioEnabled(false)
       set({ isDeafened: true, isMuted: true })
+      playDeafen()
     } else {
       webrtcManager.setAudioEnabled(true)
       set({ isDeafened: false, isMuted: false })
+      playUndeafen()
     }
   },
 
   setStreaming: (userId, streaming) => {
+    const selfId = useIdentityStore.getState().identity?.userId
+    // Fire the stream-start/stop chime when a REMOTE peer toggles streaming —
+    // the local path is already covered in startStreamFromSource/stopStream so
+    // the local user doesn't hear a double-ding.
+    if (userId !== selfId) {
+      const wasStreaming = get().streamingUsers.has(userId)
+      if (streaming && !wasStreaming) playStreamStart()
+      else if (!streaming && wasStreaming) playStreamStop()
+    }
     set((s) => {
       const streamingUsers = new Set(s.streamingUsers)
       if (streaming) streamingUsers.add(userId)
@@ -313,10 +342,12 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       userId: selfId,
       kind: source.kind
     })
+    playStreamStart()
   },
 
   stopStream: () => {
     const selfId = useIdentityStore.getState().identity?.userId
+    const wasStreaming = get().isScreenSharing || get().isCameraOn
     webrtcManager.stopScreenShare()
     webrtcManager.stopVideo()
     set({
@@ -327,6 +358,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     })
     if (selfId) get().setStreaming(selfId, false)
     window.api.signaling.emit('stream:stop', get().currentServerId, { userId: selfId })
+    if (wasStreaming) playStreamStop()
   },
 
   openPicker: (tab = 'applications') => set({ pickerOpen: true, pickerInitialTab: tab }),
@@ -361,9 +393,15 @@ webrtcManager.onPeerConnected = (userId) => {
       isScreenSharing: false,
       isCameraOn: false
     })
+    // Only ding for peers who join our voice channel — not for DM call peers
+    // (call.store handles those through call-connect).
+    if (useVoiceStore.getState().isConnected) playPeerJoinVoice()
   }
 }
 
 webrtcManager.onPeerDisconnected = (userId) => {
+  const wasInVoice = useVoiceStore.getState().isConnected
+    && useVoiceStore.getState().participants.some((p) => p.userId === userId)
   useVoiceStore.getState().removeParticipant(userId)
+  if (wasInVoice) playPeerLeaveVoice()
 }

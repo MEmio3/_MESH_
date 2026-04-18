@@ -1,6 +1,7 @@
 import { cn } from '@/lib/utils'
 import { UserAvatar } from '@/components/ui/UserAvatar'
 import { X } from 'lucide-react'
+import { useLiveStatus } from '@/lib/useLiveStatus'
 import type { Conversation } from '@/types/messages'
 
 interface DmListItemProps {
@@ -24,6 +25,9 @@ function formatRelativeTime(timestamp: number): string {
 
 function DmListItem({ conversation, isActive, onClick }: DmListItemProps): JSX.Element {
   const lastMsg = conversation.lastMessage
+  // Read live presence (status.store → friends.store → snapshot) so the dot
+  // stays in sync with whatever the server-side MemberListPanel also shows.
+  const status = useLiveStatus(conversation.recipientId, conversation.recipientStatus)
 
   return (
     <button
@@ -39,7 +43,7 @@ function DmListItem({ conversation, isActive, onClick }: DmListItemProps): JSX.E
         userId={conversation.recipientId}
         fallback={conversation.recipientName}
         size="sm"
-        status={conversation.recipientStatus}
+        status={status}
       />
       <div className="flex-1 min-w-0">
         <div className="flex flex-col">

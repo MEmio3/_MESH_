@@ -4,6 +4,7 @@ import { useIdentityStore } from './identity.store'
 import { useMessagesStore } from './messages.store'
 import { useAvatarStore } from './avatar.store'
 import { notify } from '@/lib/notify'
+import { playFriendNotification } from '@/lib/sounds'
 
 interface FriendsStore {
   friends: Friend[]
@@ -79,6 +80,7 @@ export const useFriendsStore = create<FriendsStore>((set, get) => ({
         const res = await window.api.friendRequest.receive(p)
         if (res.success) {
           set({ friendRequests: await reloadRequests() })
+          playFriendNotification()
           notify({
             type: 'friend-request',
             title: 'New friend request',
@@ -107,6 +109,7 @@ export const useFriendsStore = create<FriendsStore>((set, get) => ({
         // real picture instead of coloured initials. Falls back to signaling
         // when the P2P data channel isn't open yet.
         useAvatarStore.getState().sendToPeer(p.fromUserId).catch(() => {})
+        playFriendNotification()
         notify({
           type: 'friend-request',
           title: 'Friend request accepted',

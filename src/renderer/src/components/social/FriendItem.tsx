@@ -5,6 +5,7 @@ import { Tooltip } from '@/components/ui/Tooltip'
 import { ContextMenu, type ContextMenuEntry } from '@/components/ui/ContextMenu'
 import type { Friend } from '@/types/social'
 import { useFriendsStore } from '@/stores/friends.store'
+import { useLiveStatus } from '@/lib/useLiveStatus'
 
 interface FriendItemProps {
   friend: Friend
@@ -20,6 +21,7 @@ const statusLabels: Record<string, string> = {
 function FriendItem({ friend }: FriendItemProps): JSX.Element {
   const navigate = useNavigate()
   const { removeFriend, blockUser } = useFriendsStore()
+  const status = useLiveStatus(friend.userId, friend.status)
 
   const contextItems: ContextMenuEntry[] = [
     { label: 'Message', icon: <MessageSquare className="h-4 w-4" />, onClick: () => navigate(`/channels/@me/dm_${friend.userId}`) },
@@ -41,7 +43,7 @@ function FriendItem({ friend }: FriendItemProps): JSX.Element {
           userId={friend.userId}
           fallback={friend.username}
           size="md"
-          status={friend.status}
+          status={status}
         />
 
         {/* Info */}
@@ -50,7 +52,7 @@ function FriendItem({ friend }: FriendItemProps): JSX.Element {
             {friend.username}
           </span>
           <span className="text-xs text-mesh-text-muted truncate block">
-            {statusLabels[friend.status]}
+            {statusLabels[status]}
           </span>
         </div>
 

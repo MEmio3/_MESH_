@@ -18,6 +18,14 @@ import { create } from 'zustand'
 import { webrtcManager } from '@/lib/webrtc'
 import { useIdentityStore } from './identity.store'
 import { useAudioPrefsStore } from './audioPrefs.store'
+import {
+  startIncomingRing,
+  stopIncomingRing,
+  playOutgoingDial,
+  playCallConnect,
+  playCallDisconnect,
+  playCallReject
+} from '@/lib/sounds'
 
 type CallStatus = 'idle' | 'outgoing' | 'incoming' | 'active' | 'declined'
 
@@ -139,6 +147,7 @@ export const useCallStore = create<CallState>((set, get) => ({
       localStream: null
     })
     window.api.signaling.emit('call-invite', peerId, { kind })
+    playOutgoingDial()
   },
 
   receiveIncoming: (peerId, peerName, kind) => {
@@ -158,6 +167,7 @@ export const useCallStore = create<CallState>((set, get) => ({
       remoteStream: null,
       localStream: null
     })
+    startIncomingRing()
   },
 
   accept: async () => {
@@ -165,6 +175,8 @@ export const useCallStore = create<CallState>((set, get) => ({
     if (!peerId || status !== 'incoming') return
     const selfId = useIdentityStore.getState().identity?.userId
     if (!selfId) return
+    stopIncomingRing()
+    playCallConnect()
     window.api.signaling.emit('call-accept', peerId)
     // Both peers must sit in the SAME signaling room so the server's
     // onUserJoined handler pairs them for offer/answer exchange.
@@ -184,6 +196,8 @@ export const useCallStore = create<CallState>((set, get) => ({
 
   decline: () => {
     const { peerId } = get()
+    stopIncomingRing()
+    playCallReject()
     if (peerId) window.api.signaling.emit('call-reject', peerId)
     set({
       status: 'idle',
@@ -202,6 +216,7 @@ export const useCallStore = create<CallState>((set, get) => ({
     if (!peerId || status !== 'outgoing') return
     const selfId = useIdentityStore.getState().identity?.userId
     if (!selfId) return
+    playCallConnect()
     navigateToDm(peerId)
     window.api.signaling.emit('join-room', callRoomFor(selfId, peerId))
     try {
@@ -217,6 +232,7 @@ export const useCallStore = create<CallState>((set, get) => ({
   },
 
   remoteRejected: () => {
+    playCallReject()
     set({ status: 'declined' })
     // Auto-clear after a short toast
     setTimeout(() => {
@@ -238,6 +254,9 @@ export const useCallStore = create<CallState>((set, get) => ({
   end: (notifyPeer = true) => {
     const { peerId, status } = get()
     if (status === 'idle') return
+    stopIncomingRing()
+    // Only play disconnect if the call was actually active or outgoing.
+    if (status === 'active' || status === 'outgoing') playCallDisconnect()
     if (notifyPeer && peerId) window.api.signaling.emit('call-end', peerId)
     try {
       webrtcManager.stopAudio()
