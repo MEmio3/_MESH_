@@ -15,7 +15,7 @@ function ServerList(): JSX.Element {
   const avatars = useServerAvatarStore((s) => s.byServer)
   const [showCreateModal, setShowCreateModal] = useState(false)
 
-  const activeServerId = location.pathname.match(/^\/channels\/(?!@me)(.+)/)?.[1] || null
+  const activeServerId = location.pathname.match(/^\/channels\/(?!@me)([^/]+)/)?.[1] || null
 
   return (
     <>

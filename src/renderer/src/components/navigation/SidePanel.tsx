@@ -8,7 +8,9 @@ function SidePanel(): JSX.Element {
 
   const isHome = location.pathname.startsWith('/channels/@me')
   const isSettings = location.pathname.startsWith('/settings')
-  const serverMatch = location.pathname.match(/^\/channels\/(?!@me)(.+)/)
+  // `[^/]+` to capture only the serverId segment, not the optional
+  // `/:channelId` suffix that Phase 4 routing introduced.
+  const serverMatch = location.pathname.match(/^\/channels\/(?!@me)([^/]+)/)
   const serverId = serverMatch?.[1] || null
 
   return (

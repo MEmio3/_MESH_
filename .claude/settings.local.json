@@ -34,7 +34,14 @@
       "Bash(node *)",
       "Bash(git push *)",
       "Bash(git reset *)",
-      "Bash(echo \"EXIT: $?\")"
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(dir \"E:\\\\MESH\\\\resources\")",
+      "Bash(npx electron-builder *)",
+      "Bash(xargs grep *)",
+      "Bash(NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p tsconfig.node.json)",
+      "Bash(NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p tsconfig.web.json)",
+      "Bash(NODE_OPTIONS=--max-old-space-size=8192 npm run dist)",
+      "Bash(powershell -Command \"Get-Process -Name MESH -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 1; Get-Process -Name MESH -ErrorAction SilentlyContinue\")"
     ]
   }
 }

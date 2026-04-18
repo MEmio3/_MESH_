@@ -396,7 +396,7 @@ io.on('connection', (socket) => {
 
   socket.on('server:message', (payload: {
     serverId: string
-    message: { id: string; senderId: string; senderName: string; content: string; timestamp: number }
+    message: { id: string; senderId: string; senderName: string; content: string; timestamp: number; channelId?: string | null }
   }) => {
     const entry = servers.get(payload.serverId)
     if (!entry) return

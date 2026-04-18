@@ -24,7 +24,7 @@ interface ServersStore {
   }) => Promise<{ success: boolean; error?: string; serverId?: string }>
   joinServer: (serverId: string, passwordHash?: string | null) => Promise<{ success: boolean; error?: string }>
   leaveServer: (serverId: string, destroy?: boolean) => Promise<void>
-  sendServerMessage: (serverId: string, content: string) => Promise<void>
+  sendServerMessage: (serverId: string, content: string, channelId?: string | null) => Promise<void>
   muteMember: (serverId: string, targetId: string, mute: boolean) => Promise<void>
   kickMember: (serverId: string, targetId: string) => Promise<void>
   banMember: (serverId: string, targetId: string) => Promise<void>
@@ -154,14 +154,15 @@ export const useServersStore = create<ServersStore>((set, get) => ({
     })
   },
 
-  sendServerMessage: async (serverId, content) => {
+  sendServerMessage: async (serverId, content, channelId) => {
     const identity = useIdentityStore.getState().identity
     if (!identity) return
     const res = await window.api.server.sendMessage({
       serverId,
       senderId: identity.userId,
       senderName: identity.username,
-      content
+      content,
+      channelId: channelId ?? null
     })
     if (res.success && res.messageId) {
       const msg: Message = {
@@ -171,7 +172,8 @@ export const useServersStore = create<ServersStore>((set, get) => ({
         senderName: identity.username,
         content,
         timestamp: Date.now(),
-        status: 'sent'
+        status: 'sent',
+        channelId: channelId ?? null
       }
       set((s) => {
         const existing = s.serverMessages[serverId] || []
@@ -357,7 +359,7 @@ export const useServersStore = create<ServersStore>((set, get) => ({
     }))
 
     unsubs.push(window.api.signaling.onServerEvent('message', async (payload) => {
-      const p = payload as { serverId: string; message: { id: string; senderId: string; senderName: string; content: string; timestamp: number } }
+      const p = payload as { serverId: string; message: { id: string; senderId: string; senderName: string; content: string; timestamp: number; channelId?: string | null } }
       await window.api.server.messageRemote(p)
       set((s) => {
         const existing = s.serverMessages[p.serverId] || []
@@ -369,7 +371,8 @@ export const useServersStore = create<ServersStore>((set, get) => ({
           senderName: p.message.senderName,
           content: p.message.content,
           timestamp: p.message.timestamp,
-          status: 'delivered'
+          status: 'delivered',
+          channelId: p.message.channelId ?? null
         }
         return { serverMessages: { ...s.serverMessages, [p.serverId]: [...existing, msg] } }
       })

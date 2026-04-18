@@ -67,7 +67,21 @@ function ServerPage(): JSX.Element {
   // legacy `textChannelName` on the server row. Voice channels are joined
   // inline from the sidebar (see ChannelTree) so they don't need a page.
   const name = activeChannel?.type === 'text' ? activeChannel.name : undefined
-  return <ServerTextChannel server={server} channelName={name} />
+  // The seed migration (`seedDefaultServerChannelsIfMissing`) backfills legacy
+  // server_messages rows to this id. We treat it as the "default" channel so
+  // pre-migration history still shows up here and nowhere else.
+  const defaultChannelId = `${server.id}__ch-text-default`
+  // Use a distinct local name — `channelId` is already bound from useParams above.
+  const activeChannelId = activeChannel?.type === 'text' ? activeChannel.id : undefined
+  const isDefaultChannel = activeChannelId === defaultChannelId
+  return (
+    <ServerTextChannel
+      server={server}
+      channelName={name}
+      channelId={activeChannelId}
+      isDefaultChannel={isDefaultChannel}
+    />
+  )
 }
 
 export { ServerPage }

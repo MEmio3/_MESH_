@@ -240,8 +240,8 @@ interface ServerAPI {
   memberJoinedPersist: (p: unknown) => Promise<{ success: boolean }>
   leave: (p: { serverId: string; userId: string; destroy?: boolean }) => Promise<{ success: boolean }>
   removeLocal: (serverId: string) => Promise<{ success: boolean }>
-  sendMessage: (p: { serverId: string; senderId: string; senderName: string; content: string }) => Promise<{ success: boolean; error?: string; messageId?: string }>
-  messageRemote: (p: { serverId: string; message: { id: string; senderId: string; senderName: string; content: string; timestamp: number } }) => Promise<{ success: boolean }>
+  sendMessage: (p: { serverId: string; senderId: string; senderName: string; content: string; channelId?: string | null }) => Promise<{ success: boolean; error?: string; messageId?: string }>
+  messageRemote: (p: { serverId: string; message: { id: string; senderId: string; senderName: string; content: string; timestamp: number; channelId?: string | null } }) => Promise<{ success: boolean }>
   mute: (p: { serverId: string; actorId: string; targetId: string; mute: boolean }) => Promise<{ success: boolean }>
   kick: (p: { serverId: string; actorId: string; targetId: string }) => Promise<{ success: boolean }>
   ban: (p: { serverId: string; actorId: string; targetId: string }) => Promise<{ success: boolean }>

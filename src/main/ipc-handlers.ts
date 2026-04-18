@@ -749,6 +749,7 @@ export function registerServerHandlers(): void {
     senderId: string
     senderName: string
     content: string
+    channelId?: string | null
   }) => {
     // Renderer only passes content + sender info — we mint the id/timestamp here
     // so every message has non-null primary key + timestamp columns.
@@ -761,7 +762,8 @@ export function registerServerHandlers(): void {
       senderName: payload.senderName,
       content: payload.content,
       timestamp,
-      status: 'sent'
+      status: 'sent',
+      channelId: payload.channelId ?? null
     })
     socketClient.emitSignaling('server:message', {
       serverId: payload.serverId,
@@ -770,7 +772,8 @@ export function registerServerHandlers(): void {
         senderId: payload.senderId,
         senderName: payload.senderName,
         content: payload.content,
-        timestamp
+        timestamp,
+        channelId: payload.channelId ?? null
       }
     })
     return { success: true, messageId: id }
@@ -779,7 +782,7 @@ export function registerServerHandlers(): void {
   // Called by renderer when server:message event arrives — persist inbound.
   ipcMain.handle('server:message-remote', async (_e, payload: {
     serverId: string
-    message: { id: string; senderId: string; senderName: string; content: string; timestamp: number }
+    message: { id: string; senderId: string; senderName: string; content: string; timestamp: number; channelId?: string | null }
   }) => {
     db.insertServerMessage({
       id: payload.message.id,
@@ -788,7 +791,8 @@ export function registerServerHandlers(): void {
       senderName: payload.message.senderName,
       content: payload.message.content,
       timestamp: payload.message.timestamp,
-      status: 'delivered'
+      status: 'delivered',
+      channelId: payload.message.channelId ?? null
     })
     return { success: true }
   })

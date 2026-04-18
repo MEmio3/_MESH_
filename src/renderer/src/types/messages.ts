@@ -24,6 +24,8 @@ export interface Message {
   isDeleted?: boolean
   reactions?: ReactionMap
   replyTo?: { messageId: string; senderName: string; content: string } | null
+  /** For server messages: which channel this message belongs to. Null/undefined for DMs. */
+  channelId?: string | null
 }
 
 export interface Conversation {

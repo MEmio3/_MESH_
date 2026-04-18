@@ -16,6 +16,12 @@ export interface StreamSource {
 interface VoiceStore {
   isConnected: boolean
   currentServerId: string | null
+  /**
+   * Which voice channel within the server is joined. Null for legacy/default
+   * voice room (pre-channels) so rooms created before the Phase-2 schema
+   * migration still connect into a shared bucket.
+   */
+  currentChannelId: string | null
   participants: VoiceParticipant[]
   remoteStreams: Map<string, MediaStream>
   streamingUsers: Set<string>   // userIds currently streaming video/screen
@@ -37,7 +43,7 @@ interface VoiceStore {
   // Toggled by the X button on the PiP; does NOT stop the stream.
   previewVisible: boolean
 
-  joinRoom: (serverId: string) => Promise<void>
+  joinRoom: (serverId: string, channelId?: string | null) => Promise<void>
   leaveRoom: () => void
   addParticipant: (participant: VoiceParticipant) => void
   removeParticipant: (userId: string) => void
@@ -61,6 +67,7 @@ interface VoiceStore {
 export const useVoiceStore = create<VoiceStore>((set, get) => ({
   isConnected: false,
   currentServerId: null,
+  currentChannelId: null,
   participants: [],
   remoteStreams: new Map(),
   streamingUsers: new Set(),
@@ -76,7 +83,30 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   viewingStreamUserId: null,
   previewVisible: true,
 
-  joinRoom: async (serverId) => {
+  joinRoom: async (serverId, channelId) => {
+    const nextChannelId = channelId ?? null
+    const state = get()
+    // No-op if already in this exact voice channel.
+    if (state.isConnected && state.currentServerId === serverId && state.currentChannelId === nextChannelId) {
+      return
+    }
+
+    // Switching within the same server? Hop rooms without tearing down audio.
+    // We still need to drop remote peers (they're in the other room and will
+    // not hear us) so `onPeerDisconnected` can clean them out of the list.
+    const isSwitching = state.isConnected && state.currentServerId === serverId
+    if (isSwitching) {
+      webrtcManager.closeAll()
+      window.api.signaling.emit('leave-room')
+    } else if (state.isConnected) {
+      // Joining a different server — do a full leave first.
+      webrtcManager.stopAudio()
+      webrtcManager.stopVideo()
+      webrtcManager.stopScreenShare()
+      webrtcManager.closeAll()
+      window.api.signaling.emit('leave-room')
+    }
+
     const identity = useIdentityStore.getState().identity
     const self: VoiceParticipant = {
       userId: identity?.userId || 'unknown',
@@ -91,18 +121,30 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     set({
       isConnected: true,
       currentServerId: serverId,
-      participants: [self]
+      currentChannelId: nextChannelId,
+      // Reset participants to just self when switching — remote peers in the
+      // previous channel must not leak into the new one's sidebar list.
+      participants: [self],
+      remoteStreams: new Map(),
+      streamingUsers: new Set()
     })
 
-    try {
-      // Respect the user's globally-selected mic + input volume.
-      const prefs = useAudioPrefsStore.getState()
-      webrtcManager.setInputGain(prefs.inputVolume / 100)
-      await webrtcManager.startAudio(prefs.inputDeviceId || undefined)
-    } catch (err) {
-      console.error('Failed to start audio:', err)
+    if (!isSwitching) {
+      try {
+        // Respect the user's globally-selected mic + input volume.
+        const prefs = useAudioPrefsStore.getState()
+        webrtcManager.setInputGain(prefs.inputVolume / 100)
+        await webrtcManager.startAudio(prefs.inputDeviceId || undefined)
+      } catch (err) {
+        console.error('Failed to start audio:', err)
+      }
     }
-    window.api.signaling.emit('join-room', `voice:${serverId}`)
+    // Scope the room to server + channel so different voice channels are
+    // separate rooms (users in #gaming don't hear users in #voice-lounge).
+    // `legacy` bucket keeps pre-channels callers (ServerVoiceRoom without a
+    // channelId) on a shared room so existing behavior is unchanged.
+    const roomId = `voice:${serverId}:${nextChannelId ?? 'legacy'}`
+    window.api.signaling.emit('join-room', roomId)
   },
 
   leaveRoom: () => {
@@ -114,6 +156,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     set({
       isConnected: false,
       currentServerId: null,
+      currentChannelId: null,
       participants: [],
       remoteStreams: new Map(),
       streamingUsers: new Set(),

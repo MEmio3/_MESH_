@@ -301,9 +301,9 @@ const api = {
       ipcRenderer.invoke('server:leave', payload),
     removeLocal: (serverId: string): Promise<{ success: boolean }> =>
       ipcRenderer.invoke('server:remove-local', { serverId }),
-    sendMessage: (payload: { serverId: string; senderId: string; senderName: string; content: string }): Promise<{ success: boolean; error?: string; messageId?: string }> =>
+    sendMessage: (payload: { serverId: string; senderId: string; senderName: string; content: string; channelId?: string | null }): Promise<{ success: boolean; error?: string; messageId?: string }> =>
       ipcRenderer.invoke('server:send-message', payload),
-    messageRemote: (payload: { serverId: string; message: { id: string; senderId: string; senderName: string; content: string; timestamp: number } }): Promise<{ success: boolean }> =>
+    messageRemote: (payload: { serverId: string; message: { id: string; senderId: string; senderName: string; content: string; timestamp: number; channelId?: string | null } }): Promise<{ success: boolean }> =>
       ipcRenderer.invoke('server:message-remote', payload),
     mute: (payload: { serverId: string; actorId: string; targetId: string; mute: boolean }): Promise<{ success: boolean }> =>
       ipcRenderer.invoke('server:mute', payload),

@@ -58,6 +58,7 @@ export function ChannelTree({
 
   const isConnected = useVoiceStore((s) => s.isConnected)
   const currentServerId = useVoiceStore((s) => s.currentServerId)
+  const currentChannelId = useVoiceStore((s) => s.currentChannelId)
   const participants = useVoiceStore((s) => s.participants)
   const streamingUsers = useVoiceStore((s) => s.streamingUsers)
   const joinRoom = useVoiceStore((s) => s.joinRoom)
@@ -129,6 +130,10 @@ export function ChannelTree({
   function renderChannel(ch: Channel): JSX.Element {
     const isText = ch.type === 'text'
     const isActiveText = isText && activeChannelId === ch.id
+    // A voice channel is "joined" only when we're connected to *this specific*
+    // channel's room. Without this check, every voice channel in the server
+    // would show the same participant list and look active.
+    const isJoinedVoice = !isText && isVoiceHere && currentChannelId === ch.id
     const Icon = isText ? Hash : Volume2
 
     return (
@@ -137,24 +142,26 @@ export function ChannelTree({
           onClick={() => {
             if (isText) {
               onSelectTextChannel(ch.id)
-            } else if (!isVoiceHere) {
-              joinRoom(serverId)
+            } else if (!isJoinedVoice) {
+              // Either not in any voice channel, or in a different one — hop
+              // into this channel's room (voice.store handles the switch).
+              joinRoom(serverId, ch.id)
             }
           }}
           onContextMenu={(e) => openMenuAt(e, { kind: 'channel', channel: ch })}
           className={cn(
             'w-full flex items-center gap-2 pl-6 pr-2 py-1.5 rounded-md text-left transition-colors h-8',
-            isActiveText || (!isText && isVoiceHere)
+            isActiveText || isJoinedVoice
               ? 'bg-mesh-bg-tertiary text-mesh-text-primary'
               : 'text-mesh-text-secondary hover:bg-mesh-bg-tertiary/50 hover:text-mesh-text-primary'
           )}
         >
-          <Icon className={cn('h-4 w-4 shrink-0', !isText && isVoiceHere ? 'text-mesh-green' : 'text-mesh-text-muted')} />
+          <Icon className={cn('h-4 w-4 shrink-0', isJoinedVoice ? 'text-mesh-green' : 'text-mesh-text-muted')} />
           <span className="text-sm truncate flex-1">{ch.name}</span>
         </button>
 
-        {/* Voice participants rendered under the joined voice channel. */}
-        {!isText && isVoiceHere && participants.length > 0 && (
+        {/* Voice participants rendered only under the channel we're actually in. */}
+        {isJoinedVoice && participants.length > 0 && (
           <div className="flex flex-col gap-0.5 pl-10 mt-0.5">
             {participants.map((p) => {
               const isLive = streamingUsers.has(p.userId)

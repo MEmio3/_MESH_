@@ -17,12 +17,26 @@ interface ServerTextChannelProps {
    * without the new channel layout still render correctly.
    */
   channelName?: string
+  /**
+   * Channel id used to scope messages — the feed only renders messages whose
+   * `channelId` matches (or legacy rows with no channelId, when this is the
+   * server's default text channel). Without this, every new channel inherits
+   * the default channel's chat history.
+   */
+  channelId?: string
+  /** True when `channelId` is the server's implicit default text channel. */
+  isDefaultChannel?: boolean
 }
 
-function ServerTextChannel({ server, channelName }: ServerTextChannelProps): JSX.Element {
-  const displayName = channelName || displayName
+function ServerTextChannel({ server, channelName, channelId, isDefaultChannel }: ServerTextChannelProps): JSX.Element {
+  const displayName = channelName || server.textChannelName
   const [showMembers, setShowMembers] = useState(true)
-  const messages = useServersStore((s) => s.serverMessages[server.id] || [])
+  const allMessages = useServersStore((s) => s.serverMessages[server.id] || [])
+  // Filter to this channel. Legacy messages (channelId === null) only show in
+  // the default channel so nothing silently vanishes after the migration.
+  const messages = channelId
+    ? allMessages.filter((m) => m.channelId === channelId || (isDefaultChannel && !m.channelId))
+    : allMessages
   const members = useServersStore((s) => s.serverMembers[server.id] || [])
   const sendMessage = useServersStore((s) => s.sendServerMessage)
   const editServerMessage = useServersStore((s) => s.editServerMessage)
@@ -89,7 +103,7 @@ function ServerTextChannel({ server, channelName }: ServerTextChannelProps): JSX
         {/* Input — file sharing available (relayed through signaling for servers) */}
         <MessageInput
           recipientName={displayName}
-          onSend={(content) => sendMessage(server.id, content)}
+          onSend={(content) => sendMessage(server.id, content, channelId ?? null)}
           onSendFile={async (filePath) => {
             const fileData = await window.api.file.read(filePath)
             if (!fileData) return
@@ -97,9 +111,9 @@ function ServerTextChannel({ server, channelName }: ServerTextChannelProps): JSX
             // Larger files / non-images → fall back to text reference (no P2P in servers).
             const isImage = fileData.fileType.startsWith('image/')
             if (isImage && fileData.fileSize <= 2 * 1024 * 1024) {
-              sendMessage(server.id, `data:${fileData.fileType};base64,${fileData.base64}`)
+              sendMessage(server.id, `data:${fileData.fileType};base64,${fileData.base64}`, channelId ?? null)
             } else {
-              sendMessage(server.id, `[File: ${fileData.fileName} (${(fileData.fileSize / 1024).toFixed(1)} KB)]`)
+              sendMessage(server.id, `[File: ${fileData.fileName} (${(fileData.fileSize / 1024).toFixed(1)} KB)]`, channelId ?? null)
             }
           }}
         />
