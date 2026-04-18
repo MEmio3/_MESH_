@@ -1,10 +1,13 @@
 {
-  "name": "mesh",
+  "name": "@memio3/mesh",
   "version": "0.1.0",
   "description": "Decentralized, privacy-first communication platform",
   "main": "./out/main/index.js",
-  "author": "MESH",
+  "author": "MEmio3",
   "license": "MIT",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "scripts": {
     "dev": "electron-vite dev",
     "dev:user2": "cross-env MESH_USER_DATA=%TEMP%/mesh-user2 electron-vite dev",
