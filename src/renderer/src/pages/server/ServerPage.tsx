@@ -1,15 +1,28 @@
+import { useEffect, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Hash, AlertTriangle } from 'lucide-react'
 import { useServersStore } from '@/stores/servers.store'
+import { useChannelsStore, useServerLayout } from '@/stores/channels.store'
 import { ServerTextChannel } from './ServerTextChannel'
 
 function ServerPage(): JSX.Element {
   const navigate = useNavigate()
-  const { serverId } = useParams<{ serverId: string }>()
+  const { serverId, channelId } = useParams<{ serverId: string; channelId?: string }>()
   const servers = useServersStore((s) => s.servers)
   const pendingJoin = useServersStore((s) => s.pendingJoin)
   const lastError = useServersStore((s) => s.lastError)
   const server = servers.find((s) => s.id === serverId)
+  const layout = useServerLayout(serverId ?? '')
+  const load = useChannelsStore((s) => s.load)
+
+  useEffect(() => { if (serverId) load(serverId) }, [serverId, load])
+
+  // Resolve the channel to render: explicit :channelId wins, else first text
+  // channel, else null (falls back to default empty view).
+  const activeChannel = useMemo(() => {
+    if (channelId) return layout.channels.find((c) => c.id === channelId) ?? null
+    return layout.channels.find((c) => c.type === 'text') ?? null
+  }, [channelId, layout])
 
   // Show loading state while joining
   if (pendingJoin === serverId) {
@@ -50,8 +63,11 @@ function ServerPage(): JSX.Element {
     )
   }
 
-  // Default view is the text channel
-  return <ServerTextChannel server={server} />
+  // Text channel view. Header name prefers the selected channel, else the
+  // legacy `textChannelName` on the server row. Voice channels are joined
+  // inline from the sidebar (see ChannelTree) so they don't need a page.
+  const name = activeChannel?.type === 'text' ? activeChannel.name : undefined
+  return <ServerTextChannel server={server} channelName={name} />
 }
 
 export { ServerPage }

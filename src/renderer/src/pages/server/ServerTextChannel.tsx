@@ -11,9 +11,16 @@ import type { Server } from '@/types/server'
 
 interface ServerTextChannelProps {
   server: Server
+  /**
+   * Optional channel name override (from the routed `:channelId`). Falls
+   * back to the legacy `displayName` when unset so servers
+   * without the new channel layout still render correctly.
+   */
+  channelName?: string
 }
 
-function ServerTextChannel({ server }: ServerTextChannelProps): JSX.Element {
+function ServerTextChannel({ server, channelName }: ServerTextChannelProps): JSX.Element {
+  const displayName = channelName || displayName
   const [showMembers, setShowMembers] = useState(true)
   const messages = useServersStore((s) => s.serverMessages[server.id] || [])
   const members = useServersStore((s) => s.serverMembers[server.id] || [])
@@ -34,11 +41,11 @@ function ServerTextChannel({ server }: ServerTextChannelProps): JSX.Element {
           <div className="flex items-center gap-2 min-w-0">
             <Hash className="h-5 w-5 text-mesh-text-muted shrink-0" />
             <span className="text-base font-semibold text-mesh-text-primary whitespace-nowrap">
-              {server.textChannelName}
+              {displayName}
             </span>
             <div className="h-5 w-px bg-mesh-border/50 mx-2 shrink-0" />
             <span className="text-sm text-mesh-text-muted truncate">
-              Welcome to #{server.textChannelName}
+              Welcome to #{displayName}
             </span>
           </div>
           
@@ -72,7 +79,7 @@ function ServerTextChannel({ server }: ServerTextChannelProps): JSX.Element {
         {/* Messages */}
         <MessageFeed
           messages={messages}
-          recipientName={server.textChannelName}
+          recipientName={displayName}
           onEditMessage={(messageId, newContent) => editServerMessage(server.id, messageId, newContent)}
           onDeleteMessage={(messageId) => deleteServerMessage(server.id, messageId)}
           onToggleReaction={(messageId, emojiId) => toggleServerReaction(server.id, messageId, emojiId)}
@@ -81,7 +88,7 @@ function ServerTextChannel({ server }: ServerTextChannelProps): JSX.Element {
 
         {/* Input — file sharing available (relayed through signaling for servers) */}
         <MessageInput
-          recipientName={server.textChannelName}
+          recipientName={displayName}
           onSend={(content) => sendMessage(server.id, content)}
           onSendFile={async (filePath) => {
             const fileData = await window.api.file.read(filePath)

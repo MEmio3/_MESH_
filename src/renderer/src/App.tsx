@@ -187,8 +187,9 @@ function App(): JSX.Element {
           {/* DM Conversation */}
           <Route path="/channels/@me/:dmId" element={<DmConversationPage />} />
 
-          {/* Community Server */}
+          {/* Community Server (default + specific channel) */}
           <Route path="/channels/:serverId" element={<ServerPage />} />
+          <Route path="/channels/:serverId/:channelId" element={<ServerPage />} />
 
           {/* Settings */}
           <Route path="/settings" element={<Navigate to="/settings/profile" replace />} />
