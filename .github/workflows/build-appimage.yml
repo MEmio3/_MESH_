@@ -39,4 +39,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: MESH-Linux-AppImage
-          path: dist_linux/*.AppImage
+          path: release/*.AppImage
+          if-no-files-found: error
+
+      - name: Upload DEB Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MESH-Linux-DEB
+          path: release/*.deb
+          if-no-files-found: error
