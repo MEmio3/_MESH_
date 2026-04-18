@@ -147,9 +147,9 @@ function UserPanel(): JSX.Element {
   }
 
   return (
-    <div className="flex items-center gap-1 h-[53px] px-2 bg-[#232428] shrink-0">
+    <div className="flex items-center gap-1 h-[54px] px-2 bg-[#232428] shrink-0 border-t border-black/20">
       {/* User Info — clickable area */}
-      <div className="flex items-center gap-2 flex-1 min-w-0 rounded-md px-1 py-1 hover:bg-white/[0.06] transition-colors cursor-pointer group">
+      <div className="flex items-center gap-2 flex-1 min-w-0 rounded-md px-1.5 py-1 hover:bg-white/[0.06] transition-colors cursor-pointer group">
         {/* Avatar with status indicator — click to upload */}
         <Tooltip content="Change avatar" side="top">
           <button

@@ -65,14 +65,18 @@ function ServerSidePanel({ serverId }: ServerSidePanelProps): JSX.Element {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Server Header */}
+      {/* Server Header — slightly taller for breathing room, icon gets a subtle ring and
+          hover-bg lifts to tertiary. Chevron rotates on open. */}
       <div className="relative shrink-0" ref={dropdownRef}>
         <button
           onClick={() => setShowDropdown(!showDropdown)}
-          className="w-full flex items-center gap-2 h-12 px-4 border-b border-mesh-border/50 hover:bg-mesh-bg-tertiary/50 transition-colors"
+          className={cn(
+            'w-full flex items-center gap-2.5 h-[50px] px-3.5 border-b border-mesh-border/40 transition-colors',
+            showDropdown ? 'bg-mesh-bg-tertiary/60' : 'hover:bg-mesh-bg-tertiary/40'
+          )}
         >
           <div
-            className="h-6 w-6 rounded-md overflow-hidden flex items-center justify-center text-[11px] font-bold text-white shrink-0"
+            className="h-7 w-7 rounded-md overflow-hidden flex items-center justify-center text-xs font-bold text-white shrink-0 ring-1 ring-black/20 shadow-sm"
             style={serverAvatar ? undefined : { backgroundColor: server.iconColor }}
           >
             {serverAvatar ? (
@@ -81,8 +85,15 @@ function ServerSidePanel({ serverId }: ServerSidePanelProps): JSX.Element {
               server.name[0].toUpperCase()
             )}
           </div>
-          <span className="text-sm font-bold text-mesh-text-primary truncate flex-1 text-left">{server.name}</span>
-          <ChevronDown className={cn("h-4 w-4 text-mesh-text-muted shrink-0 transition-transform duration-200", showDropdown && "rotate-180")} />
+          <span className="text-[13px] font-bold text-mesh-text-primary truncate flex-1 text-left tracking-tight">
+            {server.name}
+          </span>
+          <ChevronDown
+            className={cn(
+              'h-4 w-4 text-mesh-text-muted shrink-0 transition-transform duration-200',
+              showDropdown && 'rotate-180 text-mesh-text-secondary'
+            )}
+          />
         </button>
 
         {showDropdown && (
@@ -149,12 +160,19 @@ function ServerSidePanel({ serverId }: ServerSidePanelProps): JSX.Element {
         onSelectTextChannel={(channelId) => navigate(`/channels/${serverId}/${channelId}`)}
       />
 
-      {/* Member Count */}
-      <div className="px-4 py-3 bg-mesh-bg-primary shrink-0">
+      {/* Member Count — subtle top border to separate from channel tree,
+          pulsing presence dot, and mono-width numbers so the count doesn't
+          jitter as members come and go. */}
+      <div className="px-4 py-2.5 bg-mesh-bg-primary shrink-0 border-t border-mesh-border/40">
         <div className="flex items-center gap-2">
-          <div className="h-2 w-2 rounded-full bg-mesh-green shrink-0" />
-          <span className="text-xs text-mesh-text-muted">
-            {onlineMembers.length} Online · {members.length} Total
+          <span className="relative inline-flex h-2 w-2 shrink-0">
+            <span className="absolute inset-0 rounded-full bg-mesh-green/60 animate-ping" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-mesh-green" />
+          </span>
+          <span className="text-[11px] font-medium text-mesh-text-muted tabular-nums tracking-wide">
+            <span className="text-mesh-text-secondary">{onlineMembers.length}</span> Online
+            <span className="mx-1.5 text-mesh-text-muted/60">·</span>
+            <span className="text-mesh-text-secondary">{members.length}</span> Total
           </span>
         </div>
       </div>

@@ -24,7 +24,7 @@ function ActivityBar(): JSX.Element {
         <Home className="h-6 w-6" />
       </ActivityBarItem>
 
-      <div className="w-8 h-[2px] bg-mesh-bg-tertiary mx-auto my-2 rounded-full" />
+      <div className="w-8 h-[2px] bg-mesh-border/60 mx-auto my-2.5 rounded-full" />
 
       {/* Server List — from store with create/join modal */}
       <div className="flex flex-col items-center gap-2 flex-1 w-full overflow-y-auto scrollbar-none">
@@ -47,17 +47,18 @@ function ActivityBarItem({ tooltip, isActive, onClick, hasNotification, children
   return (
     <Tooltip content={tooltip} side="right">
       <div className="relative flex items-center justify-center w-full group">
-        {/* Interaction Pill */}
+        {/* Interaction Pill — active pill grows to 40px, hover pill to 20px.
+            Pill is pure white and tapers with a rounded right edge. */}
         {isActive ? (
           <motion.div
             layoutId="activity-pill"
-            className="absolute left-0 w-1 rounded-r-md bg-white opacity-100"
+            className="absolute left-0 w-[3px] rounded-r-full bg-white opacity-100"
             initial={{ height: 8 }}
             animate={{ height: 40 }}
             transition={{ type: 'spring', stiffness: 500, damping: 30 }}
           />
         ) : (
-          <div className="absolute left-0 w-1 rounded-r-md bg-white opacity-0 group-hover:opacity-100 group-hover:h-5 transition-all duration-200" />
+          <div className="absolute left-0 w-[3px] rounded-r-full bg-white opacity-0 h-0 group-hover:opacity-100 group-hover:h-5 transition-all duration-200" />
         )}
 
         <div className="relative">

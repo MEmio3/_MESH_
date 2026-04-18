@@ -137,7 +137,12 @@ export function ChannelTree({
     const Icon = isText ? Hash : Volume2
 
     return (
-      <div key={ch.id} className="group/channel">
+      <div key={ch.id} className="group/channel relative">
+        {/* Active accent — thin green bar anchored to the left, only on the
+            currently-selected text channel or the voice room we're in. */}
+        {(isActiveText || isJoinedVoice) && (
+          <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-mesh-green" />
+        )}
         <button
           onClick={() => {
             if (isText) {
@@ -150,25 +155,37 @@ export function ChannelTree({
           }}
           onContextMenu={(e) => openMenuAt(e, { kind: 'channel', channel: ch })}
           className={cn(
-            'w-full flex items-center gap-2 pl-6 pr-2 py-1.5 rounded-md text-left transition-colors h-8',
+            'w-full flex items-center gap-1.5 pl-5 pr-2 rounded-md text-left transition-colors h-[30px]',
             isActiveText || isJoinedVoice
-              ? 'bg-mesh-bg-tertiary text-mesh-text-primary'
+              ? 'bg-mesh-bg-tertiary text-mesh-text-primary font-medium'
               : 'text-mesh-text-secondary hover:bg-mesh-bg-tertiary/50 hover:text-mesh-text-primary'
           )}
         >
-          <Icon className={cn('h-4 w-4 shrink-0', isJoinedVoice ? 'text-mesh-green' : 'text-mesh-text-muted')} />
-          <span className="text-sm truncate flex-1">{ch.name}</span>
+          <Icon
+            className={cn(
+              'h-[18px] w-[18px] shrink-0 transition-colors',
+              isJoinedVoice
+                ? 'text-mesh-green'
+                : isActiveText
+                  ? 'text-mesh-text-secondary'
+                  : 'text-mesh-text-muted group-hover/channel:text-mesh-text-secondary'
+            )}
+          />
+          <span className="text-[14px] truncate flex-1 tracking-tight">{ch.name}</span>
         </button>
 
         {/* Voice participants rendered only under the channel we're actually in. */}
         {isJoinedVoice && participants.length > 0 && (
-          <div className="flex flex-col gap-0.5 pl-10 mt-0.5">
+          <div className="flex flex-col gap-0.5 pl-9 mt-1 mb-1 border-l border-mesh-border/30 ml-[18px]">
             {participants.map((p) => {
               const isLive = streamingUsers.has(p.userId)
               return (
-                <div key={p.userId} className="flex items-center gap-2 px-2 py-1 rounded text-mesh-text-secondary">
+                <div
+                  key={p.userId}
+                  className="flex items-center gap-2 pl-2 pr-1.5 py-1 rounded-md text-mesh-text-secondary hover:bg-mesh-bg-tertiary/40 transition-colors"
+                >
                   <Avatar fallback={p.username} size="xs" status="online" src={p.userId === selfId ? selfAvatar : avatarsByUser[p.userId]} />
-                  <span className="text-xs text-mesh-text-muted truncate">{p.username}</span>
+                  <span className="text-xs text-mesh-text-secondary truncate">{p.username}</span>
                   {isLive && (
                     <span className="ml-auto inline-flex items-center gap-1 rounded-sm bg-red-500 px-1 py-0.5 text-[9px] font-bold uppercase leading-none text-white">
                       <span className="h-1 w-1 rounded-full bg-white" />
@@ -202,21 +219,26 @@ export function ChannelTree({
           const isOpen = !collapsed[category.id]
           return (
             <div key={category.id} className="flex flex-col gap-0.5">
-              <div className="flex items-center group px-1 pb-1.5 pt-3">
+              <div className="flex items-center group pl-1 pr-1 pb-1 pt-4">
                 <button
                   onClick={() => setCollapsed((c) => ({ ...c, [category.id]: isOpen }))}
                   onContextMenu={(e) => openMenuAt(e, { kind: 'category', category })}
-                  className="flex items-center gap-1.5 flex-1 text-left cursor-pointer"
+                  className="flex items-center gap-1 flex-1 text-left cursor-pointer min-w-0"
                 >
-                  <ChevronDown className={cn('h-3 w-3 text-mesh-text-muted group-hover:text-mesh-text-secondary transition-transform', !isOpen && '-rotate-90')} />
-                  <span className="text-[11px] font-semibold text-mesh-text-muted group-hover:text-mesh-text-secondary uppercase tracking-wide truncate">
+                  <ChevronDown
+                    className={cn(
+                      'h-3 w-3 shrink-0 text-mesh-text-muted group-hover:text-mesh-text-secondary transition-transform duration-150',
+                      !isOpen && '-rotate-90'
+                    )}
+                  />
+                  <span className="text-[11px] font-bold text-mesh-text-muted group-hover:text-mesh-text-secondary uppercase tracking-[0.06em] truncate">
                     {category.name}
                   </span>
                 </button>
                 {canManage && (
                   <button
                     onClick={(e) => openAddPopover(e, category.id)}
-                    className="opacity-0 group-hover:opacity-100 h-5 w-5 rounded-sm flex items-center justify-center text-mesh-text-muted hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary transition-colors"
+                    className="opacity-0 group-hover:opacity-100 h-[18px] w-[18px] rounded-sm flex items-center justify-center text-mesh-text-muted hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary transition-all"
                     title="Create Channel"
                   >
                     <Plus className="h-3.5 w-3.5" />
