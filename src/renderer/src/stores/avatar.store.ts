@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { webrtcManager } from '@/lib/webrtc'
 import { useIdentityStore } from './identity.store'
+import { useFriendsStore } from './friends.store'
 
 interface AvatarStore {
   self: string | null // data URL
@@ -27,11 +28,16 @@ export const useAvatarStore = create<AvatarStore>((set, get) => ({
     const res = await window.api.avatar.pickAndSet()
     if (res.success && res.dataUrl) {
       set({ self: res.dataUrl })
-      // Push to currently-connected friends (best-effort).
-      const friendIds = webrtcManager.connectedPeerIds?.() ?? []
-      for (const fid of friendIds) {
-        get().sendToPeer(fid).catch(() => {})
-      }
+      // Push the new avatar to EVERY friend — not just the ones with an open
+      // P2P channel. broadcastToUsers falls back to signaling-relayed dm-
+      // message when the data channel isn't open, so offline-at-pickup friends
+      // still receive the update the next time both sides are online.
+      const friendIds = useFriendsStore.getState().friends.map((f) => f.userId)
+      // De-dupe with currently-connected peers (e.g. active calls with non-
+      // friends such as server members) so they update live too.
+      const connected = webrtcManager.connectedPeerIds?.() ?? []
+      const unique = Array.from(new Set([...friendIds, ...connected]))
+      get().broadcastToUsers(unique).catch(() => {})
     }
     return { success: res.success, error: res.error }
   },

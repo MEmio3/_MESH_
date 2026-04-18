@@ -41,7 +41,23 @@
       "Bash(NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p tsconfig.node.json)",
       "Bash(NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p tsconfig.web.json)",
       "Bash(NODE_OPTIONS=--max-old-space-size=8192 npm run dist)",
-      "Bash(powershell -Command \"Get-Process -Name MESH -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 1; Get-Process -Name MESH -ErrorAction SilentlyContinue\")"
+      "Bash(powershell -Command \"Get-Process -Name MESH -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 1; Get-Process -Name MESH -ErrorAction SilentlyContinue\")",
+      "Bash(git -c user.name=MEmio3 -c user.email=marufhossain600@gmail.com commit -m ' *)",
+      "Bash(where gh *)",
+      "Bash(powershell -Command \"Start-Sleep -Seconds 30; gh --version 2>&1\")",
+      "Bash(gh *)",
+      "Bash(where.exe gh *)",
+      "Bash(powershell -Command \"Get-Command gh -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source\")",
+      "Read(//c/Program Files/**)",
+      "Bash(dir \"C:\\\\Program Files\\\\GitHub CLI\")",
+      "Read(//c/Users/maruf/AppData/Local/Programs/**)",
+      "Bash(export PATH=\"$PATH:/c/Program Files \\(x86\\)/GitHub CLI\")",
+      "Bash(powershell *)",
+      "Bash(curl -sL https://github.com/cli/cli/releases/download/v2.90.0/gh_2.90.0_windows_amd64.zip -o /tmp/gh.zip)",
+      "Bash(unzip -o /tmp/gh.zip -d /tmp/gh-extracted)",
+      "Read(//tmp/**)",
+      "Bash(/tmp/gh-extracted/bin/gh.exe *)",
+      "Bash(git tag *)"
     ]
   }
 }

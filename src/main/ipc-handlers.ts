@@ -184,6 +184,37 @@ export function registerFriendRequestHandlers(): void {
     }
     const existing = db.findFriendRequestBetween(payload.fromUserId, payload.toUserId)
     if (existing) {
+      // Mutual-request collision: the other user already sent one to us. Rather
+      // than rejecting (which used to leave BOTH sides stuck with a pending
+      // request neither could accept), auto-promote to friend as if the user
+      // had clicked Accept on the existing incoming.
+      if (existing.direction === 'incoming' && existing.fromUserId === payload.toUserId) {
+        db.addFriend({
+          userId: existing.fromUserId,
+          username: existing.fromUsername,
+          avatarColor: existing.fromAvatarColor,
+          status: 'offline',
+          lastSeen: null
+        })
+        db.upsertConversation({
+          id: `dm_${existing.fromUserId}`,
+          recipientId: existing.fromUserId,
+          recipientName: existing.fromUsername,
+          recipientAvatarColor: existing.fromAvatarColor,
+          recipientStatus: 'offline',
+          unreadCount: 0
+        })
+        db.removeFriendRequest(existing.id)
+        socketClient.emitSignaling('friend-request:accept', {
+          requestId: existing.id,
+          fromUserId: payload.fromUserId,
+          fromUsername: payload.fromUsername,
+          fromAvatarColor: payload.fromAvatarColor,
+          toUserId: existing.fromUserId
+        })
+        return { success: true, autoAccepted: true }
+      }
+      // Already outgoing — silently succeed (don't spam the user).
       return { success: false, error: 'A friend request already exists with this user.' }
     }
 
@@ -286,10 +317,49 @@ export function registerFriendRequestHandlers(): void {
     if (db.findBlocked(payload.fromUserId)) return { success: false, error: 'blocked' }
     // Drop if already friends
     if (db.findFriend(payload.fromUserId)) return { success: false, error: 'already-friend' }
-    // Drop if duplicate
-    if (db.findFriendRequestBetween(payload.fromUserId, payload.toUserId)) {
+
+    const existing = db.findFriendRequestBetween(payload.fromUserId, payload.toUserId)
+    if (existing) {
+      // Mutual-request collision: we already sent an outgoing to this sender.
+      // Auto-promote to friend and fire back an accept so both sides flip to
+      // friend in one step instead of getting stuck on both sides.
+      if (existing.direction === 'outgoing' && existing.toUserId === payload.fromUserId) {
+        db.addFriend({
+          userId: payload.fromUserId,
+          username: payload.fromUsername,
+          avatarColor: payload.fromAvatarColor,
+          status: 'online',
+          lastSeen: Date.now()
+        })
+        db.upsertConversation({
+          id: `dm_${payload.fromUserId}`,
+          recipientId: payload.fromUserId,
+          recipientName: payload.fromUsername,
+          recipientAvatarColor: payload.fromAvatarColor,
+          recipientStatus: 'online',
+          unreadCount: 0
+        })
+        db.removeFriendRequest(existing.id)
+        socketClient.emitSignaling('friend-request:accept', {
+          requestId: existing.id,
+          fromUserId: payload.toUserId,
+          fromUsername: '',
+          fromAvatarColor: null,
+          toUserId: payload.fromUserId
+        })
+        return {
+          success: true,
+          autoAccepted: true,
+          friend: {
+            userId: payload.fromUserId,
+            username: payload.fromUsername,
+            avatarColor: payload.fromAvatarColor
+          }
+        }
+      }
       return { success: false, error: 'duplicate' }
     }
+
     db.addFriendRequest({
       id: payload.id,
       fromUserId: payload.fromUserId,
@@ -502,6 +572,17 @@ export function registerMessageRequestHandlers(): void {
     // If remote is replying to our outgoing → promote status to 'replied'
     if (existing.direction === 'outgoing' && payload.isReply) {
       db.updateMessageRequestStatus(existing.id, 'replied', payload.content.slice(0, 200), payload.timestamp)
+      // Our outgoing just got a reply — promote to real DM conversation so
+      // the thread shows up in the main DM list on the sender side too.
+      const otherName = existing.toUsername || payload.fromUsername || payload.fromUserId
+      db.upsertConversation({
+        id: `dm_${payload.fromUserId}`,
+        recipientId: payload.fromUserId,
+        recipientName: otherName,
+        recipientAvatarColor: existing.toAvatarColor,
+        recipientStatus: 'online',
+        unreadCount: 0
+      })
     } else {
       db.updateMessageRequestStatus(existing.id, existing.status, payload.content.slice(0, 200), payload.timestamp)
     }
@@ -541,6 +622,24 @@ export function registerMessageRequestHandlers(): void {
       content: payload.content,
       timestamp: payload.timestamp,
       status: 'sent'
+    })
+
+    // Promote the request into a real DM conversation so the thread carries
+    // forward into the normal DM list (no duplicate instance later). The
+    // upsert dedupes via ON CONFLICT(id) so subsequent replies are a no-op.
+    const otherName =
+      existing.direction === 'incoming'
+        ? existing.fromUsername
+        : (existing.toUsername || payload.otherUserId)
+    const otherAvatar =
+      existing.direction === 'incoming' ? existing.fromAvatarColor : existing.toAvatarColor
+    db.upsertConversation({
+      id: `dm_${payload.otherUserId}`,
+      recipientId: payload.otherUserId,
+      recipientName: otherName,
+      recipientAvatarColor: otherAvatar,
+      recipientStatus: 'offline',
+      unreadCount: 0
     })
 
     socketClient.emitSignaling('message-request:message', {

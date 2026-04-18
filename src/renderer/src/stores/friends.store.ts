@@ -153,6 +153,10 @@ export const useFriendsStore = create<FriendsStore>((set, get) => ({
       window.api.signaling.onMessageRequestMessage(async (payload) => {
         await window.api.messageRequest.messageRemote(payload)
         set({ messageRequests: await reloadMessageRequests() })
+        // A remote reply may have promoted our outgoing request into a real
+        // DM conversation (upserted main-side). Reload the messages store so
+        // the new DM appears immediately in the sidebar.
+        await useMessagesStore.getState().initialize()
       })
     )
 
@@ -186,6 +190,21 @@ export const useFriendsStore = create<FriendsStore>((set, get) => ({
   acceptRequest: async (requestId) => {
     const identity = useIdentityStore.getState().identity
     if (!identity) return
+    const req = get().friendRequests.find((r) => r.id === requestId)
+    if (!req) return
+
+    // If the user clicked Accept on an OUTGOING request (mutual scenario where
+    // the UI shows Accept on both directions per spec), re-run the send flow.
+    // The main-process handler now auto-promotes to friend when the peer
+    // already has an incoming from us — so both sides flip at once.
+    if (req.direction === 'outgoing') {
+      await get().sendFriendRequest(req.toUserId)
+      const [friends, requests] = await Promise.all([reloadFriends(), reloadRequests()])
+      set({ friends, friendRequests: requests })
+      await useMessagesStore.getState().initialize()
+      return
+    }
+
     const res = await window.api.friendRequest.accept({
       requestId,
       selfUserId: identity.userId,
@@ -288,6 +307,10 @@ export const useFriendsStore = create<FriendsStore>((set, get) => ({
     })
     if (res.success) {
       set({ messageRequests: await reloadMessageRequests() })
+      // The reply just promoted the message-request into a real conversation
+      // (upserted main-side). Reload the messages store so the new DM appears
+      // immediately in the sidebar without needing a full re-initialise.
+      await useMessagesStore.getState().initialize()
     }
     return res
   },

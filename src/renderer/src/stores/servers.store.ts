@@ -311,21 +311,80 @@ export const useServersStore = create<ServersStore>((set, get) => ({
 
     unsubs.push(window.api.signaling.onServerEvent('join-ack', async (payload) => {
       console.log('[servers.store] join-ack received:', payload)
-      // Validate payload structure before processing
-      if (!payload || typeof payload !== 'object' || !('server' in payload) || !payload.server) {
+      if (!payload || typeof payload !== 'object') {
         console.error('[servers.store] Invalid join-ack payload:', payload)
         set({ pendingJoin: null, lastError: 'Invalid server response from signaling' })
         return
       }
+
+      // Normalise shape: the signaling server emits a FLAT payload
+      //   { serverId, name, iconColor, textChannelName, voiceRoomName,
+      //     hostUserId, hostUsername, hostAvatarColor, members, yourRole }
+      // but our main-process persistor expects the nested shape
+      //   { server: { id, name, ... }, members, yourRole }
+      // Previously the flat form failed the `'server' in payload` check and
+      // the invitee's join silently timed out — while the host's signaling
+      // server already showed them as joined. Accept both shapes.
+      type FlatJoinAck = {
+        serverId: string
+        name: string
+        iconColor: string
+        textChannelName: string
+        voiceRoomName: string
+        hostUserId: string
+        hostUsername: string
+        hostAvatarColor: string | null
+        members: Array<{ userId: string; username: string; avatarColor: string | null; role: string; isMuted: boolean }>
+        yourRole: string
+      }
+      type NestedJoinAck = {
+        server: {
+          id: string
+          name: string
+          iconColor: string
+          textChannelName: string
+          voiceRoomName: string
+          hostUserId: string
+          hostUsername: string
+          hostAvatarColor: string | null
+        }
+        members: Array<{ userId: string; username: string; avatarColor: string | null; role: string; isMuted: boolean }>
+        yourRole: string
+      }
+      const raw = payload as Partial<FlatJoinAck & NestedJoinAck>
+      const nested: NestedJoinAck | null = raw.server
+        ? (raw as NestedJoinAck)
+        : raw.serverId
+          ? {
+              server: {
+                id: raw.serverId!,
+                name: raw.name!,
+                iconColor: raw.iconColor!,
+                textChannelName: raw.textChannelName!,
+                voiceRoomName: raw.voiceRoomName!,
+                hostUserId: raw.hostUserId!,
+                hostUsername: raw.hostUsername!,
+                hostAvatarColor: raw.hostAvatarColor ?? null
+              },
+              members: raw.members ?? [],
+              yourRole: raw.yourRole ?? 'member'
+            }
+          : null
+
+      if (!nested || !nested.server?.id) {
+        console.error('[servers.store] Invalid join-ack payload:', payload)
+        set({ pendingJoin: null, lastError: 'Invalid server response from signaling' })
+        return
+      }
+
       try {
-        await window.api.server.joinAckPersist(payload)
+        await window.api.server.joinAckPersist(nested)
         await get().reloadFromDb()
         set({ pendingJoin: null })
         // Broadcast our avatar to every existing server member so they see
         // our real picture immediately. Uses P2P when available, otherwise
         // signaling-relayed DM — every member has a known userId either way.
-        const memberIds = ((payload as { members?: Array<{ userId: string }> }).members ?? [])
-          .map((m) => m.userId)
+        const memberIds = nested.members.map((m) => m.userId)
         useAvatarStore.getState().broadcastToUsers(memberIds).catch(() => {})
       } catch (err) {
         console.error('[servers.store] join-ack-persist failed:', err)

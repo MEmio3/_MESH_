@@ -178,16 +178,25 @@ export const useCallStore = create<CallState>((set, get) => ({
     stopIncomingRing()
     playCallConnect()
     window.api.signaling.emit('call-accept', peerId)
-    // Both peers must sit in the SAME signaling room so the server's
-    // onUserJoined handler pairs them for offer/answer exchange.
     navigateToDm(peerId)
-    window.api.signaling.emit('join-room', callRoomFor(selfId, peerId))
     try {
       const prefs = useAudioPrefsStore.getState()
       webrtcManager.setInputGain(prefs.inputVolume / 100)
       const { cameraDeviceId } = get()
+      // IMPORTANT: acquire local media BEFORE joining the signaling room.
+      // The initiator side of useSignaling.onUserJoined builds the peer
+      // connection and immediately calls createOffer(). If local tracks are
+      // not yet attached, the first SDP has no audio/video m-lines and the
+      // renegotiation that follows startAudio() is unreliable on some
+      // platforms — producing a silent call. Starting media first guarantees
+      // that when our peer connection is created, the tracks get added
+      // inside webrtc.ts (if (this.localAudioStream) pc.addTrack(...)) so
+      // the very first offer already carries the tracks.
       const local = await startMedia(kind, prefs.inputDeviceId, cameraDeviceId)
       set({ status: 'active', startedAt: Date.now(), localStream: local })
+      // Both peers must sit in the SAME signaling room so the server's
+      // onUserJoined handler pairs them for offer/answer exchange.
+      window.api.signaling.emit('join-room', callRoomFor(selfId, peerId))
     } catch (err) {
       console.error('Failed to start call media:', err)
       get().end(true)
@@ -218,13 +227,15 @@ export const useCallStore = create<CallState>((set, get) => ({
     if (!selfId) return
     playCallConnect()
     navigateToDm(peerId)
-    window.api.signaling.emit('join-room', callRoomFor(selfId, peerId))
     try {
       const prefs = useAudioPrefsStore.getState()
       webrtcManager.setInputGain(prefs.inputVolume / 100)
       const { cameraDeviceId } = get()
+      // See note in accept(): acquire local media BEFORE joining the
+      // signaling room so the first offer already carries tracks.
       const local = await startMedia(kind, prefs.inputDeviceId, cameraDeviceId)
       set({ status: 'active', startedAt: Date.now(), localStream: local })
+      window.api.signaling.emit('join-room', callRoomFor(selfId, peerId))
     } catch (err) {
       console.error('Failed to start call media:', err)
       get().end(true)

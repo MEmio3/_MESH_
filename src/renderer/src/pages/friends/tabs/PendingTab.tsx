@@ -85,12 +85,25 @@ function PendingTab(): JSX.Element {
                   Outgoing Friend Request · {formatTime(req.timestamp)}
                 </span>
               </div>
-              <button
-                onClick={() => cancelRequest(req.id)}
-                className="h-9 w-9 rounded-full flex items-center justify-center bg-mesh-bg-elevated text-mesh-text-muted hover:bg-mesh-danger hover:text-white transition-colors"
-              >
-                <X className="h-4.5 w-4.5" />
-              </button>
+              <div className="flex items-center gap-1.5">
+                {/* Accept is always available — if the other user already sent
+                    us one, this auto-promotes both sides to friend. If not,
+                    it's a no-op re-send (the outgoing row stays as-is). */}
+                <button
+                  onClick={() => acceptRequest(req.id)}
+                  className="h-9 w-9 rounded-full flex items-center justify-center bg-mesh-green/20 text-mesh-green hover:bg-mesh-green hover:text-white transition-colors"
+                  title="Accept"
+                >
+                  <Check className="h-4.5 w-4.5" />
+                </button>
+                <button
+                  onClick={() => cancelRequest(req.id)}
+                  className="h-9 w-9 rounded-full flex items-center justify-center bg-mesh-bg-elevated text-mesh-text-muted hover:bg-mesh-danger hover:text-white transition-colors"
+                  title="Cancel"
+                >
+                  <X className="h-4.5 w-4.5" />
+                </button>
+              </div>
             </div>
             )
           })}

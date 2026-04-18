@@ -13,9 +13,7 @@ import { PendingTab } from './tabs/PendingTab'
 import { BlockedTab } from './tabs/BlockedTab'
 import { AddFriendTab } from './tabs/AddFriendTab'
 import { NearbyTab } from './tabs/NearbyTab'
-import { MessageRequestPanel } from '@/components/social/MessageRequestPanel'
-
-type Tab = 'online' | 'all' | 'pending' | 'blocked' | 'add' | 'messages' | 'nearby'
+type Tab = 'online' | 'all' | 'pending' | 'blocked' | 'add' | 'nearby'
 
 interface TabDef {
   id: Tab
@@ -28,7 +26,6 @@ const tabs: TabDef[] = [
   { id: 'all', label: 'All' },
   { id: 'pending', label: 'Pending' },
   { id: 'blocked', label: 'Blocked' },
-  { id: 'messages', label: 'Requests' },
   { id: 'nearby', label: 'Nearby' },
   { id: 'add', label: 'Add Friend', variant: 'green' },
 ]
@@ -36,12 +33,6 @@ const tabs: TabDef[] = [
 function FriendsPage(): JSX.Element {
   const [activeTab, setActiveTab] = useState<Tab>('online')
   const pendingCount = useFriendsStore((s) => s.friendRequests.filter((r) => r.direction === 'incoming').length)
-  // Only surface requests that still need attention — once a request has been
-  // replied to, the thread already lives in the DM sidebar and doesn't belong
-  // in "Requests" anymore.
-  const messageCount = useFriendsStore(
-    (s) => s.messageRequests.filter((r) => r.status !== 'replied').length
-  )
   const userId = useIdentityStore((s) => s.identity?.userId)
   const [copied, setCopied] = useState(false)
   const [connected, setConnected] = useState(true)
@@ -82,7 +73,7 @@ function FriendsPage(): JSX.Element {
         <div className="flex items-center gap-2">
           {tabs.map((tab) => {
             const isActive = activeTab === tab.id
-            const badgeCount = tab.id === 'pending' ? pendingCount : tab.id === 'messages' ? messageCount : 0
+            const badgeCount = tab.id === 'pending' ? pendingCount : 0
 
             return (
               <button
@@ -152,7 +143,6 @@ function FriendsPage(): JSX.Element {
         {activeTab === 'all' && <AllFriendsTab />}
         {activeTab === 'pending' && <PendingTab />}
         {activeTab === 'blocked' && <BlockedTab />}
-        {activeTab === 'messages' && <MessageRequestPanel />}
         {activeTab === 'nearby' && <NearbyTab />}
         {activeTab === 'add' && <AddFriendTab />}
       </div>
