@@ -213,6 +213,13 @@ interface AvatarAPI {
   clearSelf: () => Promise<{ success: boolean }>
 }
 
+interface ServerAvatarAPI {
+  pickAndSet: (serverId: string) => Promise<{ success: boolean; error?: string; dataUrl?: string }>
+  get: (serverId: string) => Promise<string | null>
+  getAll: () => Promise<Record<string, string>>
+  clear: (serverId: string) => Promise<{ success: boolean }>
+}
+
 interface BlockAPI {
   user: (p: { selfUserId: string; targetUserId: string; targetUsername?: string }) => Promise<{ success: boolean; error?: string }>
   unblock: (p: { targetUserId: string }) => Promise<{ success: boolean }>
@@ -373,6 +380,9 @@ interface MeshAPI {
 
   // Profile pictures
   avatar: AvatarAPI
+
+  // Server avatars
+  serverAvatar: ServerAvatarAPI
 
   // Desktop notifications
   notifications: NotificationsAPI

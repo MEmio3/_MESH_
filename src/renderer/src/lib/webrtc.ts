@@ -279,7 +279,9 @@ class WebRTCManager {
     const constraints: MediaStreamConstraints = deviceId
       ? { audio: { deviceId: { exact: deviceId } } }
       : { audio: true }
-    this.localAudioStream = await navigator.mediaDevices.getUserMedia(constraints)
+    const raw = await navigator.mediaDevices.getUserMedia(constraints)
+    // Route through a Web Audio gain node so input volume is adjustable.
+    this.localAudioStream = this.wrapWithInputGain(raw)
     // Add tracks to all existing peers
     for (const peer of this.peers.values()) {
       for (const track of this.localAudioStream.getTracks()) {
@@ -295,6 +297,65 @@ class WebRTCManager {
         track.stop()
       }
       this.localAudioStream = null
+    }
+    if (this.rawAudioStream) {
+      for (const track of this.rawAudioStream.getTracks()) track.stop()
+      this.rawAudioStream = null
+    }
+    try { this.inputGainNode?.disconnect() } catch { /* ignore */ }
+    try { this.inputSourceNode?.disconnect() } catch { /* ignore */ }
+    this.inputGainNode = null
+    this.inputSourceNode = null
+  }
+
+  /** True once a local microphone stream has been captured. */
+  hasLocalAudio(): boolean {
+    return !!this.localAudioStream
+  }
+
+  /**
+   * Set input volume (0..1 linear gain). Persists across replaceAudioDevice
+   * because we reuse the same `GainNode`.
+   */
+  setInputGain(gain: number): void {
+    this.inputGainValue = Math.max(0, Math.min(2, gain))
+    if (this.inputGainNode) this.inputGainNode.gain.value = this.inputGainValue
+  }
+
+  /**
+   * Wrap a raw mic MediaStream in a Web Audio graph so input volume can be
+   * scaled independently of the OS-level capture gain. Returns a MediaStream
+   * whose audio track is the gain-adjusted output.
+   */
+  private rawAudioStream: MediaStream | null = null
+  private inputAudioCtx: AudioContext | null = null
+  private inputSourceNode: MediaStreamAudioSourceNode | null = null
+  private inputGainNode: GainNode | null = null
+  private inputGainValue = 1
+  private wrapWithInputGain(raw: MediaStream): MediaStream {
+    try {
+      // Tear down previous graph if present.
+      try { this.inputGainNode?.disconnect() } catch { /* ignore */ }
+      try { this.inputSourceNode?.disconnect() } catch { /* ignore */ }
+      if (this.rawAudioStream) {
+        for (const t of this.rawAudioStream.getTracks()) t.stop()
+      }
+      this.rawAudioStream = raw
+
+      if (!this.inputAudioCtx) this.inputAudioCtx = new AudioContext()
+      const ctx = this.inputAudioCtx
+      const src = ctx.createMediaStreamSource(raw)
+      const gain = ctx.createGain()
+      gain.gain.value = this.inputGainValue
+      const dst = ctx.createMediaStreamDestination()
+      src.connect(gain).connect(dst)
+      this.inputSourceNode = src
+      this.inputGainNode = gain
+      return dst.stream
+    } catch (err) {
+      console.warn('Input gain pipeline failed, using raw stream:', err)
+      this.rawAudioStream = null
+      return raw
     }
   }
 
@@ -316,7 +377,9 @@ class WebRTCManager {
     const constraints: MediaStreamConstraints = deviceId
       ? { audio: { deviceId: { exact: deviceId } } }
       : { audio: true }
-    const next = await navigator.mediaDevices.getUserMedia(constraints)
+    const raw = await navigator.mediaDevices.getUserMedia(constraints)
+    // Re-route through the same gain graph so input volume is preserved.
+    const next = this.wrapWithInputGain(raw)
     const newTrack = next.getAudioTracks()[0] ?? null
     for (const peer of this.peers.values()) {
       const sender = peer.pc.getSenders().find((s) => s.track?.kind === 'audio')
@@ -326,7 +389,8 @@ class WebRTCManager {
         peer.pc.addTrack(newTrack, next)
       }
     }
-    // Stop the previous local stream's tracks so the old mic releases.
+    // Stop the previous post-gain stream's tracks (raw tracks already stopped
+    // by wrapWithInputGain when it replaced rawAudioStream).
     if (this.localAudioStream) {
       for (const t of this.localAudioStream.getTracks()) t.stop()
     }

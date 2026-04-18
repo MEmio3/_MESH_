@@ -17,6 +17,7 @@
 import { create } from 'zustand'
 import { webrtcManager } from '@/lib/webrtc'
 import { useIdentityStore } from './identity.store'
+import { useAudioPrefsStore } from './audioPrefs.store'
 
 type CallStatus = 'idle' | 'outgoing' | 'incoming' | 'active' | 'declined'
 
@@ -170,8 +171,10 @@ export const useCallStore = create<CallState>((set, get) => ({
     navigateToDm(peerId)
     window.api.signaling.emit('join-room', callRoomFor(selfId, peerId))
     try {
-      const { micDeviceId, cameraDeviceId } = get()
-      const local = await startMedia(kind, micDeviceId, cameraDeviceId)
+      const prefs = useAudioPrefsStore.getState()
+      webrtcManager.setInputGain(prefs.inputVolume / 100)
+      const { cameraDeviceId } = get()
+      const local = await startMedia(kind, prefs.inputDeviceId, cameraDeviceId)
       set({ status: 'active', startedAt: Date.now(), localStream: local })
     } catch (err) {
       console.error('Failed to start call media:', err)
@@ -202,8 +205,10 @@ export const useCallStore = create<CallState>((set, get) => ({
     navigateToDm(peerId)
     window.api.signaling.emit('join-room', callRoomFor(selfId, peerId))
     try {
-      const { micDeviceId, cameraDeviceId } = get()
-      const local = await startMedia(kind, micDeviceId, cameraDeviceId)
+      const prefs = useAudioPrefsStore.getState()
+      webrtcManager.setInputGain(prefs.inputVolume / 100)
+      const { cameraDeviceId } = get()
+      const local = await startMedia(kind, prefs.inputDeviceId, cameraDeviceId)
       set({ status: 'active', startedAt: Date.now(), localStream: local })
     } catch (err) {
       console.error('Failed to start call media:', err)

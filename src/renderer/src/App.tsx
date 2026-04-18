@@ -12,6 +12,7 @@ import { useServersStore } from '@/stores/servers.store'
 import { useDiscoveryStore } from '@/stores/discovery.store'
 import { useStatusStore } from '@/stores/status.store'
 import { useAvatarStore } from '@/stores/avatar.store'
+import { useServerAvatarStore } from '@/stores/serverAvatar.store'
 import { handleIncomingPeerMessage, useMessagesStore } from '@/stores/messages.store'
 import { useSettingsStore } from '@/stores/settings.store'
 import { useCallStore } from '@/stores/call.store'
@@ -124,6 +125,7 @@ function App(): JSX.Element {
       if (useIdentityStore.getState().isOnboarded) {
         await initializeAllStores()
         await useAvatarStore.getState().initialize()
+        await useServerAvatarStore.getState().initialize()
         // Subscribe to signaling events (friend requests + server events)
         unsubscribeSignaling = useFriendsStore.getState().subscribeToSignaling()
         unsubscribeServers = useServersStore.getState().subscribeToServerEvents()

@@ -12,15 +12,17 @@
     "start": "electron-vite preview",
     "signaling": "tsx src/server/signaling.ts",
     "postinstall": "electron-builder install-app-deps",
-    "dist": "electron-vite build && electron-builder --win",
-    "dist:linux": "electron-vite build && electron-builder --linux"
+    "dist": "electron-vite build && electron-builder --win --publish never",
+    "dist:linux": "electron-vite build && electron-builder --linux --publish never"
   },
   "build": {
     "appId": "com.mesh.app",
     "productName": "MESH",
+    "copyright": "Copyright © 2025 MESH",
     "asar": true,
     "directories": {
-      "output": "dist_linux"
+      "output": "release",
+      "buildResources": "resources"
     },
     "linux": {
       "target": [
@@ -65,15 +67,27 @@
       "releaseType": "draft"
     },
     "win": {
-      "target": "nsis",
-      "icon": "resources/icon.png"
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "resources/icon.ico",
+      "artifactName": "MESH-Setup-${version}.${ext}",
+      "requestedExecutionLevel": "asInvoker"
     },
     "nsis": {
       "oneClick": false,
+      "perMachine": false,
       "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "MESH"
+      "shortcutName": "MESH",
+      "installerIcon": "resources/icon.ico",
+      "uninstallerIcon": "resources/icon.ico",
+      "artifactName": "MESH-Setup-${version}.${ext}"
     },
     "files": [
       "out/**/*",

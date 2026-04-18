@@ -10,6 +10,7 @@ import type { ServerMember } from '@/types/server'
 import { useVoiceStore } from '@/stores/voice.store'
 import { useIdentityStore } from '@/stores/identity.store'
 import { useAvatarStore } from '@/stores/avatar.store'
+import { useServerAvatarStore } from '@/stores/serverAvatar.store'
 
 interface ServerSidePanelProps {
   serverId: string
@@ -35,6 +36,9 @@ function ServerSidePanel({ serverId }: ServerSidePanelProps): JSX.Element {
   const selfId = useIdentityStore((s) => s.identity?.userId)
   const selfAvatar = useAvatarStore((s) => s.self)
   const avatarsByUser = useAvatarStore((s) => s.byUser)
+  const serverAvatars = useServerAvatarStore((s) => s.byServer)
+  const uploadServerAvatar = useServerAvatarStore((s) => s.uploadForServer)
+  const clearServerAvatar = useServerAvatarStore((s) => s.clearForServer)
 
   const [showDropdown, setShowDropdown] = useState(false)
   const [copiedLocal, setCopiedLocal] = useState(false)
@@ -55,6 +59,8 @@ function ServerSidePanel({ serverId }: ServerSidePanelProps): JSX.Element {
 
   const server = servers.find((s) => s.id === serverId)
   const isVoiceHere = isConnected && currentServerId === serverId
+  const serverAvatar = serverAvatars[serverId]
+  const canManageServer = server?.role === 'host' || server?.role === 'moderator'
 
   if (!server) {
     return (
@@ -70,11 +76,21 @@ function ServerSidePanel({ serverId }: ServerSidePanelProps): JSX.Element {
     <div className="flex flex-col h-full">
       {/* Server Header */}
       <div className="relative shrink-0" ref={dropdownRef}>
-        <button 
+        <button
           onClick={() => setShowDropdown(!showDropdown)}
-          className="w-full flex items-center justify-between h-12 px-4 border-b border-mesh-border/50 hover:bg-mesh-bg-tertiary/50 transition-colors"
+          className="w-full flex items-center gap-2 h-12 px-4 border-b border-mesh-border/50 hover:bg-mesh-bg-tertiary/50 transition-colors"
         >
-          <span className="text-sm font-bold text-mesh-text-primary truncate">{server.name}</span>
+          <div
+            className="h-6 w-6 rounded-md overflow-hidden flex items-center justify-center text-[11px] font-bold text-white shrink-0"
+            style={serverAvatar ? undefined : { backgroundColor: server.iconColor }}
+          >
+            {serverAvatar ? (
+              <img src={serverAvatar} alt={server.name} className="h-full w-full object-cover" draggable={false} />
+            ) : (
+              server.name[0].toUpperCase()
+            )}
+          </div>
+          <span className="text-sm font-bold text-mesh-text-primary truncate flex-1 text-left">{server.name}</span>
           <ChevronDown className={cn("h-4 w-4 text-mesh-text-muted shrink-0 transition-transform duration-200", showDropdown && "rotate-180")} />
         </button>
 
@@ -91,6 +107,33 @@ function ServerSidePanel({ serverId }: ServerSidePanelProps): JSX.Element {
             >
               {copiedLocal ? 'Copied!' : 'Copy Server ID'}
             </button>
+            {canManageServer && (
+              <>
+                <div className="h-px bg-mesh-border/50 my-1 mx-2" />
+                <button
+                  onClick={async () => {
+                    setShowDropdown(false)
+                    await uploadServerAvatar(serverId)
+                  }}
+                  className="w-full flex items-center px-2.5 py-1.5 mx-1 text-sm text-mesh-text-primary hover:bg-mesh-green hover:text-white rounded-sm transition-colors"
+                  style={{ width: 'calc(100% - 8px)' }}
+                >
+                  {serverAvatar ? 'Change Server Icon' : 'Upload Server Icon'}
+                </button>
+                {serverAvatar && (
+                  <button
+                    onClick={() => {
+                      setShowDropdown(false)
+                      clearServerAvatar(serverId)
+                    }}
+                    className="w-full flex items-center px-2.5 py-1.5 mx-1 text-sm text-mesh-text-primary hover:bg-mesh-bg-tertiary rounded-sm transition-colors"
+                    style={{ width: 'calc(100% - 8px)' }}
+                  >
+                    Remove Icon
+                  </button>
+                )}
+              </>
+            )}
             <div className="h-px bg-mesh-border/50 my-1 mx-2" />
             <button
               onClick={() => {

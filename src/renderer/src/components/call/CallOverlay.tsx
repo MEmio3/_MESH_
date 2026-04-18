@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff, PhoneIncoming, PhoneOutgoing, Settings, Volume2 } from 'lucide-react'
 import { useCallStore } from '@/stores/call.store'
+import { useAudioPrefsStore } from '@/stores/audioPrefs.store'
+import { registerAudioSink } from '@/stores/audioPrefs.store'
 import { UserAvatar } from '@/components/ui/UserAvatar'
 
 interface DeviceLists {
@@ -70,12 +72,14 @@ function CallOverlay(): JSX.Element | null {
   const end = useCallStore((s) => s.end)
   const toggleMute = useCallStore((s) => s.toggleMute)
   const toggleCamera = useCallStore((s) => s.toggleCamera)
-  const micDeviceId = useCallStore((s) => s.micDeviceId)
+  // Mic + speaker come from the global audio prefs (same selection used in
+  // UserPanel); camera stays call-local because it's only relevant in-call.
+  const micDeviceId = useAudioPrefsStore((s) => s.inputDeviceId)
+  const speakerDeviceId = useAudioPrefsStore((s) => s.outputDeviceId)
+  const setMicDevice = useAudioPrefsStore((s) => s.setInputDevice)
+  const setSpeakerDevice = useAudioPrefsStore((s) => s.setOutputDevice)
   const cameraDeviceId = useCallStore((s) => s.cameraDeviceId)
-  const speakerDeviceId = useCallStore((s) => s.speakerDeviceId)
-  const setMicDevice = useCallStore((s) => s.setMicDevice)
   const setCameraDevice = useCallStore((s) => s.setCameraDevice)
-  const setSpeakerDevice = useCallStore((s) => s.setSpeakerDevice)
 
   const [showSettings, setShowSettings] = useState(false)
   const devices = useMediaDevices(showSettings)
@@ -106,14 +110,9 @@ function CallOverlay(): JSX.Element | null {
     }
   }, [localStream])
 
-  // Apply selected speaker (output sink). Only supported on Chromium.
-  useEffect(() => {
-    const el = audioRef.current as (HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }) | null
-    if (!el || !el.setSinkId) return
-    el.setSinkId(speakerDeviceId || 'default').catch((err) => {
-      console.warn('setSinkId failed:', err)
-    })
-  }, [speakerDeviceId, remoteStream])
+  // Register our remote <audio> element with the global sink registry so the
+  // app-wide speaker device + output volume are applied automatically.
+  useEffect(() => registerAudioSink(audioRef.current), [remoteStream])
 
   if (status === 'idle' || !peerId) return null
 

@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import { useVoiceStore } from '@/stores/voice.store'
 import { useIdentityStore } from '@/stores/identity.store'
 import { useAvatarStore } from '@/stores/avatar.store'
+import { registerAudioSink } from '@/stores/audioPrefs.store'
 import { VoiceControlBar } from '@/components/server/VoiceControlBar'
 import { Avatar } from '@/components/ui/Avatar'
 import type { Server } from '@/types/server'
@@ -195,6 +196,12 @@ function StreamTile({ participant, stream, isSelf, isCameraStream }: StreamTileP
       el.srcObject = null
     }
   }, [stream])
+
+  // Honor the global speaker device + output volume on remote tiles.
+  useEffect(() => {
+    if (isSelf) return
+    return registerAudioSink(videoRef.current)
+  }, [isSelf, stream])
 
   return (
     <button

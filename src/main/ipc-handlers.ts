@@ -4,6 +4,7 @@ import * as db from './database'
 import * as socketClient from './socket-client'
 import * as relayManager from './relay-manager'
 import * as avatar from './avatar'
+import * as serverAvatar from './server-avatar'
 import * as fileManager from './file-manager'
 import { showNotification, type NotifyPayload } from './notifications'
 import type {
@@ -1012,6 +1013,18 @@ export function registerAvatarHandlers(): void {
     avatar.saveFriendAvatarFromBase64(payload.userId, payload.base64)
   )
   ipcMain.handle('avatar:clear-self', () => avatar.clearSelfAvatar())
+
+  // Server avatars — same pattern, keyed by serverId.
+  ipcMain.handle('server-avatar:pick-and-set', (_e, payload: { serverId: string }) =>
+    serverAvatar.pickAndSetServerAvatar(payload.serverId)
+  )
+  ipcMain.handle('server-avatar:get', (_e, payload: { serverId: string }) =>
+    serverAvatar.getServerAvatarDataUrl(payload.serverId)
+  )
+  ipcMain.handle('server-avatar:get-all', () => serverAvatar.getAllServerAvatars())
+  ipcMain.handle('server-avatar:clear', (_e, payload: { serverId: string }) =>
+    serverAvatar.clearServerAvatar(payload.serverId)
+  )
 }
 
 /**

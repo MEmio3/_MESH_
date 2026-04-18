@@ -5,12 +5,14 @@ import { motion } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { useServersStore } from '@/stores/servers.store'
+import { useServerAvatarStore } from '@/stores/serverAvatar.store'
 import { CreateServerModal } from '@/components/modals/CreateServerModal'
 
 function ServerList(): JSX.Element {
   const navigate = useNavigate()
   const location = useLocation()
   const servers = useServersStore((s) => s.servers)
+  const avatars = useServerAvatarStore((s) => s.byServer)
   const [showCreateModal, setShowCreateModal] = useState(false)
 
   const activeServerId = location.pathname.match(/^\/channels\/(?!@me)(.+)/)?.[1] || null
@@ -42,9 +44,18 @@ function ServerList(): JSX.Element {
                       ? 'rounded-[16px] text-white'
                       : 'rounded-[24px] text-white/90 hover:rounded-[16px] hover:text-white'
                   )}
-                  style={{ backgroundColor: server.iconColor }}
+                  style={avatars[server.id] ? undefined : { backgroundColor: server.iconColor }}
                 >
-                  {server.name[0].toUpperCase()}
+                  {avatars[server.id] ? (
+                    <img
+                      src={avatars[server.id]}
+                      alt={server.name}
+                      className="h-full w-full object-cover"
+                      draggable={false}
+                    />
+                  ) : (
+                    server.name[0].toUpperCase()
+                  )}
                 </button>
               </div>
             </Tooltip>

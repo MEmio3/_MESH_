@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
 import { useIdentityStore } from '@/stores/identity.store'
 import { useAvatarStore } from '@/stores/avatar.store'
+import { registerAudioSink } from '@/stores/audioPrefs.store'
 import type { VoiceParticipant } from '@/types/server'
 
 interface VoiceParticipantTileProps {
@@ -29,6 +30,13 @@ function VoiceParticipantTile({ participant, stream }: VoiceParticipantTileProps
       }
     }
   }, [stream])
+
+  // Register the <video> as a playback sink so the global speaker/output
+  // volume applies (unless this tile is the local user's own preview).
+  useEffect(() => {
+    if (participant.userId === selfId) return
+    return registerAudioSink(videoRef.current)
+  }, [participant.userId, selfId, stream])
 
   const hasVideo = stream && stream.getVideoTracks().length > 0
 

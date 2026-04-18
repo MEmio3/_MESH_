@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { VoiceParticipant } from '@/types/server'
 import { useIdentityStore } from './identity.store'
+import { useAudioPrefsStore } from './audioPrefs.store'
 import { webrtcManager } from '@/lib/webrtc'
 
 export type StreamQuality = 'SD' | 'HD'
@@ -94,7 +95,10 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     })
 
     try {
-      await webrtcManager.startAudio()
+      // Respect the user's globally-selected mic + input volume.
+      const prefs = useAudioPrefsStore.getState()
+      webrtcManager.setInputGain(prefs.inputVolume / 100)
+      await webrtcManager.startAudio(prefs.inputDeviceId || undefined)
     } catch (err) {
       console.error('Failed to start audio:', err)
     }

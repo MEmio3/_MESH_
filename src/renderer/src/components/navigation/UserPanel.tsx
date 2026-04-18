@@ -1,12 +1,13 @@
-import { Mic, MicOff, Headphones, HeadphoneOff, Settings, PhoneOff, Wifi, Monitor, Camera, CameraOff } from 'lucide-react'
+import { Mic, MicOff, Headphones, HeadphoneOff, Settings, PhoneOff, Wifi, Monitor, Camera, CameraOff, ChevronUp } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { useVoiceStore } from '@/stores/voice.store'
 import { useServersStore } from '@/stores/servers.store'
 import { useIdentityStore } from '@/stores/identity.store'
 import { useAvatarStore } from '@/stores/avatar.store'
+import { AudioDevicePopover } from '@/components/audio/AudioDevicePopover'
 
 /**
  * Discord-style persistent voice status bar. Renders above the user panel
@@ -127,6 +128,11 @@ function UserPanel(): JSX.Element {
   const uploadSelf = useAvatarStore((s) => s.uploadSelf)
   const [uploading, setUploading] = useState(false)
 
+  // Device-picker popover state (Discord-style chevron next to mic/headphone).
+  const [popover, setPopover] = useState<'input' | 'output' | null>(null)
+  const micAnchorRef = useRef<HTMLDivElement>(null)
+  const outAnchorRef = useRef<HTMLDivElement>(null)
+
   const username = identity?.username || 'User'
   const avatarColor = identity?.avatarPath || '#107C10'
 
@@ -187,21 +193,53 @@ function UserPanel(): JSX.Element {
 
       {/* Control buttons */}
       <div className="flex items-center shrink-0">
-        <UserPanelButton
-          tooltip={isMuted ? 'Unmute' : 'Mute'}
-          active={isMuted}
-          onClick={toggleMute}
-        >
-          {isMuted ? <MicOff className="h-[18px] w-[18px]" /> : <Mic className="h-[18px] w-[18px]" />}
-        </UserPanelButton>
+        {/* Mic button + device-picker chevron */}
+        <div ref={micAnchorRef} className="flex items-center">
+          <UserPanelButton
+            tooltip={isMuted ? 'Unmute' : 'Mute'}
+            active={isMuted}
+            onClick={toggleMute}
+          >
+            {isMuted ? <MicOff className="h-[18px] w-[18px]" /> : <Mic className="h-[18px] w-[18px]" />}
+          </UserPanelButton>
+          <Tooltip content="Input device" side="top">
+            <button
+              onClick={() => setPopover((p) => (p === 'input' ? null : 'input'))}
+              className={cn(
+                'flex items-center justify-center h-8 w-4 rounded-md transition-colors -ml-0.5',
+                popover === 'input'
+                  ? 'text-white bg-white/[0.06]'
+                  : 'text-[#b5bac1] hover:text-[#dbdee1] hover:bg-white/[0.06]'
+              )}
+            >
+              <ChevronUp className="h-3 w-3" />
+            </button>
+          </Tooltip>
+        </div>
 
-        <UserPanelButton
-          tooltip={isDeafened ? 'Undeafen' : 'Deafen'}
-          active={isDeafened}
-          onClick={toggleDeafen}
-        >
-          {isDeafened ? <HeadphoneOff className="h-[18px] w-[18px]" /> : <Headphones className="h-[18px] w-[18px]" />}
-        </UserPanelButton>
+        {/* Headphone button + output device-picker chevron */}
+        <div ref={outAnchorRef} className="flex items-center">
+          <UserPanelButton
+            tooltip={isDeafened ? 'Undeafen' : 'Deafen'}
+            active={isDeafened}
+            onClick={toggleDeafen}
+          >
+            {isDeafened ? <HeadphoneOff className="h-[18px] w-[18px]" /> : <Headphones className="h-[18px] w-[18px]" />}
+          </UserPanelButton>
+          <Tooltip content="Output device" side="top">
+            <button
+              onClick={() => setPopover((p) => (p === 'output' ? null : 'output'))}
+              className={cn(
+                'flex items-center justify-center h-8 w-4 rounded-md transition-colors -ml-0.5',
+                popover === 'output'
+                  ? 'text-white bg-white/[0.06]'
+                  : 'text-[#b5bac1] hover:text-[#dbdee1] hover:bg-white/[0.06]'
+              )}
+            >
+              <ChevronUp className="h-3 w-3" />
+            </button>
+          </Tooltip>
+        </div>
 
         <UserPanelButton
           tooltip="User Settings"
@@ -210,6 +248,19 @@ function UserPanel(): JSX.Element {
           <Settings className="h-[18px] w-[18px]" />
         </UserPanelButton>
       </div>
+
+      <AudioDevicePopover
+        kind="input"
+        anchorRef={micAnchorRef}
+        open={popover === 'input'}
+        onClose={() => setPopover(null)}
+      />
+      <AudioDevicePopover
+        kind="output"
+        anchorRef={outAnchorRef}
+        open={popover === 'output'}
+        onClose={() => setPopover(null)}
+      />
     </div>
   )
 }

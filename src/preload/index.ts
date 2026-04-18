@@ -252,6 +252,17 @@ const api = {
     clearSelf: (): Promise<{ success: boolean }> => ipcRenderer.invoke('avatar:clear-self')
   },
 
+  serverAvatar: {
+    pickAndSet: (serverId: string): Promise<{ success: boolean; error?: string; dataUrl?: string }> =>
+      ipcRenderer.invoke('server-avatar:pick-and-set', { serverId }),
+    get: (serverId: string): Promise<string | null> =>
+      ipcRenderer.invoke('server-avatar:get', { serverId }),
+    getAll: (): Promise<Record<string, string>> =>
+      ipcRenderer.invoke('server-avatar:get-all'),
+    clear: (serverId: string): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('server-avatar:clear', { serverId })
+  },
+
   crypto: {
     hashPassword: (password: string): Promise<string> =>
       ipcRenderer.invoke('crypto:hashPassword', password)
