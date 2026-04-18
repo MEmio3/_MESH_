@@ -616,6 +616,9 @@ export function registerServerHandlers(): void {
       status: 'online',
       isMuted: 0
     })
+    // Seed default category/channel pair so the new server has the same
+    // shape as migrated legacy servers.
+    db.seedDefaultServerChannelsIfMissing()
 
     socketClient.emitSignaling('server:register', {
       serverId,
@@ -950,6 +953,101 @@ export function registerServerHandlers(): void {
     messageId: string
   }) => {
     db.deleteServerMessage(payload.messageId)
+    return { success: true }
+  })
+
+  // ── Channels / Categories ──────────────────────────────────────────────
+  // All mutations require the actor to be host or moderator on the server.
+  // For now these are local-only; multi-peer sync will piggyback on
+  // existing server signaling in a follow-up.
+
+  function canManageServer(serverId: string, actorId: string): boolean {
+    const members = db.getServerMembers(serverId)
+    const me = members.find((m) => m.userId === actorId)
+    return !!me && (me.role === 'host' || me.role === 'moderator')
+  }
+
+  ipcMain.handle('server:list-channels', async (_e, payload: { serverId: string }) => {
+    return {
+      categories: db.getServerCategories(payload.serverId),
+      channels: db.getServerChannels(payload.serverId)
+    }
+  })
+
+  ipcMain.handle('server:create-category', async (_e, payload: {
+    serverId: string
+    actorId: string
+    name: string
+  }) => {
+    if (!canManageServer(payload.serverId, payload.actorId)) return { success: false, error: 'forbidden' }
+    const existing = db.getServerCategories(payload.serverId)
+    const position = existing.length
+    const id = `${payload.serverId}__cat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+    db.insertServerCategory({ id, serverId: payload.serverId, name: payload.name || 'New Category', position })
+    return { success: true, categoryId: id }
+  })
+
+  ipcMain.handle('server:create-channel', async (_e, payload: {
+    serverId: string
+    actorId: string
+    name: string
+    type: 'text' | 'voice'
+    categoryId?: string | null
+  }) => {
+    if (!canManageServer(payload.serverId, payload.actorId)) return { success: false, error: 'forbidden' }
+    const existing = db.getServerChannels(payload.serverId)
+    const position = existing.length
+    const id = `${payload.serverId}__ch-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+    db.insertServerChannel({
+      id,
+      serverId: payload.serverId,
+      categoryId: payload.categoryId ?? null,
+      name: payload.name || (payload.type === 'voice' ? 'voice' : 'channel'),
+      type: payload.type,
+      position
+    })
+    return { success: true, channelId: id }
+  })
+
+  ipcMain.handle('server:rename-channel', async (_e, payload: {
+    serverId: string
+    actorId: string
+    channelId: string
+    name: string
+  }) => {
+    if (!canManageServer(payload.serverId, payload.actorId)) return { success: false, error: 'forbidden' }
+    db.updateServerChannelName(payload.channelId, payload.name)
+    return { success: true }
+  })
+
+  ipcMain.handle('server:rename-category', async (_e, payload: {
+    serverId: string
+    actorId: string
+    categoryId: string
+    name: string
+  }) => {
+    if (!canManageServer(payload.serverId, payload.actorId)) return { success: false, error: 'forbidden' }
+    db.updateServerCategoryName(payload.categoryId, payload.name)
+    return { success: true }
+  })
+
+  ipcMain.handle('server:delete-channel', async (_e, payload: {
+    serverId: string
+    actorId: string
+    channelId: string
+  }) => {
+    if (!canManageServer(payload.serverId, payload.actorId)) return { success: false, error: 'forbidden' }
+    db.deleteServerChannel(payload.channelId)
+    return { success: true }
+  })
+
+  ipcMain.handle('server:delete-category', async (_e, payload: {
+    serverId: string
+    actorId: string
+    categoryId: string
+  }) => {
+    if (!canManageServer(payload.serverId, payload.actorId)) return { success: false, error: 'forbidden' }
+    db.deleteServerCategory(payload.categoryId)
     return { success: true }
   })
 }

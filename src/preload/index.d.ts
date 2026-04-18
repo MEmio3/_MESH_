@@ -252,6 +252,18 @@ interface ServerAPI {
   deleteMessage: (p: { serverId: string; messageId: string; actorId: string }) => Promise<{ success: boolean; error?: string }>
   applyMessageEdit: (p: { serverId: string; messageId: string; content: string; editedAt: number }) => Promise<{ success: boolean }>
   applyMessageDelete: (p: { serverId: string; messageId: string }) => Promise<{ success: boolean }>
+
+  // Channels / Categories
+  listChannels: (serverId: string) => Promise<{
+    categories: Array<{ id: string; serverId: string; name: string; position: number }>
+    channels: Array<{ id: string; serverId: string; categoryId: string | null; name: string; type: 'text' | 'voice'; position: number }>
+  }>
+  createCategory: (p: { serverId: string; actorId: string; name: string }) => Promise<{ success: boolean; error?: string; categoryId?: string }>
+  createChannel: (p: { serverId: string; actorId: string; name: string; type: 'text' | 'voice'; categoryId?: string | null }) => Promise<{ success: boolean; error?: string; channelId?: string }>
+  renameChannel: (p: { serverId: string; actorId: string; channelId: string; name: string }) => Promise<{ success: boolean; error?: string }>
+  renameCategory: (p: { serverId: string; actorId: string; categoryId: string; name: string }) => Promise<{ success: boolean; error?: string }>
+  deleteChannel: (p: { serverId: string; actorId: string; channelId: string }) => Promise<{ success: boolean; error?: string }>
+  deleteCategory: (p: { serverId: string; actorId: string; categoryId: string }) => Promise<{ success: boolean; error?: string }>
 }
 
 interface NetworkSignature {

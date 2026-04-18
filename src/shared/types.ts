@@ -130,6 +130,22 @@ export interface ServerMemberRow {
   isMuted: number
 }
 
+export interface ServerCategoryRow {
+  id: string
+  serverId: string
+  name: string
+  position: number
+}
+
+export interface ServerChannelRow {
+  id: string
+  serverId: string
+  categoryId: string | null
+  name: string
+  type: 'text' | 'voice'
+  position: number
+}
+
 export interface ServerMessageRow {
   id: string
   serverId: string
@@ -146,6 +162,7 @@ export interface ServerMessageRow {
   editedAt: number | null
   isDeleted: number
   reactions: string
+  channelId: string | null
 }
 
 // ── Relays ──

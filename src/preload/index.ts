@@ -324,7 +324,26 @@ const api = {
     applyMessageEdit: (payload: { serverId: string; messageId: string; content: string; editedAt: number }): Promise<{ success: boolean }> =>
       ipcRenderer.invoke('server:apply-message-edit', payload),
     applyMessageDelete: (payload: { serverId: string; messageId: string }): Promise<{ success: boolean }> =>
-      ipcRenderer.invoke('server:apply-message-delete', payload)
+      ipcRenderer.invoke('server:apply-message-delete', payload),
+
+    // Channels / Categories
+    listChannels: (serverId: string) =>
+      ipcRenderer.invoke('server:list-channels', { serverId }) as Promise<{
+        categories: Array<{ id: string; serverId: string; name: string; position: number }>
+        channels: Array<{ id: string; serverId: string; categoryId: string | null; name: string; type: 'text' | 'voice'; position: number }>
+      }>,
+    createCategory: (payload: { serverId: string; actorId: string; name: string }) =>
+      ipcRenderer.invoke('server:create-category', payload) as Promise<{ success: boolean; error?: string; categoryId?: string }>,
+    createChannel: (payload: { serverId: string; actorId: string; name: string; type: 'text' | 'voice'; categoryId?: string | null }) =>
+      ipcRenderer.invoke('server:create-channel', payload) as Promise<{ success: boolean; error?: string; channelId?: string }>,
+    renameChannel: (payload: { serverId: string; actorId: string; channelId: string; name: string }) =>
+      ipcRenderer.invoke('server:rename-channel', payload) as Promise<{ success: boolean; error?: string }>,
+    renameCategory: (payload: { serverId: string; actorId: string; categoryId: string; name: string }) =>
+      ipcRenderer.invoke('server:rename-category', payload) as Promise<{ success: boolean; error?: string }>,
+    deleteChannel: (payload: { serverId: string; actorId: string; channelId: string }) =>
+      ipcRenderer.invoke('server:delete-channel', payload) as Promise<{ success: boolean; error?: string }>,
+    deleteCategory: (payload: { serverId: string; actorId: string; categoryId: string }) =>
+      ipcRenderer.invoke('server:delete-category', payload) as Promise<{ success: boolean; error?: string }>
   },
 
   reaction: {

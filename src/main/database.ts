@@ -12,6 +12,8 @@ import type {
   ServerRow,
   ServerMemberRow,
   ServerMessageRow,
+  ServerCategoryRow,
+  ServerChannelRow,
   RelayRow
 } from '../shared/types'
 
@@ -26,6 +28,7 @@ export function openDatabase(): void {
   db.pragma('foreign_keys = ON')
   createTables()
   migrateSchema()
+  seedDefaultServerChannelsIfMissing()
 }
 
 export function closeDatabase(): void {
@@ -85,6 +88,7 @@ function migrateSchema(): void {
     if (!smsgNames.has('edited_at')) d.exec('ALTER TABLE server_messages ADD COLUMN edited_at INTEGER')
     if (!smsgNames.has('is_deleted')) d.exec('ALTER TABLE server_messages ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0')
     if (!smsgNames.has('reactions')) d.exec("ALTER TABLE server_messages ADD COLUMN reactions TEXT NOT NULL DEFAULT '{}'")
+    if (!smsgNames.has('channel_id')) d.exec('ALTER TABLE server_messages ADD COLUMN channel_id TEXT')
   }
 
   const srvCols = d.prepare("PRAGMA table_info('servers')").all() as { name: string }[]
@@ -195,6 +199,26 @@ function createTables(): void {
       PRIMARY KEY (server_id, user_id),
       FOREIGN KEY (server_id) REFERENCES servers(id)
     );
+
+    CREATE TABLE IF NOT EXISTS server_categories (
+      id TEXT PRIMARY KEY,
+      server_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY (server_id) REFERENCES servers(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_server_categories_server ON server_categories(server_id, position);
+
+    CREATE TABLE IF NOT EXISTS server_channels (
+      id TEXT PRIMARY KEY,
+      server_id TEXT NOT NULL,
+      category_id TEXT,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'text',
+      position INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY (server_id) REFERENCES servers(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_server_channels_server ON server_channels(server_id, position);
 
     CREATE TABLE IF NOT EXISTS server_messages (
       id TEXT PRIMARY KEY,
@@ -473,7 +497,82 @@ export function removeServer(serverId: string): void {
   const d = getDb()
   d.prepare('DELETE FROM server_messages WHERE server_id = ?').run(serverId)
   d.prepare('DELETE FROM server_members WHERE server_id = ?').run(serverId)
+  d.prepare('DELETE FROM server_channels WHERE server_id = ?').run(serverId)
+  d.prepare('DELETE FROM server_categories WHERE server_id = ?').run(serverId)
   d.prepare('DELETE FROM servers WHERE id = ?').run(serverId)
+}
+
+// ── Server Categories / Channels ──
+
+const CAT_COLS = 'id, server_id AS serverId, name, position'
+const CHAN_COLS = 'id, server_id AS serverId, category_id AS categoryId, name, type, position'
+
+export function getServerCategories(serverId: string): ServerCategoryRow[] {
+  return getDb().prepare(`SELECT ${CAT_COLS} FROM server_categories WHERE server_id = ? ORDER BY position ASC`).all(serverId) as ServerCategoryRow[]
+}
+
+export function getServerChannels(serverId: string): ServerChannelRow[] {
+  return getDb().prepare(`SELECT ${CHAN_COLS} FROM server_channels WHERE server_id = ? ORDER BY position ASC`).all(serverId) as ServerChannelRow[]
+}
+
+export function insertServerCategory(row: ServerCategoryRow): void {
+  getDb().prepare('INSERT OR REPLACE INTO server_categories (id, server_id, name, position) VALUES (?, ?, ?, ?)').run(row.id, row.serverId, row.name, row.position)
+}
+
+export function updateServerCategoryName(id: string, name: string): void {
+  getDb().prepare('UPDATE server_categories SET name = ? WHERE id = ?').run(name, id)
+}
+
+export function deleteServerCategory(id: string): void {
+  const d = getDb()
+  // Orphan the child channels so they survive into the "uncategorized" bucket.
+  d.prepare('UPDATE server_channels SET category_id = NULL WHERE category_id = ?').run(id)
+  d.prepare('DELETE FROM server_categories WHERE id = ?').run(id)
+}
+
+export function insertServerChannel(row: ServerChannelRow): void {
+  getDb().prepare('INSERT OR REPLACE INTO server_channels (id, server_id, category_id, name, type, position) VALUES (?, ?, ?, ?, ?, ?)').run(row.id, row.serverId, row.categoryId, row.name, row.type, row.position)
+}
+
+export function updateServerChannelName(id: string, name: string): void {
+  getDb().prepare('UPDATE server_channels SET name = ? WHERE id = ?').run(name, id)
+}
+
+export function deleteServerChannel(id: string): void {
+  const d = getDb()
+  d.prepare('DELETE FROM server_messages WHERE channel_id = ?').run(id)
+  d.prepare('DELETE FROM server_channels WHERE id = ?').run(id)
+}
+
+export function getServerChannel(id: string): ServerChannelRow | null {
+  const row = getDb().prepare(`SELECT ${CHAN_COLS} FROM server_channels WHERE id = ?`).get(id) as ServerChannelRow | undefined
+  return row ?? null
+}
+
+/**
+ * One-time migration: for every server that has no categories/channels yet,
+ * seed a "Text Channels" category with `text_channel_name`, and a
+ * "Voice Channels" category with `voice_room_name`. Also backfills the
+ * `channel_id` on legacy server_messages rows so message history keeps
+ * rendering after the UI switches to per-channel history.
+ */
+export function seedDefaultServerChannelsIfMissing(): void {
+  const d = getDb()
+  const servers = d.prepare('SELECT id, text_channel_name AS textChannelName, voice_room_name AS voiceRoomName FROM servers').all() as { id: string; textChannelName: string; voiceRoomName: string }[]
+  for (const s of servers) {
+    const existing = d.prepare('SELECT COUNT(*) AS c FROM server_channels WHERE server_id = ?').get(s.id) as { c: number }
+    if (existing.c > 0) continue
+    const textCatId = `${s.id}__cat-text`
+    const voiceCatId = `${s.id}__cat-voice`
+    const textChId = `${s.id}__ch-text-default`
+    const voiceChId = `${s.id}__ch-voice-default`
+    insertServerCategory({ id: textCatId, serverId: s.id, name: 'Text Channels', position: 0 })
+    insertServerCategory({ id: voiceCatId, serverId: s.id, name: 'Voice Channels', position: 1 })
+    insertServerChannel({ id: textChId, serverId: s.id, categoryId: textCatId, name: s.textChannelName || 'general', type: 'text', position: 0 })
+    insertServerChannel({ id: voiceChId, serverId: s.id, categoryId: voiceCatId, name: s.voiceRoomName || 'Voice Lounge', type: 'voice', position: 0 })
+    // Backfill legacy messages onto the default text channel.
+    d.prepare('UPDATE server_messages SET channel_id = ? WHERE server_id = ? AND channel_id IS NULL').run(textChId, s.id)
+  }
 }
 
 // ── Server Members ──
@@ -504,7 +603,7 @@ export function updateServerMemberStatus(serverId: string, userId: string, statu
 
 // ── Server Messages ──
 
-const SMSG_COLS = 'id, server_id AS serverId, sender_id AS senderId, sender_name AS senderName, content, timestamp, status, file_id AS fileId, file_name AS fileName, file_size AS fileSize, file_type AS fileType, file_path AS filePath, edited_at AS editedAt, is_deleted AS isDeleted, reactions'
+const SMSG_COLS = 'id, server_id AS serverId, sender_id AS senderId, sender_name AS senderName, content, timestamp, status, file_id AS fileId, file_name AS fileName, file_size AS fileSize, file_type AS fileType, file_path AS filePath, edited_at AS editedAt, is_deleted AS isDeleted, reactions, channel_id AS channelId'
 
 export function getServerMessages(serverId: string, limit = 50, before?: number): ServerMessageRow[] {
   if (before) {
@@ -514,7 +613,15 @@ export function getServerMessages(serverId: string, limit = 50, before?: number)
 }
 
 export function insertServerMessage(msg: ServerMessageRow): void {
-  getDb().prepare('INSERT OR REPLACE INTO server_messages (id, server_id, sender_id, sender_name, content, timestamp, status, file_id, file_name, file_size, file_type, file_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(msg.id, msg.serverId, msg.senderId, msg.senderName, msg.content, msg.timestamp, msg.status, msg.fileId, msg.fileName, msg.fileSize, msg.fileType, msg.filePath)
+  getDb().prepare('INSERT OR REPLACE INTO server_messages (id, server_id, sender_id, sender_name, content, timestamp, status, file_id, file_name, file_size, file_type, file_path, channel_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(msg.id, msg.serverId, msg.senderId, msg.senderName, msg.content, msg.timestamp, msg.status, msg.fileId, msg.fileName, msg.fileSize, msg.fileType, msg.filePath, msg.channelId ?? null)
+}
+
+export function getServerMessagesByChannel(serverId: string, channelId: string, limit = 50, before?: number): ServerMessageRow[] {
+  const d = getDb()
+  if (before) {
+    return d.prepare(`SELECT ${SMSG_COLS} FROM server_messages WHERE server_id = ? AND channel_id = ? AND timestamp < ? ORDER BY timestamp DESC LIMIT ?`).all(serverId, channelId, before, limit) as ServerMessageRow[]
+  }
+  return d.prepare(`SELECT ${SMSG_COLS} FROM server_messages WHERE server_id = ? AND channel_id = ? ORDER BY timestamp DESC LIMIT ?`).all(serverId, channelId, limit) as ServerMessageRow[]
 }
 
 export function updateMessageFilePath(messageId: string, filePath: string): void {
