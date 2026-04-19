@@ -168,9 +168,34 @@ try {
   console.error('[queue] failed to load offline queue:', e)
 }
 
-function saveQueueAsync() {
-  const obj = Object.fromEntries(offlineQueue)
-  fs.writeFile(QUEUE_FILE, JSON.stringify(obj), () => {})
+// Serialised write queue.
+//
+// Concurrent `saveQueueAsync()` callers previously raced each other on
+// `fs.writeFile`, producing interleaved JSON and corrupted queue files
+// under bursty loads (many deliverOrQueue calls at once). This mutex
+// guarantees at most one in-flight writeFile; any subsequent calls
+// collapse into the single `pendingWrite` slot so we always persist the
+// latest snapshot without a stack of wasted writes.
+let writing = false
+let pendingWrite: string | null = null
+
+async function saveQueueAsync(): Promise<void> {
+  pendingWrite = JSON.stringify(Object.fromEntries(offlineQueue))
+  if (writing) return
+  writing = true
+  try {
+    while (pendingWrite !== null) {
+      const toWrite = pendingWrite
+      pendingWrite = null
+      try {
+        await fs.promises.writeFile(QUEUE_FILE, toWrite, 'utf8')
+      } catch (err) {
+        console.error('[queue] failed to persist offline queue:', err)
+      }
+    }
+  } finally {
+    writing = false
+  }
 }
 
 function deliverOrQueue(targetUserId: string, event: string, ...args: unknown[]): void {
