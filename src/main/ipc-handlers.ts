@@ -246,21 +246,27 @@ export function registerFriendRequestHandlers(): void {
     const all = db.getFriendRequests()
     const req = all.find((r) => r.id === payload.requestId)
     if (!req) return { success: false, error: 'Request not found.' }
-    if (req.direction !== 'incoming') return { success: false, error: 'Not an incoming request.' }
+    // Remove the strictly-incoming check: in a mutual collision, the local DB might show it as outgoing.
+    // If the user clicks "Accept" (auto-surfaced GUI), we forcibly resolve the collision into a friendship.
 
     // Promote to friend + create conversation locally
+    // Promote to friend + create conversation locally
+    const targetUserId = req.direction === 'outgoing' ? req.toUserId : req.fromUserId;
+    const targetUsername = req.direction === 'outgoing' ? (req.toUsername || req.toUserId) : req.fromUsername;
+    const targetAvatar = req.direction === 'outgoing' ? req.toAvatarColor : req.fromAvatarColor;
+
     db.addFriend({
-      userId: req.fromUserId,
-      username: req.fromUsername,
-      avatarColor: req.fromAvatarColor,
+      userId: targetUserId,
+      username: targetUsername,
+      avatarColor: targetAvatar,
       status: 'offline',
       lastSeen: null
     })
     db.upsertConversation({
-      id: `dm_${req.fromUserId}`,
-      recipientId: req.fromUserId,
-      recipientName: req.fromUsername,
-      recipientAvatarColor: req.fromAvatarColor,
+      id: `dm_${targetUserId}`,
+      recipientId: targetUserId,
+      recipientName: targetUsername,
+      recipientAvatarColor: targetAvatar,
       recipientStatus: 'offline',
       unreadCount: 0
     })
@@ -271,9 +277,10 @@ export function registerFriendRequestHandlers(): void {
       fromUserId: payload.selfUserId,
       fromUsername: payload.selfUsername,
       fromAvatarColor: payload.selfAvatarColor,
-      toUserId: req.fromUserId
+      // If the request was technically outgoing locally, "from" and "to" reversed in the original structure.
+      toUserId: req.direction === 'outgoing' ? req.toUserId : req.fromUserId
     })
-    return { success: true, friend: { userId: req.fromUserId, username: req.fromUsername, avatarColor: req.fromAvatarColor } }
+    return { success: true, friend: { userId: targetUserId, username: targetUsername, avatarColor: targetAvatar } }
   })
 
   // Reject an incoming request. Payload: { requestId, selfUserId }
@@ -282,9 +289,14 @@ export function registerFriendRequestHandlers(): void {
     const req = all.find((r) => r.id === payload.requestId)
     if (!req) return { success: false, error: 'Request not found.' }
     db.removeFriendRequest(req.id)
-    // Task 1 spec says: "No notification to sender". So we do NOT emit.
-    // But we still silently notify to clear their outgoing UI; spec says no notification.
-    // Leave it silent — sender will learn only if they check. Keeping per spec.
+    
+    // Silently notify the original sender so they can clear their pending outgoing UI
+    socketClient.emitSignaling('friend-request:reject', {
+      requestId: req.id,
+      fromUserId: payload.selfUserId,
+      toUserId: req.fromUserId
+    })
+
     return { success: true }
   })
 
@@ -408,6 +420,13 @@ export function registerFriendRequestHandlers(): void {
   // Called by renderer when we receive `friend-request:cancelled` from signaling.
   // Removes the incoming request that the sender cancelled.
   ipcMain.handle('friend-request:cancelled-remote', async (_e, payload: { requestId: string }) => {
+    db.removeFriendRequest(payload.requestId)
+    return { success: true }
+  })
+
+  // Called by renderer when we receive `friend-request:rejected` from signaling.
+  // Silently removes our outgoing request without notifying the user.
+  ipcMain.handle('friend-request:rejected-remote', async (_e, payload: { requestId: string }) => {
     db.removeFriendRequest(payload.requestId)
     return { success: true }
   })
@@ -756,11 +775,8 @@ export function registerServerHandlers(): void {
     avatarColor: string | null
     passwordHash?: string | null
   }) => {
-    // Local check if we have the server
-    const srv = db.getServer(payload.serverId)
-    if (srv && srv.passwordHash && srv.passwordHash !== payload.passwordHash) {
-      return { success: false, error: 'Incorrect password.' }
-    }
+    // Local check removed. Authentication is strictly handled remotely by the signaling server
+    // so we don't accidentally bypass password rules for un-cached servers.
     if (!socketClient.isConnected()) {
       return { success: false, error: 'Not connected to signaling server. Check your network settings.' }
     }

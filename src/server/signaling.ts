@@ -9,6 +9,8 @@
 import express from 'express'
 import { createServer } from 'http'
 import { Server as SocketServer } from 'socket.io'
+import fs from 'fs'
+import path from 'path'
 
 const app = express()
 const httpServer = createServer(app)
@@ -135,6 +137,7 @@ interface ServerEntry {
   hostSocketId: string | null
   members: Map<string, ServerMemberInfo>
   banned: Set<string>
+  passwordHash?: string | null
 }
 const servers = new Map<string, ServerEntry>()
 
@@ -151,7 +154,24 @@ interface QueuedEvent {
   event: string
   args: unknown[]
 }
-const offlineQueue = new Map<string, QueuedEvent[]>()
+
+const QUEUE_FILE = path.join(process.cwd(), 'offline_queue.json')
+let offlineQueue = new Map<string, QueuedEvent[]>()
+
+try {
+  if (fs.existsSync(QUEUE_FILE)) {
+    const raw = fs.readFileSync(QUEUE_FILE, 'utf-8')
+    const parsed = JSON.parse(raw)
+    offlineQueue = new Map(Object.entries(parsed))
+  }
+} catch (e) {
+  console.error('[queue] failed to load offline queue:', e)
+}
+
+function saveQueueAsync() {
+  const obj = Object.fromEntries(offlineQueue)
+  fs.writeFile(QUEUE_FILE, JSON.stringify(obj), () => {})
+}
 
 function deliverOrQueue(targetUserId: string, event: string, ...args: unknown[]): void {
   const sid = userSockets.get(targetUserId)
@@ -161,6 +181,7 @@ function deliverOrQueue(targetUserId: string, event: string, ...args: unknown[])
     const q = offlineQueue.get(targetUserId) ?? []
     q.push({ event, args })
     offlineQueue.set(targetUserId, q)
+    saveQueueAsync()
   }
 }
 
@@ -171,6 +192,7 @@ function flushQueue(userId: string, socketId: string): void {
     io.to(socketId).emit(event, ...args)
   }
   offlineQueue.delete(userId)
+  saveQueueAsync()
   console.log(`[queue] flushed ${q.length} events to ${userId}`)
 }
 
@@ -309,6 +331,7 @@ io.on('connection', (socket) => {
     hostAvatarColor: string | null
     members: ServerMemberInfo[]
     banned: string[]
+    passwordHash?: string | null
   }) => {
     let entry = servers.get(payload.serverId)
     if (!entry) {
@@ -323,7 +346,8 @@ io.on('connection', (socket) => {
         hostAvatarColor: payload.hostAvatarColor,
         hostSocketId: socket.id,
         members: new Map(),
-        banned: new Set(payload.banned)
+        banned: new Set(payload.banned),
+        passwordHash: payload.passwordHash
       }
       servers.set(payload.serverId, entry)
       console.log(`[server] registered: ${payload.serverId} by ${payload.hostUserId}`)
@@ -347,6 +371,7 @@ io.on('connection', (socket) => {
     userId: string
     username: string
     avatarColor: string | null
+    passwordHash?: string | null
   }) => {
     const entry = servers.get(payload.serverId)
     if (!entry) {
@@ -355,6 +380,10 @@ io.on('connection', (socket) => {
     }
     if (entry.banned.has(payload.userId)) {
       socket.emit('server:join-denied', { serverId: payload.serverId, reason: 'You are banned from this server.' })
+      return
+    }
+    if (entry.passwordHash && entry.passwordHash !== payload.passwordHash) {
+      socket.emit('server:join-denied', { serverId: payload.serverId, reason: 'Incorrect password.' })
       return
     }
     const isHost = payload.userId === entry.hostUserId
@@ -575,9 +604,9 @@ io.on('connection', (socket) => {
     if (socket.data.userId) {
       for (const entry of servers.values()) {
         if (entry.hostSocketId === socket.id) {
-          entry.hostSocketId = null
-        }
-        if (entry.members.has(socket.data.userId)) {
+          servers.delete(entry.id)
+          io.to(roomName(entry.id)).emit('server:error', { serverId: entry.id, reason: 'Host disconnected, server closed.' })
+        } else if (entry.members.has(socket.data.userId)) {
           entry.members.delete(socket.data.userId)
           socket.to(roomName(entry.id)).emit('server:member-left', { serverId: entry.id, userId: socket.data.userId })
         }

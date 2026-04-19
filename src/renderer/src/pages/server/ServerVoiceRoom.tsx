@@ -121,10 +121,44 @@ function ServerVoiceRoom({ server }: ServerVoiceRoomProps): JSX.Element {
         )}
       </div>
 
+
       <VoiceControlBar />
+      <HiddenAudioPlayers remoteStreams={remoteStreams} selfId={selfId} />
     </div>
   )
 }
+
+/* ─────────────────────────────── Hidden Audio Engine ─────────────────────── */
+
+function HiddenAudioPlayers({ remoteStreams, selfId }: { remoteStreams: Map<string, MediaStream>; selfId?: string }): JSX.Element {
+  const entries = Array.from(remoteStreams.entries()).filter(([id]) => id !== selfId)
+  
+  return (
+    <div className="hidden">
+      {entries.map(([userId, stream]) => (
+        <AudioPlayer key={userId} stream={stream} />
+      ))}
+    </div>
+  )
+}
+
+function AudioPlayer({ stream }: { stream: MediaStream }): JSX.Element {
+  const ref = useRef<HTMLAudioElement>(null)
+  
+  useEffect(() => {
+    const el = ref.current
+    if (!el || !stream) return
+    if (el.srcObject !== stream) el.srcObject = stream
+    el.play().catch(() => {})
+  }, [stream])
+  
+  useEffect(() => {
+    if (ref.current) return registerAudioSink(ref.current)
+  }, [stream])
+  
+  return <audio ref={ref} autoPlay />
+}
+
 
 /* ─────────────────────────────── Stream grid ─────────────────────────────── */
 

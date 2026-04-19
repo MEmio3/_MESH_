@@ -371,7 +371,9 @@ const api = {
     acceptedRemote: (payload: { requestId: string; fromUserId: string; fromUsername: string; fromAvatarColor: string | null; toUserId: string }): Promise<{ success: boolean; error?: string; friend?: { userId: string; username: string; avatarColor: string | null } }> =>
       ipcRenderer.invoke('friend-request:accepted-remote', payload),
     cancelledRemote: (payload: { requestId: string }): Promise<{ success: boolean }> =>
-      ipcRenderer.invoke('friend-request:cancelled-remote', payload)
+      ipcRenderer.invoke('friend-request:cancelled-remote', payload),
+    rejectedRemote: (payload: { requestId: string }): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('friend-request:rejected-remote', payload)
   },
 
   messageRequest: {

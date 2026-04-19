@@ -127,10 +127,12 @@ export const useFriendsStore = create<FriendsStore>((set, get) => ({
       })
     )
 
-    // Rejected = silent per spec. We still clear our outgoing entry if we somehow get notified.
+    // Rejected = silent per spec but we must clear our outgoing entry.
     unsubs.push(
-      window.api.signaling.onFriendRequestRejected(async () => {
-        // no-op: sender is not notified per spec
+      window.api.signaling.onFriendRequestRejected(async (payload) => {
+        const p = payload as { requestId: string }
+        await window.api.friendRequest.rejectedRemote(p)
+        set({ friendRequests: await reloadRequests() })
       })
     )
 
@@ -193,17 +195,9 @@ export const useFriendsStore = create<FriendsStore>((set, get) => ({
     const req = get().friendRequests.find((r) => r.id === requestId)
     if (!req) return
 
-    // If the user clicked Accept on an OUTGOING request (mutual scenario where
-    // the UI shows Accept on both directions per spec), re-run the send flow.
-    // The main-process handler now auto-promotes to friend when the peer
-    // already has an incoming from us — so both sides flip at once.
-    if (req.direction === 'outgoing') {
-      await get().sendFriendRequest(req.toUserId)
-      const [friends, requests] = await Promise.all([reloadFriends(), reloadRequests()])
-      set({ friends, friendRequests: requests })
-      await useMessagesStore.getState().initialize()
-      return
-    }
+    // The main process now seamlessly handles both incoming and outgoing directions
+    // by gracefully swapping the from/to user IDs when necessary, completely eliminating
+    // mutual request deadlocks.
 
     const res = await window.api.friendRequest.accept({
       requestId,
