@@ -78,7 +78,30 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
 
   initialize: async () => {
     const rows = await window.api.db.conversations.list()
-    const conversations: Conversation[] = rows.map((r) => ({
+    // Deduplicate on load: if the DB contains multiple rows for the same
+    // recipientId (legacy bug before the id normalisation), keep the one
+    // whose id matches dm_<recipientId> when possible, otherwise the first
+    // one seen, and delete the others from the DB so they don't come back
+    // next session.
+    const byRecipient = new Map<string, typeof rows[number]>()
+    for (const r of rows) {
+      const existing = byRecipient.get(r.recipientId)
+      if (!existing) {
+        byRecipient.set(r.recipientId, r)
+        continue
+      }
+      const canonicalId = `dm_${r.recipientId}`
+      const keep = existing.id === canonicalId ? existing
+        : r.id === canonicalId ? r
+        : existing
+      const drop = keep === existing ? r : existing
+      byRecipient.set(r.recipientId, keep)
+      // In-memory dedupe is authoritative for this session. If a future IPC
+      // exposes a remove method we can also prune the DB row; for now the
+      // duplicate simply won't appear in the sidebar.
+      void drop
+    }
+    const conversations: Conversation[] = Array.from(byRecipient.values()).map((r) => ({
       id: r.id,
       recipientId: r.recipientId,
       recipientName: r.recipientName,
@@ -146,7 +169,12 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
     const conversationId = friendUserId.startsWith('dm_') ? friendUserId : `dm_${friendUserId}`
     const recipientId = conversationId.startsWith('dm_') ? conversationId.slice(3) : friendUserId
 
-    const existing = get().conversations.find((c) => c.id === conversationId)
+    // Match on recipientId too so a legacy conversation under a different
+    // id (e.g. from the old payload-trusting routing bug) is reused instead
+    // of cloned into a sidebar duplicate.
+    const existing = get().conversations.find(
+      (c) => c.id === conversationId || c.recipientId === recipientId
+    )
     if (existing) return existing
 
     const friends = (await window.api.db.friends.list()) as Array<{
@@ -358,7 +386,10 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
     const identity = useIdentityStore.getState().identity
     if (!identity) return
 
-    const conversationId = messagePayload.conversationId || `dm_${fromUserId}`
+    // Same rule as receiveMessage: the conversation id is authoritatively
+    // derived from the sender's userId on our side. Never trust the remote
+    // payload's conversationId — it reflects THEIR local mapping, not ours.
+    const conversationId = `dm_${fromUserId}`
     const msg: Message = {
       id: messagePayload.id || `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       conversationId,
@@ -370,10 +401,14 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
       file
     }
 
-    const existing = get().conversations.find((c) => c.id === conversationId)
+    const existing = get().conversations.find(
+      (c) => c.recipientId === fromUserId || c.id === conversationId
+    )
+    const targetConvId = existing?.id ?? conversationId
+    msg.conversationId = targetConvId
     if (!existing) {
       window.api.db.conversations.upsert({
-        id: conversationId,
+        id: targetConvId,
         recipientId: fromUserId,
         recipientName: fromUsername,
         recipientAvatarColor: null,
@@ -384,7 +419,7 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
         conversations: [
           ...state.conversations,
           {
-            id: conversationId,
+            id: targetConvId,
             recipientId: fromUserId,
             recipientName: fromUsername,
             recipientAvatarColor: null,
@@ -396,10 +431,10 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
         ]
       }))
     } else {
-      const isActive = get().activeConversationId === conversationId
+      const isActive = get().activeConversationId === targetConvId
       set((state) => ({
         conversations: state.conversations.map((conv) =>
-          conv.id === conversationId
+          conv.id === targetConvId
             ? {
                 ...conv,
                 messages: [...conv.messages, msg],
@@ -439,7 +474,7 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
       type: 'dm',
       title: fromUsername || 'New file',
       body: `Sent a file: ${file.fileName}`,
-      route: `/channels/@me/${conversationId}`
+      route: `/channels/@me/${targetConvId}`
     })
   },
 
@@ -471,7 +506,14 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
       // Plain string payload
     }
 
-    const conversationId = parsed.conversationId || `dm_${fromUserId}`
+    // CRITICAL: always derive the conversation id from the sender's userId.
+    // The remote `parsed.conversationId` is the SENDER's local id for THEIR
+    // conversation with us (dm_<ourId> on their device) — trusting it has
+    // caused messages to land in the wrong conversation on the receiver
+    // (e.g. a message from Tester appearing in the proyas DM on MEmio3's
+    // screen because the payload carried a mismatched id). The only correct
+    // key for OUR conversation with the sender is dm_<sender's userId>.
+    const conversationId = `dm_${fromUserId}`
     const msg: Message = {
       id: parsed.id || `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       conversationId,
@@ -483,11 +525,20 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
       replyTo: parsed.replyTo ?? null
     }
 
-    // Upsert conversation if it doesn't yet exist
-    const existing = get().conversations.find((c) => c.id === conversationId)
+    // Look up the conversation by the SENDER's userId (recipientId) rather
+    // than just id, so legacy conversations created with a different id
+    // scheme still match and we never create a duplicate for the same peer.
+    const existing = get().conversations.find(
+      (c) => c.recipientId === fromUserId || c.id === conversationId
+    )
+    // If an existing conversation is found via recipientId but has a legacy
+    // id different from dm_<fromUserId>, keep storing into the existing one
+    // so messages stay consolidated and no sidebar duplicate appears.
+    const targetConvId = existing?.id ?? conversationId
+    msg.conversationId = targetConvId
     if (!existing) {
       window.api.db.conversations.upsert({
-        id: conversationId,
+        id: targetConvId,
         recipientId: fromUserId,
         recipientName: fromUsername,
         recipientAvatarColor: null,
@@ -498,7 +549,7 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
         conversations: [
           ...state.conversations,
           {
-            id: conversationId,
+            id: targetConvId,
             recipientId: fromUserId,
             recipientName: fromUsername,
             recipientAvatarColor: null,
@@ -510,10 +561,10 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
         ]
       }))
     } else {
-      const isActive = get().activeConversationId === conversationId
+      const isActive = get().activeConversationId === targetConvId
       set((state) => ({
         conversations: state.conversations.map((conv) =>
-          conv.id === conversationId
+          conv.id === targetConvId
             ? {
                 ...conv,
                 messages: [...conv.messages, msg],
@@ -543,7 +594,7 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
       status: 'read' === msg.status ? 'read' : 'delivered'
     })
     // If the recipient already has this conversation open, mark as read too.
-    if (get().activeConversationId === conversationId) {
+    if (get().activeConversationId === targetConvId) {
       sendControlToPeer(fromUserId, { type: 'dm-ack', messageId: msg.id, status: 'read' })
     }
 
@@ -556,7 +607,7 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
       type: 'dm',
       title: fromUsername || 'New message',
       body: String(msg.content).slice(0, 140),
-      route: `/channels/@me/${conversationId}`
+      route: `/channels/@me/${targetConvId}`
     })
   },
 

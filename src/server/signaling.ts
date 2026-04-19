@@ -511,14 +511,28 @@ io.on('connection', (socket) => {
       })
       return
     }
-    // Entry exists but the host socket handle is stale/disconnected — same
-    // situation from the user's perspective, same fast-fail message.
-    if (!entry.hostSocketId || !io.sockets.sockets.get(entry.hostSocketId)) {
+    // Host online check: resolve the server's hostUserId, then ask the
+    // authoritative live-user map (`userSockets`) whether any socket is
+    // currently registered for that userId. The previous implementation
+    // checked `entry.hostSocketId` against `io.sockets.sockets.get(...)`,
+    // but `hostSocketId` is only refreshed on `server:register`. If the
+    // host briefly reconnected and hadn't re-registered yet, the stored
+    // id pointed to a dead socket even though the user was actively online
+    // — producing a false "Host offline" for people trying to join.
+    const hostSocketId = userSockets.get(entry.hostUserId)
+    const hostSocket = hostSocketId ? io.sockets.sockets.get(hostSocketId) : null
+    if (!hostSocket) {
       socket.emit('server:join-denied', {
         serverId: payload.serverId,
         reason: 'Host is currently offline. The server will be available when the host opens MESH.'
       })
       return
+    }
+    // Self-heal stale `hostSocketId` so subsequent events (messages,
+    // broadcasts) route to the live socket without waiting for a
+    // re-register. Safe because hostUserId ownership is verified above.
+    if (entry.hostSocketId !== hostSocketId) {
+      entry.hostSocketId = hostSocketId
     }
     if (entry.banned.has(payload.userId)) {
       socket.emit('server:join-denied', { serverId: payload.serverId, reason: 'You are banned from this server.' })
