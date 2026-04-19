@@ -187,7 +187,7 @@ interface SignalingAPI {
   onDmMessage: (cb: (fromUserId: string, message: string) => void) => () => void
   onDmEdit: (cb: (fromUserId: string, payload: { messageId: string; content: string; editedAt: number }) => void) => () => void
   onDmDelete: (cb: (fromUserId: string, payload: { messageId: string }) => void) => () => void
-  onDmReaction: (cb: (fromUserId: string, payload: { messageId: string; emojiId: string; add: boolean; userId: string }) => void) => () => void
+  onDmReaction: (cb: (fromUserId: string, payload: { messageId: string; emojiId: string; add: boolean; userId: string; reactions?: Record<string, string[]> }) => void) => () => void
   onCallInvite: (cb: (fromUserId: string, callData: unknown) => void) => () => void
   onCallAccept: (cb: (fromUserId: string) => void) => () => void
   onCallReject: (cb: (fromUserId: string) => void) => () => void

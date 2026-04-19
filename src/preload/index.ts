@@ -162,8 +162,8 @@ const api = {
       ipcRenderer.on('signaling:dm-delete', h)
       return () => ipcRenderer.removeListener('signaling:dm-delete', h)
     },
-    onDmReaction: (cb: (fromUserId: string, payload: { messageId: string; emojiId: string; add: boolean; userId: string }) => void): (() => void) => {
-      const h = (_e: Electron.IpcRendererEvent, fromUserId: string, payload: { messageId: string; emojiId: string; add: boolean; userId: string }): void => cb(fromUserId, payload)
+    onDmReaction: (cb: (fromUserId: string, payload: { messageId: string; emojiId: string; add: boolean; userId: string; reactions?: Record<string, string[]> }) => void): (() => void) => {
+      const h = (_e: Electron.IpcRendererEvent, fromUserId: string, payload: { messageId: string; emojiId: string; add: boolean; userId: string; reactions?: Record<string, string[]> }): void => cb(fromUserId, payload)
       ipcRenderer.on('signaling:dm-reaction', h)
       return () => ipcRenderer.removeListener('signaling:dm-reaction', h)
     },

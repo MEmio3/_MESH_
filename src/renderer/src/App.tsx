@@ -105,10 +105,22 @@ function App(): JSX.Element {
       useMessagesStore.getState().applyRemoteDelete(payload.messageId)
     })
     const offReact = window.api.signaling.onDmReaction((_fromUserId, payload) => {
-      useMessagesStore.getState().applyRemoteReaction(
-        payload.messageId, payload.emojiId, payload.userId, payload.add
-      )
-      window.api.reaction.applyDm({ ...payload }).catch(console.error)
+      // Prefer full-map replacement when the remote shipped the whole
+      // reactions snapshot; fall back to delta merge for older peers.
+      const full = (payload as { reactions?: Record<string, string[]> }).reactions
+      if (full && typeof full === 'object') {
+        useMessagesStore.getState().applyRemoteReactionFull(payload.messageId, full)
+      } else {
+        useMessagesStore.getState().applyRemoteReaction(
+          payload.messageId, payload.emojiId, payload.userId, payload.add
+        )
+      }
+      window.api.reaction.applyDm({
+        messageId: payload.messageId,
+        emojiId: payload.emojiId,
+        userId: payload.userId,
+        add: payload.add
+      }).catch(console.error)
     })
     return () => { offEdit(); offDel(); offReact() }
   }, [])

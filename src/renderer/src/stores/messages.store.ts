@@ -54,6 +54,10 @@ interface MessagesStore {
   handleAck: (fromUserId: string, messageId: string, status: 'delivered' | 'read') => void
   toggleReaction: (conversationId: string, messageId: string, emojiId: string) => Promise<void>
   applyRemoteReaction: (messageId: string, emojiId: string, userId: string, add: boolean) => void
+  // Full-replace variant: overwrites the entire reactions map for a message
+  // with the authoritative snapshot from the remote side. Used by the new
+  // reaction-sync payload that ships the whole reactions object, not a delta.
+  applyRemoteReactionFull: (messageId: string, reactions: Record<string, string[]>) => void
 }
 
 /**
@@ -716,8 +720,18 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
     // Optimistically update local state
     get().applyRemoteReaction(messageId, emojiId, selfId, add)
 
-    // Send payload over WebRTC or signaling fallback
-    const payload = { messageId, emojiId, userId: selfId, add }
+    // Re-read the freshly updated message to get the FULL reactions snapshot.
+    // We ship the whole map (not just the emojiId/add delta) so concurrent
+    // reactions on the remote side can't interleave into a divergent state —
+    // receiver replaces its local map entirely with this authoritative copy.
+    const updatedMsg = get().conversations.find((c) => c.id === conversationId)
+      ?.messages.find((m) => m.id === messageId)
+    const reactions = updatedMsg?.reactions ? { ...updatedMsg.reactions } : {}
+
+    // Payload carries both the delta (emojiId/add/userId — kept for DB
+    // persistence on the other side) AND the full reactions map for
+    // authoritative state replacement.
+    const payload = { messageId, emojiId, userId: selfId, add, reactions }
     const json = JSON.stringify({ type: 'dm-reaction', ...payload })
     const ok = webrtcManager.sendDataMessage(conv.recipientId, json)
     if (!ok) {
@@ -733,6 +747,24 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
       otherUserId: conv.recipientId,
       add
     })
+  },
+
+  applyRemoteReactionFull: (messageId, reactions) => {
+    set((state) => ({
+      conversations: state.conversations.map((conv) => {
+        const hasMsg = conv.messages.some((m) => m.id === messageId)
+        if (!hasMsg) return conv
+        return {
+          ...conv,
+          messages: conv.messages.map((m) => {
+            if (m.id !== messageId) return m
+            // Replace — do not merge. The remote map is authoritative so
+            // concurrent local/remote toggles resolve to the latest snapshot.
+            return { ...m, reactions: { ...reactions } }
+          })
+        }
+      })
+    }))
   },
 
   applyRemoteReaction: (messageId, emojiId, userId, add) => {
@@ -807,16 +839,27 @@ export function handleIncomingPeerMessage(userId: string, message: string): void
       return
     }
     if (parsed.type === 'dm-reaction' && typeof parsed.messageId === 'string') {
-      useMessagesStore.getState().applyRemoteReaction(
-        parsed.messageId, parsed.emojiId, parsed.userId, parsed.add
-      )
-      // Also persist via IPC so it survives restarts:
-      window.api.reaction.applyDm({
-        messageId: parsed.messageId,
-        emojiId: parsed.emojiId,
-        userId: parsed.userId,
-        add: parsed.add
-      }).catch(console.error)
+      // Prefer the full reactions map when present (new payload format).
+      // Falls back to the delta merge for backward compat with older peers.
+      if (parsed.reactions && typeof parsed.reactions === 'object') {
+        useMessagesStore.getState().applyRemoteReactionFull(
+          parsed.messageId, parsed.reactions
+        )
+      } else {
+        useMessagesStore.getState().applyRemoteReaction(
+          parsed.messageId, parsed.emojiId, parsed.userId, parsed.add
+        )
+      }
+      // Persist the delta locally so the DB reflects this reaction (the full
+      // map is in-memory only; DB schema still tracks per-emoji toggles).
+      if (typeof parsed.emojiId === 'string' && typeof parsed.userId === 'string' && typeof parsed.add === 'boolean') {
+        window.api.reaction.applyDm({
+          messageId: parsed.messageId,
+          emojiId: parsed.emojiId,
+          userId: parsed.userId,
+          add: parsed.add
+        }).catch(console.error)
+      }
       return
     }
   } catch {

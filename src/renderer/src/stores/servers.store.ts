@@ -35,6 +35,8 @@ interface ServersStore {
   deleteServerMessage: (serverId: string, messageId: string) => Promise<void>
   toggleServerReaction: (serverId: string, messageId: string, emojiId: string) => Promise<void>
   applyRemoteServerReaction: (serverId: string, messageId: string, emojiId: string, userId: string, add: boolean) => void
+  // Full-replace variant for authoritative server-reaction snapshots.
+  applyRemoteServerReactionFull: (serverId: string, messageId: string, reactions: Record<string, string[]>) => void
   subscribeToServerEvents: () => () => void
   reregisterOnReconnect: () => Promise<void>
 }
@@ -275,13 +277,21 @@ export const useServersStore = create<ServersStore>((set, get) => ({
     // Optimistically update
     get().applyRemoteServerReaction(serverId, messageId, emojiId, selfId, add)
 
-    // Notify others in server
+    // Re-read post-update so we broadcast the FULL authoritative reactions
+    // map for this message. Receivers replace their local map wholesale,
+    // preventing divergence when several users react in the same instant.
+    const updated = get().serverMessages[serverId]?.find((m) => m.id === messageId)
+    const reactions = updated?.reactions ? { ...updated.reactions } : {}
+
+    // Notify others in server — delta fields stay for DB persistence, `reactions`
+    // is the authoritative snapshot.
     window.api.signaling.emit('server:message-reaction', {
       serverId,
       messageId,
       emojiId,
       userId: selfId,
-      add
+      add,
+      reactions
     })
 
     await window.api.reaction.toggleServer({
@@ -290,6 +300,18 @@ export const useServersStore = create<ServersStore>((set, get) => ({
       emojiId,
       userId: selfId,
       add
+    })
+  },
+
+  applyRemoteServerReactionFull: (serverId, messageId, reactions) => {
+    set((s) => {
+      const msgs = s.serverMessages[serverId]
+      if (!msgs) return {}
+      if (!msgs.some((m) => m.id === messageId)) return {}
+      const newMsgs = msgs.map((m) =>
+        m.id === messageId ? { ...m, reactions: { ...reactions } } : m
+      )
+      return { serverMessages: { ...s.serverMessages, [serverId]: newMsgs } }
     })
   },
 
@@ -566,8 +588,16 @@ export const useServersStore = create<ServersStore>((set, get) => ({
     }))
 
     unsubs.push(window.api.signaling.onServerEvent('message-reaction', async (payload) => {
-      const p = payload as { serverId: string; messageId: string; emojiId: string; userId: string; add: boolean }
-      get().applyRemoteServerReaction(p.serverId, p.messageId, p.emojiId, p.userId, p.add)
+      const p = payload as {
+        serverId: string; messageId: string; emojiId: string;
+        userId: string; add: boolean; reactions?: Record<string, string[]>
+      }
+      // Full-map snapshot wins when present; otherwise fall back to delta merge.
+      if (p.reactions && typeof p.reactions === 'object') {
+        get().applyRemoteServerReactionFull(p.serverId, p.messageId, p.reactions)
+      } else {
+        get().applyRemoteServerReaction(p.serverId, p.messageId, p.emojiId, p.userId, p.add)
+      }
       await window.api.reaction.applyServer({
         messageId: p.messageId,
         emojiId: p.emojiId,
