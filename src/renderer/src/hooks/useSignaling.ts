@@ -155,6 +155,9 @@ export function useSignaling(callbacks?: {
   const connect = useCallback(async (serverUrl: string) => {
     const identity = useIdentityStore.getState().identity
     if (!identity) return
+    // Give Perfect Negotiation our userId so it can compute politeness
+    // against remote peers on new connections.
+    webrtcManager.setSelfUserId(identity.userId)
     await window.api.signaling.connect(serverUrl, identity.userId)
   }, [])
 

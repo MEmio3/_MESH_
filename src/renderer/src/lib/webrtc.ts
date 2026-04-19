@@ -24,6 +24,10 @@ export interface PeerConnection {
   socketId: string
   pc: RTCPeerConnection
   dataChannel: RTCDataChannel | null
+  // Perfect Negotiation state (per-peer).
+  makingOffer: boolean
+  ignoreOffer: boolean
+  polite: boolean
 }
 
 export type IceStrategy = 'p2p-first' | 'relay-fallback' | 'relay-only'
@@ -33,6 +37,10 @@ class WebRTCManager {
   private localAudioStream: MediaStream | null = null
   private localVideoStream: MediaStream | null = null
   private localScreenStream: MediaStream | null = null
+
+  // Our own userId — required to compute politeness for Perfect Negotiation.
+  // Set once at app init via setSelfUserId(); politeness = selfId < remoteId.
+  private selfUserId: string | null = null
 
   // Empty by default — pure P2P, no external STUN/TURN
   private iceServers: RTCIceServer[] = []
@@ -70,6 +78,16 @@ class WebRTCManager {
   }
 
   /**
+   * Set our own userId for Perfect Negotiation politeness comparison.
+   * Must be called before createPeerConnection/handleOffer for new peers —
+   * otherwise the manager defaults to impolite (safe fallback: no glare
+   * recovery but also no incorrect rollback).
+   */
+  setSelfUserId(id: string): void {
+    this.selfUserId = id
+  }
+
+  /**
    * Create a new peer connection for a specific user.
    * isInitiator = true means we create the offer (we joined first or initiated).
    */
@@ -82,7 +100,20 @@ class WebRTCManager {
       iceTransportPolicy: this.iceTransportPolicy
     })
 
-    const peer: PeerConnection = { userId, socketId, pc, dataChannel: null }
+    // Perfect Negotiation politeness: lexicographic userId compare.
+    // The peer with the smaller userId is polite (yields on collision).
+    // If selfUserId unknown, default to impolite.
+    const polite = this.selfUserId !== null && this.selfUserId < userId
+
+    const peer: PeerConnection = {
+      userId,
+      socketId,
+      pc,
+      dataChannel: null,
+      makingOffer: false,
+      ignoreOffer: false,
+      polite
+    }
     this.peers.set(userId, peer)
 
     // ICE candidate handler — send via signaling
@@ -108,22 +139,23 @@ class WebRTCManager {
       }
     }
 
-    // Renegotiate whenever tracks are added/removed mid-call.
-    // The `makingOffer` guard + `signalingState` check avoids offer/answer
-    // collisions when both sides fire at once.
-    let makingOffer = false
+    // Perfect Negotiation: onnegotiationneeded always attempts an offer,
+    // guarded only by the per-peer `makingOffer` flag. Glare resolution
+    // lives in handleOffer (polite rolls back, impolite ignores), not here.
     pc.onnegotiationneeded = async () => {
-      if (makingOffer || pc.signalingState !== 'stable') return
       try {
-        makingOffer = true
-        const offer = await pc.createOffer()
-        if (pc.signalingState !== 'stable') return
-        await pc.setLocalDescription(offer)
-        this.onRenegotiate?.(socketId, offer)
+        peer.makingOffer = true
+        // setLocalDescription() with no args auto-creates the right SDP
+        // (offer in stable state, answer otherwise) — spec-compliant and
+        // the cleanest way to avoid races between createOffer and srd.
+        await pc.setLocalDescription()
+        if (pc.localDescription) {
+          this.onRenegotiate?.(peer.socketId, pc.localDescription.toJSON())
+        }
       } catch (err) {
-        console.error('[webrtc] renegotiation failed:', err)
+        console.error('[webrtc] negotiationneeded failed:', err)
       } finally {
-        makingOffer = false
+        peer.makingOffer = false
       }
     }
 
@@ -213,61 +245,94 @@ class WebRTCManager {
 
   /**
    * Create an offer and return it for sending via signaling.
+   * Uses Perfect Negotiation's makingOffer flag so a concurrent
+   * onnegotiationneeded doesn't double-create.
    */
   async createOffer(userId: string): Promise<RTCSessionDescriptionInit | null> {
     const peer = this.peers.get(userId)
     if (!peer) return null
-
-    const offer = await peer.pc.createOffer()
-    await peer.pc.setLocalDescription(offer)
-    return offer
+    try {
+      peer.makingOffer = true
+      await peer.pc.setLocalDescription()
+      return peer.pc.localDescription?.toJSON() ?? null
+    } finally {
+      peer.makingOffer = false
+    }
   }
 
   /**
-   * Handle an incoming offer: set remote desc, create answer.
+   * Handle an incoming offer using the Perfect Negotiation pattern.
    *
-   * If we already have a peer connection to this user (mid-call
-   * renegotiation — e.g. the other side started a screen share), reuse
-   * the existing RTCPeerConnection so all previously-added tracks stay
-   * intact. Only fall back to creating a brand-new PC on first contact.
+   * Collision detection: an offer collides if we're mid-offer (makingOffer)
+   * or our signalingState isn't 'stable'. On collision, the impolite peer
+   * ignores the offer and the polite peer implicitly rolls back its own
+   * local offer by accepting the remote one (spec-compliant setRemoteDescription
+   * handles the rollback atomically).
+   *
+   * Reuses existing RTCPeerConnection mid-call to keep tracks intact.
    */
   async handleOffer(socketId: string, offer: RTCSessionDescriptionInit, userId: string): Promise<RTCSessionDescriptionInit | null> {
     let peer = this.peers.get(userId)
-    let pc: RTCPeerConnection
-    if (peer) {
-      pc = peer.pc
+    if (!peer) {
+      await this.createPeerConnection(userId, socketId, false)
+      peer = this.peers.get(userId)
+      if (!peer) return null
+    } else {
       // Keep socketId current in case the remote reconnected
       peer.socketId = socketId
-    } else {
-      pc = await this.createPeerConnection(userId, socketId, false)
-      peer = this.peers.get(userId)
     }
-    await pc.setRemoteDescription(new RTCSessionDescription(offer))
-    const answer = await pc.createAnswer()
-    await pc.setLocalDescription(answer)
-    return answer
+    const pc = peer.pc
+
+    const offerCollision = peer.makingOffer || pc.signalingState !== 'stable'
+    peer.ignoreOffer = !peer.polite && offerCollision
+    if (peer.ignoreOffer) {
+      // Impolite + collision → drop remote offer. Our own offer wins.
+      return null
+    }
+
+    try {
+      // setRemoteDescription on a collision implicitly rolls back the local
+      // offer (modern spec). Then answer.
+      await pc.setRemoteDescription(new RTCSessionDescription(offer))
+      await pc.setLocalDescription()
+      return pc.localDescription?.toJSON() ?? null
+    } catch (err) {
+      console.error('[webrtc] handleOffer failed:', err)
+      return null
+    }
   }
 
   /**
    * Handle an incoming answer.
    */
   async handleAnswer(socketId: string, answer: RTCSessionDescriptionInit): Promise<void> {
-    // Find peer by socketId
     for (const peer of this.peers.values()) {
       if (peer.socketId === socketId) {
-        await peer.pc.setRemoteDescription(new RTCSessionDescription(answer))
+        try {
+          await peer.pc.setRemoteDescription(new RTCSessionDescription(answer))
+        } catch (err) {
+          console.error('[webrtc] handleAnswer failed:', err)
+        }
         return
       }
     }
   }
 
   /**
-   * Handle an incoming ICE candidate.
+   * Handle an incoming ICE candidate. Candidates arriving after an ignored
+   * offer are swallowed — they belong to a negotiation that never happened
+   * from our side.
    */
   async handleIceCandidate(socketId: string, candidate: RTCIceCandidateInit): Promise<void> {
     for (const peer of this.peers.values()) {
       if (peer.socketId === socketId) {
-        await peer.pc.addIceCandidate(new RTCIceCandidate(candidate))
+        try {
+          await peer.pc.addIceCandidate(new RTCIceCandidate(candidate))
+        } catch (err) {
+          if (!peer.ignoreOffer) {
+            console.error('[webrtc] addIceCandidate failed:', err)
+          }
+        }
         return
       }
     }
