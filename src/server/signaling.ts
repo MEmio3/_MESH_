@@ -198,6 +198,84 @@ async function saveQueueAsync(): Promise<void> {
   }
 }
 
+// ── Voice-room participant tracking ──
+//
+// Maps each `voice:<serverId>[:<channelId>]` room to the set of userIds
+// currently in it, with the socketId that holds each membership. On a
+// new join we evict any stale socket for the same userId — that is the
+// fix for ghost entries after a host disconnect+reconnect race: the old
+// socket's disconnect handler may fire after the new socket has already
+// joined, so without dedupe the client's participant list sees the same
+// user twice and the eviction of the old socket later removes the user
+// entirely.
+const voiceRoomMembers = new Map<string, Map<string, string>>() // roomId → (userId → socketId)
+// Per-socket set of voice rooms this socket currently belongs to, so
+// disconnect can clean up every room this socket was in (not just the
+// last-joined `socket.data.roomId`).
+const socketVoiceRooms = new Map<string, Set<string>>() // socketId → Set<roomId>
+
+function parseVoiceRoom(roomId: string): { serverId: string; channelId: string } | null {
+  if (!roomId.startsWith('voice:')) return null
+  const parts = roomId.split(':')
+  if (parts.length < 2) return null
+  return { serverId: parts[1], channelId: parts.length > 2 ? parts[2] : 'legacy' }
+}
+
+/**
+ * Register a socket as the live holder of a user's voice-room seat.
+ * If another socket is already holding the seat for this userId, it is
+ * kicked out first — both from our tracking map and from the underlying
+ * Socket.IO room — and a voice-left is broadcast so clients can drop the
+ * old entry BEFORE we emit the new voice-joined.
+ */
+function registerVoiceMember(roomId: string, userId: string, socketId: string): void {
+  let members = voiceRoomMembers.get(roomId)
+  if (!members) {
+    members = new Map()
+    voiceRoomMembers.set(roomId, members)
+  }
+  const existingSocketId = members.get(userId)
+  if (existingSocketId && existingSocketId !== socketId) {
+    // Evict the stale socket. It may already be gone (race during reconnect)
+    // but we still clean tracking + emit voice-left so clients reconcile.
+    const oldSocket = io.sockets.sockets.get(existingSocketId)
+    if (oldSocket) {
+      oldSocket.leave(roomId)
+      socketVoiceRooms.get(existingSocketId)?.delete(roomId)
+    }
+    const parsed = parseVoiceRoom(roomId)
+    if (parsed) {
+      io.to(roomName(parsed.serverId)).emit('server:voice-left', {
+        userId,
+        serverId: parsed.serverId
+      })
+    }
+  }
+  members.set(userId, socketId)
+  let set = socketVoiceRooms.get(socketId)
+  if (!set) {
+    set = new Set()
+    socketVoiceRooms.set(socketId, set)
+  }
+  set.add(roomId)
+}
+
+/** Unregister this socket's seat in a voice room. Returns true if it held one. */
+function unregisterVoiceMember(roomId: string, userId: string, socketId: string): boolean {
+  const members = voiceRoomMembers.get(roomId)
+  if (!members) return false
+  // Only remove if this socket still owns the seat — avoids yanking a
+  // freshly-reconnected socket's valid entry when an old disconnect lands late.
+  if (members.get(userId) !== socketId) {
+    socketVoiceRooms.get(socketId)?.delete(roomId)
+    return false
+  }
+  members.delete(userId)
+  if (members.size === 0) voiceRoomMembers.delete(roomId)
+  socketVoiceRooms.get(socketId)?.delete(roomId)
+  return true
+}
+
 function deliverOrQueue(targetUserId: string, event: string, ...args: unknown[]): void {
   const sid = userSockets.get(targetUserId)
   if (sid) {
@@ -519,15 +597,19 @@ io.on('connection', (socket) => {
     // Notify others in the room
     socket.to(roomId).emit('user-joined', socket.data.userId, socket.id)
     console.log(`[socket] ${socket.data.userId} joined room: ${roomId}`)
-    
-    // Broadcast voice channel participation
-    if (roomId.startsWith('voice:')) {
-      const parts = roomId.split(':')
-      if (parts.length >= 2) {
-        const serverId = parts[1]
-        const channelId = parts.length > 2 ? parts[2] : 'legacy'
-        io.to(roomName(serverId)).emit('server:voice-joined', { userId: socket.data.userId, channelId, serverId })
-      }
+
+    // Broadcast voice channel participation.
+    // registerVoiceMember evicts any stale entry for this userId first
+    // (and emits server:voice-left for the old seat) so clients never end
+    // up with a ghost duplicate after a host disconnect + fast reconnect.
+    const voice = parseVoiceRoom(roomId)
+    if (voice && socket.data.userId) {
+      registerVoiceMember(roomId, socket.data.userId, socket.id)
+      io.to(roomName(voice.serverId)).emit('server:voice-joined', {
+        userId: socket.data.userId,
+        channelId: voice.channelId,
+        serverId: voice.serverId
+      })
     }
   })
 
@@ -537,12 +619,15 @@ io.on('connection', (socket) => {
       socket.to(roomId).emit('user-left', socket.data.userId, socket.id)
       socket.leave(roomId)
       console.log(`[socket] ${socket.data.userId} left room: ${roomId}`)
-      
-      if (roomId.startsWith('voice:')) {
-        const parts = roomId.split(':')
-        if (parts.length >= 2) {
-          const serverId = parts[1]
-          io.to(roomName(serverId)).emit('server:voice-left', { userId: socket.data.userId, serverId })
+
+      const voice = parseVoiceRoom(roomId)
+      if (voice && socket.data.userId) {
+        const removed = unregisterVoiceMember(roomId, socket.data.userId, socket.id)
+        if (removed) {
+          io.to(roomName(voice.serverId)).emit('server:voice-left', {
+            userId: socket.data.userId,
+            serverId: voice.serverId
+          })
         }
       }
       socket.data.roomId = null
@@ -644,14 +729,25 @@ io.on('connection', (socket) => {
     if (socket.data.roomId) {
       const roomId = socket.data.roomId
       socket.to(roomId).emit('user-left', socket.data.userId, socket.id)
-      if (roomId.startsWith('voice:')) {
-        const parts = roomId.split(':')
-        if (parts.length >= 2) {
-          const serverId = parts[1]
-          io.to(roomName(serverId)).emit('server:voice-left', { userId: socket.data.userId, serverId })
+    }
+    // Scrub this socket from EVERY voice room it was in — not just
+    // `socket.data.roomId`, which only tracks the most-recently-joined
+    // room and leaks entries when the same socket hopped between rooms.
+    const voiceRooms = socketVoiceRooms.get(socket.id)
+    if (voiceRooms && socket.data.userId) {
+      for (const roomId of voiceRooms) {
+        const voice = parseVoiceRoom(roomId)
+        if (!voice) continue
+        const removed = unregisterVoiceMember(roomId, socket.data.userId, socket.id)
+        if (removed) {
+          io.to(roomName(voice.serverId)).emit('server:voice-left', {
+            userId: socket.data.userId,
+            serverId: voice.serverId
+          })
         }
       }
     }
+    socketVoiceRooms.delete(socket.id)
     // Remove user from any server member lists they're in and notify rooms.
     if (socket.data.userId) {
       for (const entry of servers.values()) {
