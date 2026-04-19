@@ -11,6 +11,7 @@ interface ServersStore {
   servers: Server[]
   serverMembers: Record<string, ServerMember[]>
   serverMessages: Record<string, Message[]>
+  serverVoiceStates: Record<string, Record<string, string>> // serverId -> { userId: channelId }
   pendingJoin: string | null
   lastError: string | null
 
@@ -58,6 +59,7 @@ export const useServersStore = create<ServersStore>((set, get) => ({
   servers: [],
   serverMembers: {},
   serverMessages: {},
+  serverVoiceStates: {},
   pendingJoin: null,
   lastError: null,
 
@@ -272,6 +274,15 @@ export const useServersStore = create<ServersStore>((set, get) => ({
 
     // Optimistically update
     get().applyRemoteServerReaction(serverId, messageId, emojiId, selfId, add)
+
+    // Notify others in server
+    window.api.signaling.emit('server:message-reaction', {
+      serverId,
+      messageId,
+      emojiId,
+      userId: selfId,
+      add
+    })
 
     await window.api.reaction.toggleServer({
       serverId,
@@ -563,6 +574,33 @@ export const useServersStore = create<ServersStore>((set, get) => ({
         userId: p.userId,
         add: p.add
       }).catch(console.error)
+    }))
+
+    unsubs.push(window.api.signaling.onServerEvent('voice-joined', async (payload) => {
+      const p = payload as { serverId: string; userId: string; channelId: string }
+      set((s) => {
+        const sr = s.serverVoiceStates[p.serverId] || {}
+        return {
+          serverVoiceStates: {
+            ...s.serverVoiceStates,
+            [p.serverId]: { ...sr, [p.userId]: p.channelId }
+          }
+        }
+      })
+    }))
+
+    unsubs.push(window.api.signaling.onServerEvent('voice-left', async (payload) => {
+      const p = payload as { serverId: string; userId: string }
+      set((s) => {
+        const sr = { ...(s.serverVoiceStates[p.serverId] || {}) }
+        delete sr[p.userId]
+        return {
+          serverVoiceStates: {
+            ...s.serverVoiceStates,
+            [p.serverId]: sr
+          }
+        }
+      })
     }))
 
     return () => { for (const u of unsubs) u() }

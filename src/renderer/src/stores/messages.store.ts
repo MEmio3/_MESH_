@@ -716,7 +716,15 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
     // Optimistically update local state
     get().applyRemoteReaction(messageId, emojiId, selfId, add)
 
-    // Call API (this handles DB + signaling fallback)
+    // Send payload over WebRTC or signaling fallback
+    const payload = { messageId, emojiId, userId: selfId, add }
+    const json = JSON.stringify({ type: 'dm-reaction', ...payload })
+    const ok = webrtcManager.sendDataMessage(conv.recipientId, json)
+    if (!ok) {
+      window.api.signaling.emit('dm-reaction', conv.recipientId, payload)
+    }
+
+    // Call API (this handles local DB persistence)
     await window.api.reaction.toggleDm({
       conversationId,
       messageId,

@@ -375,12 +375,16 @@ function resolveQuality(q: StreamQuality): { width: number; height: number; fram
     : { width: 1280, height: 720, frameRate: 30 }
 }
 
-// Wire WebRTC callbacks to the store
+// Wire WebRTC callbacks to the store defensively to avoid overwriting call.store.ts
+const prevVoiceRemoteStream = webrtcManager.onRemoteStream
 webrtcManager.onRemoteStream = (userId, stream) => {
+  try { prevVoiceRemoteStream?.(userId, stream) } catch { /* ignore */ }
   useVoiceStore.getState().setRemoteStream(userId, stream)
 }
 
+const prevVoicePeerConnected = webrtcManager.onPeerConnected
 webrtcManager.onPeerConnected = (userId) => {
+  try { prevVoicePeerConnected?.(userId) } catch { /* ignore */ }
   const existing = useVoiceStore.getState().participants.find((p) => p.userId === userId)
   if (!existing) {
     useVoiceStore.getState().addParticipant({
@@ -399,7 +403,9 @@ webrtcManager.onPeerConnected = (userId) => {
   }
 }
 
+const prevVoicePeerDisconnected = webrtcManager.onPeerDisconnected
 webrtcManager.onPeerDisconnected = (userId) => {
+  try { prevVoicePeerDisconnected?.(userId) } catch { /* ignore */ }
   const wasInVoice = useVoiceStore.getState().isConnected
     && useVoiceStore.getState().participants.some((p) => p.userId === userId)
   useVoiceStore.getState().removeParticipant(userId)

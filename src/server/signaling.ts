@@ -494,13 +494,32 @@ io.on('connection', (socket) => {
     // Notify others in the room
     socket.to(roomId).emit('user-joined', socket.data.userId, socket.id)
     console.log(`[socket] ${socket.data.userId} joined room: ${roomId}`)
+    
+    // Broadcast voice channel participation
+    if (roomId.startsWith('voice:')) {
+      const parts = roomId.split(':')
+      if (parts.length >= 2) {
+        const serverId = parts[1]
+        const channelId = parts.length > 2 ? parts[2] : 'legacy'
+        io.to(roomName(serverId)).emit('server:voice-joined', { userId: socket.data.userId, channelId, serverId })
+      }
+    }
   })
 
   socket.on('leave-room', () => {
     if (socket.data.roomId) {
-      socket.to(socket.data.roomId).emit('user-left', socket.data.userId, socket.id)
-      socket.leave(socket.data.roomId)
-      console.log(`[socket] ${socket.data.userId} left room: ${socket.data.roomId}`)
+      const roomId = socket.data.roomId
+      socket.to(roomId).emit('user-left', socket.data.userId, socket.id)
+      socket.leave(roomId)
+      console.log(`[socket] ${socket.data.userId} left room: ${roomId}`)
+      
+      if (roomId.startsWith('voice:')) {
+        const parts = roomId.split(':')
+        if (parts.length >= 2) {
+          const serverId = parts[1]
+          io.to(roomName(serverId)).emit('server:voice-left', { userId: socket.data.userId, serverId })
+        }
+      }
       socket.data.roomId = null
     }
   })
@@ -598,7 +617,15 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     // Notify room if in one
     if (socket.data.roomId) {
-      socket.to(socket.data.roomId).emit('user-left', socket.data.userId, socket.id)
+      const roomId = socket.data.roomId
+      socket.to(roomId).emit('user-left', socket.data.userId, socket.id)
+      if (roomId.startsWith('voice:')) {
+        const parts = roomId.split(':')
+        if (parts.length >= 2) {
+          const serverId = parts[1]
+          io.to(roomName(serverId)).emit('server:voice-left', { userId: socket.data.userId, serverId })
+        }
+      }
     }
     // Remove user from any server member lists they're in and notify rooms.
     if (socket.data.userId) {
