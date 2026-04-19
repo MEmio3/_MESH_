@@ -42,6 +42,12 @@ class WebRTCManager {
   // Set once at app init via setSelfUserId(); politeness = selfId < remoteId.
   private selfUserId: string | null = null
 
+  // Per-peer async serialization queue. Offer/answer operations chain
+  // through this so concurrent signaling events on the same peer are
+  // executed strictly one at a time — never interleaved on the
+  // RTCPeerConnection state machine.
+  private offerQueues: Map<string, Promise<void>> = new Map()
+
   // Empty by default — pure P2P, no external STUN/TURN
   private iceServers: RTCIceServer[] = []
   private iceTransportPolicy: RTCIceTransportPolicy = 'all'
@@ -272,6 +278,21 @@ class WebRTCManager {
    * Reuses existing RTCPeerConnection mid-call to keep tracks intact.
    */
   async handleOffer(socketId: string, offer: RTCSessionDescriptionInit, userId: string): Promise<RTCSessionDescriptionInit | null> {
+    // Serialise per-peer SDP operations so two offers arriving back-to-back
+    // can never run `setRemoteDescription` concurrently on the same PC.
+    let answer: RTCSessionDescriptionInit | null = null
+    const existing = this.offerQueues.get(userId) ?? Promise.resolve()
+    const next = existing.then(async () => {
+      answer = await this.doHandleOffer(socketId, offer, userId)
+    }).catch((err) => {
+      console.error('[webrtc] offer queue failed:', err)
+    })
+    this.offerQueues.set(userId, next)
+    await next
+    return answer
+  }
+
+  private async doHandleOffer(socketId: string, offer: RTCSessionDescriptionInit, userId: string): Promise<RTCSessionDescriptionInit | null> {
     let peer = this.peers.get(userId)
     if (!peer) {
       await this.createPeerConnection(userId, socketId, false)
@@ -291,8 +312,15 @@ class WebRTCManager {
     }
 
     try {
-      // setRemoteDescription on a collision implicitly rolls back the local
-      // offer (modern spec). Then answer.
+      if (offerCollision && peer.polite) {
+        // Polite side: explicit rollback before accepting the remote offer.
+        // Modern browsers also do this implicitly via setRemoteDescription,
+        // but issuing it explicitly is unambiguous and keeps glare-recovery
+        // behaviour consistent across Chromium versions.
+        try {
+          await pc.setLocalDescription({ type: 'rollback' } as RTCSessionDescriptionInit)
+        } catch { /* already rolled back */ }
+      }
       await pc.setRemoteDescription(new RTCSessionDescription(offer))
       await pc.setLocalDescription()
       return pc.localDescription?.toJSON() ?? null
@@ -306,16 +334,25 @@ class WebRTCManager {
    * Handle an incoming answer.
    */
   async handleAnswer(socketId: string, answer: RTCSessionDescriptionInit): Promise<void> {
+    // Find the peer this answer belongs to; chain through its queue so
+    // setRemoteDescription(answer) can't race with a concurrent setLocal/
+    // setRemote for an overlapping renegotiation.
+    let target: PeerConnection | null = null
     for (const peer of this.peers.values()) {
-      if (peer.socketId === socketId) {
-        try {
-          await peer.pc.setRemoteDescription(new RTCSessionDescription(answer))
-        } catch (err) {
-          console.error('[webrtc] handleAnswer failed:', err)
-        }
-        return
-      }
+      if (peer.socketId === socketId) { target = peer; break }
     }
+    if (!target) return
+    const peer = target
+    const existing = this.offerQueues.get(peer.userId) ?? Promise.resolve()
+    const next = existing.then(async () => {
+      try {
+        await peer.pc.setRemoteDescription(new RTCSessionDescription(answer))
+      } catch (err) {
+        console.error('[webrtc] handleAnswer failed:', err)
+      }
+    })
+    this.offerQueues.set(peer.userId, next)
+    await next
   }
 
   /**
@@ -659,6 +696,7 @@ class WebRTCManager {
       peer.dataChannel?.close()
       peer.pc.close()
       this.peers.delete(userId)
+      this.offerQueues.delete(userId)
       this.onRemoteStreamRemoved?.(userId)
     }
   }

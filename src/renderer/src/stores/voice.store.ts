@@ -110,6 +110,12 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     if (isSwitching) {
       webrtcManager.closeAll()
       window.api.signaling.emit('leave-room')
+      // Give the signaling server time to fan out `server:voice-left` to
+      // remote peers BEFORE we emit the new join. Without this delay the
+      // new voice-joined races ahead of the leave on other clients,
+      // producing ghost entries (same user appearing in two channels at
+      // once in the sidebar).
+      await new Promise((r) => setTimeout(r, 500))
     } else if (state.isConnected) {
       // Joining a different server — do a full leave first.
       webrtcManager.stopAudio()
@@ -117,6 +123,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       webrtcManager.stopScreenShare()
       webrtcManager.closeAll()
       window.api.signaling.emit('leave-room')
+      await new Promise((r) => setTimeout(r, 500))
     }
 
     const identity = useIdentityStore.getState().identity

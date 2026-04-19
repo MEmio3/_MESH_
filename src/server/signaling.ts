@@ -229,6 +229,28 @@ function parseVoiceRoom(roomId: string): { serverId: string; channelId: string }
  * old entry BEFORE we emit the new voice-joined.
  */
 function registerVoiceMember(roomId: string, userId: string, socketId: string): void {
+  const parsedNew = parseVoiceRoom(roomId)
+  if (parsedNew) {
+    // Evict this userId from ANY other voice room of the same server —
+    // fixes ghost users when a member hops channels and the new join
+    // lands before the old leave resolves for remote peers.
+    for (const [otherRoomId, otherMembers] of voiceRoomMembers) {
+      if (otherRoomId === roomId) continue
+      const parsedOther = parseVoiceRoom(otherRoomId)
+      if (!parsedOther || parsedOther.serverId !== parsedNew.serverId) continue
+      const staleSocketId = otherMembers.get(userId)
+      if (!staleSocketId) continue
+      otherMembers.delete(userId)
+      if (otherMembers.size === 0) voiceRoomMembers.delete(otherRoomId)
+      socketVoiceRooms.get(staleSocketId)?.delete(otherRoomId)
+      const staleSocket = io.sockets.sockets.get(staleSocketId)
+      if (staleSocket) staleSocket.leave(otherRoomId)
+      io.to(roomName(parsedOther.serverId)).emit('server:voice-left', {
+        userId,
+        serverId: parsedOther.serverId
+      })
+    }
+  }
   let members = voiceRoomMembers.get(roomId)
   if (!members) {
     members = new Map()
@@ -477,8 +499,25 @@ io.on('connection', (socket) => {
     passwordHash?: string | null
   }) => {
     const entry = servers.get(payload.serverId)
+    // A missing entry means the host isn't currently online — in MESH, the
+    // host IS the server (P2P), so when the host's socket disconnects the
+    // entry is deleted from `servers`. We reply immediately with a friendly
+    // reason so the UI doesn't sit on a 15-second spinner waiting for a
+    // server that will never respond.
     if (!entry) {
-      socket.emit('server:join-denied', { serverId: payload.serverId, reason: 'Server not found or host offline.' })
+      socket.emit('server:join-denied', {
+        serverId: payload.serverId,
+        reason: 'Host is currently offline. The server will be available when the host opens MESH.'
+      })
+      return
+    }
+    // Entry exists but the host socket handle is stale/disconnected — same
+    // situation from the user's perspective, same fast-fail message.
+    if (!entry.hostSocketId || !io.sockets.sockets.get(entry.hostSocketId)) {
+      socket.emit('server:join-denied', {
+        serverId: payload.serverId,
+        reason: 'Host is currently offline. The server will be available when the host opens MESH.'
+      })
       return
     }
     if (entry.banned.has(payload.userId)) {

@@ -69,12 +69,13 @@ export function useSignaling(callbacks?: {
     cleanups.push(window.api.signaling.onUserJoined(async (userId: string, socketId: string) => {
       callbacksRef.current?.onUserJoined?.(userId, socketId)
 
-      // We are the initiator — create peer connection and send offer
-      const pc = await webrtcManager.createPeerConnection(userId, socketId, true)
-      const offer = await webrtcManager.createOffer(userId)
-      if (offer) {
-        window.api.signaling.emit('offer', socketId, offer)
-      }
+      // Create the peer connection only. The manual createOffer call was
+      // removed because addTrack inside createPeerConnection already fires
+      // onnegotiationneeded, which creates and sends the offer exactly once.
+      // Firing a second manual offer in parallel produced the voice-channel
+      // double-offer bug: two offers hit the remote peer simultaneously,
+      // setRemoteDescription collided, the PC aborted, no audio/video.
+      await webrtcManager.createPeerConnection(userId, socketId, true)
     }))
 
     cleanups.push(window.api.signaling.onUserLeft((userId: string, _socketId: string) => {
