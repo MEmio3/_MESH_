@@ -1,45 +1,50 @@
 @import "tailwindcss";
 
 @theme {
-  /* === MESH Xbox-Inspired Dark Theme === */
+  /* === MESH — Minimal Dark Pro ===
+     Near-black layered surfaces, hairline borders, muted gray hierarchy,
+     one restrained accent. Tokens keep their legacy names (mesh-green etc.)
+     so every component retunes without a rename sweep. */
 
-  /* Background layers — deep blacks and dark grays */
-  --color-mesh-bg-primary: #0f0f0f;
-  --color-mesh-bg-secondary: #1a1a1a;
-  --color-mesh-bg-tertiary: #2d2d2d;
-  --color-mesh-bg-elevated: #3d3d3d;
-  --color-mesh-bg-hover: #4a4a4a;
+  /* Background layers — cool near-blacks, each step barely lighter */
+  --color-mesh-bg-primary: #0a0a0b;
+  --color-mesh-bg-secondary: #101013;
+  --color-mesh-bg-tertiary: #17171b;
+  --color-mesh-bg-elevated: #1d1d22;
+  --color-mesh-bg-hover: #232329;
 
-  /* Xbox Green accent family */
-  --color-mesh-green: #107C10;
-  --color-mesh-green-light: #1a9c1a;
-  --color-mesh-green-dark: #0e6b0e;
-  --color-mesh-green-glow: oklch(0.5 0.15 145 / 0.3);
+  /* Accent — desaturated emerald: keeps MESH's green identity, loses the
+     Xbox-console saturation. Used sparingly: primary actions, live states. */
+  --color-mesh-green: #2f9e6e;
+  --color-mesh-green-light: #3cb27e;
+  --color-mesh-green-dark: #27865d;
+  --color-mesh-green-glow: oklch(0.55 0.09 160 / 0.18);
 
-  /* Text hierarchy */
-  --color-mesh-text-primary: #ffffff;
-  --color-mesh-text-secondary: #b3b3b3;
-  --color-mesh-text-muted: #737373;
+  /* Text hierarchy — softened white, clear three-step gray ramp */
+  --color-mesh-text-primary: #ededef;
+  --color-mesh-text-secondary: #9b9ba3;
+  --color-mesh-text-muted: #62626b;
 
-  /* Borders */
-  --color-mesh-border: #3d3d3d;
-  --color-mesh-border-light: #4a4a4a;
+  /* Borders — hairlines, barely above the surface they sit on */
+  --color-mesh-border: #222227;
+  --color-mesh-border-light: #2d2d34;
 
-  /* Semantic colors */
-  --color-mesh-danger: #d13438;
-  --color-mesh-danger-hover: #e8383d;
-  --color-mesh-warning: #ffb900;
-  --color-mesh-info: #0078d4;
+  /* Semantic colors — muted, editorial */
+  --color-mesh-danger: #e5484d;
+  --color-mesh-danger-hover: #f2555a;
+  --color-mesh-warning: #e0af68;
+  --color-mesh-info: #7aa2f7;
 
-  /* Typography — Xbox uses Segoe UI */
-  --font-sans: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  /* Typography — Segoe UI Variable renders noticeably crisper on Win11 */
+  --font-sans: 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'Cascadia Mono', 'Cascadia Code', Consolas, 'SF Mono', monospace;
 
-  /* Border radius — Xbox uses subtle rounding, not pill shapes */
+  /* Border radius — tight; pro tools don't do pills */
   --radius-xs: 2px;
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
 }
 
 /* Global base styles */
@@ -56,6 +61,8 @@ html, body {
   font-family: var(--font-sans);
   background-color: var(--color-mesh-bg-primary);
   color: var(--color-mesh-text-primary);
+  font-size: 14px;
+  letter-spacing: 0.01em;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -65,10 +72,10 @@ html, body {
   width: 100%;
 }
 
-/* Custom scrollbar — Discord dark style */
+/* Scrollbar — thin, hairline, invisible until needed */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -76,18 +83,18 @@ html, body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: #2f3136;
-  border-radius: 4px;
+  background-color: #26262c;
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background-color: #202225;
+  background-color: #34343c;
 }
 
 /* Selection color */
 ::selection {
-  background-color: rgba(16, 124, 16, 0.3);
-  color: white;
+  background-color: rgba(47, 158, 110, 0.28);
+  color: #ffffff;
 }
 
 /* Electron titlebar drag region */
@@ -108,11 +115,11 @@ html, body {
   scrollbar-width: none;
 }
 
-/* Custom range slider — Xbox style */
+/* Custom range slider — hairline track, precise thumb */
 .mesh-slider {
   -webkit-appearance: none;
   appearance: none;
-  height: 4px;
+  height: 3px;
   border-radius: 2px;
   outline: none;
   cursor: pointer;
@@ -121,16 +128,17 @@ html, body {
 .mesh-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 16px;
-  height: 16px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
-  background: white;
+  background: #ededef;
   cursor: pointer;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+  transition: transform 0.1s ease;
 }
 
 .mesh-slider::-webkit-slider-thumb:hover {
-  transform: scale(1.15);
+  transform: scale(1.2);
 }
 
 /* Framer motion animation helpers */

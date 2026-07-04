@@ -57,7 +57,10 @@
       "Bash(unzip -o /tmp/gh.zip -d /tmp/gh-extracted)",
       "Read(//tmp/**)",
       "Bash(/tmp/gh-extracted/bin/gh.exe *)",
-      "Bash(git tag *)"
+      "Bash(git tag *)",
+      "Bash(echo \"---web exit: $?\")",
+      "Bash(echo \"---node exit: $?\")",
+      "Bash(grep -E \"main/index\\\\.ts|main\\\\\\\\\\\\\\\\index\\\\.ts\")"
     ]
   }
 }

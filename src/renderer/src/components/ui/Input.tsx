@@ -12,9 +12,10 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
         <input
           ref={ref}
           className={cn(
-            'w-full h-10 px-3 rounded-md bg-mesh-bg-tertiary border text-mesh-text-primary text-sm',
+            'w-full h-9 px-3 rounded-md bg-mesh-bg-secondary border text-mesh-text-primary text-sm',
             'placeholder:text-mesh-text-muted',
-            'focus:outline-none focus:ring-2 focus:ring-mesh-green focus:border-transparent',
+            // Hairline focus: accent border + faint halo, not a thick ring.
+            'focus:outline-none focus:border-mesh-green focus:ring-1 focus:ring-mesh-green/30',
             'transition-colors duration-150',
             error ? 'border-mesh-danger' : 'border-mesh-border',
             className

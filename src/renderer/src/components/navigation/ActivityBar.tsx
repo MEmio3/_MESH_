@@ -13,7 +13,7 @@ function ActivityBar(): JSX.Element {
   const isHome = location.pathname.startsWith('/channels/@me')
 
   return (
-    <div className="flex flex-col items-center w-[72px] shrink-0 h-full bg-mesh-bg-primary py-3">
+    <div className="flex flex-col items-center w-[60px] shrink-0 h-full bg-mesh-bg-primary py-2.5 border-r border-mesh-border/60">
       {/* Home Button */}
       <ActivityBarItem
         tooltip="Home"
@@ -21,10 +21,10 @@ function ActivityBar(): JSX.Element {
         onClick={() => navigate('/channels/@me')}
         hasNotification={false}
       >
-        <Home className="h-6 w-6" />
+        <Home className="h-[18px] w-[18px]" strokeWidth={1.75} />
       </ActivityBarItem>
 
-      <div className="w-8 h-[2px] bg-mesh-border/60 mx-auto my-2.5 rounded-full" />
+      <div className="w-7 h-px bg-mesh-border mx-auto my-2.5" />
 
       {/* Server List — from store with create/join modal */}
       <div className="flex flex-col items-center gap-2 flex-1 w-full overflow-y-auto scrollbar-none">
@@ -47,35 +47,35 @@ function ActivityBarItem({ tooltip, isActive, onClick, hasNotification, children
   return (
     <Tooltip content={tooltip} side="right">
       <div className="relative flex items-center justify-center w-full group">
-        {/* Interaction Pill — active pill grows to 40px, hover pill to 20px.
-            Pill is pure white and tapers with a rounded right edge. */}
+        {/* Active indicator — a hairline accent bar. No shape morphing,
+            no color flooding: the state reads from one precise element. */}
         {isActive ? (
           <motion.div
             layoutId="activity-pill"
-            className="absolute left-0 w-[3px] rounded-r-full bg-white opacity-100"
+            className="absolute left-0 w-[2px] rounded-r-full bg-mesh-green"
             initial={{ height: 8 }}
-            animate={{ height: 40 }}
+            animate={{ height: 24 }}
             transition={{ type: 'spring', stiffness: 500, damping: 30 }}
           />
         ) : (
-          <div className="absolute left-0 w-[3px] rounded-r-full bg-white opacity-0 h-0 group-hover:opacity-100 group-hover:h-5 transition-all duration-200" />
+          <div className="absolute left-0 w-[2px] rounded-r-full bg-mesh-text-muted opacity-0 h-0 group-hover:opacity-100 group-hover:h-3 transition-all duration-150" />
         )}
 
         <div className="relative">
           <button
             onClick={onClick}
             className={cn(
-              'flex items-center justify-center h-[48px] w-[48px] transition-all duration-200 overflow-hidden',
+              'flex items-center justify-center h-10 w-10 rounded-lg transition-colors duration-150 overflow-hidden',
               isActive
-                ? 'rounded-[16px] bg-mesh-green text-white'
-                : 'rounded-[24px] bg-mesh-bg-tertiary text-mesh-text-primary hover:bg-mesh-green hover:text-white hover:rounded-[16px]'
+                ? 'bg-mesh-bg-tertiary text-mesh-text-primary'
+                : 'bg-transparent text-mesh-text-muted hover:bg-mesh-bg-secondary hover:text-mesh-text-secondary'
             )}
           >
             {children}
           </button>
-          
+
           {hasNotification && !isActive && (
-            <div className="absolute top-0 -right-1 h-3.5 w-3.5 rounded-full bg-mesh-danger border-[3px] border-mesh-bg-primary" />
+            <div className="absolute top-0.5 right-0.5 h-2 w-2 rounded-full bg-mesh-danger border-2 border-mesh-bg-primary" />
           )}
         </div>
       </div>
