@@ -6,6 +6,7 @@ import { VoiceConnectionBar, UserPanel } from '@/components/navigation/UserPanel
 import { StreamPickerModal } from '@/components/server/StreamPickerModal'
 import { SelfPreviewPiP } from '@/components/server/SelfPreviewPiP'
 import { StreamViewerModal } from '@/components/server/StreamViewerModal'
+import { VoiceAudioEngine } from '@/components/voice/VoiceAudioEngine'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { useVoiceStore } from '@/stores/voice.store'
 
@@ -62,6 +63,9 @@ function AppShell(): JSX.Element {
 
       {/* Full-screen viewer, opened by clicking a participant's LIVE badge. */}
       <StreamViewerModal />
+
+      {/* Global voice audio — keeps remote voices playing across navigation. */}
+      <VoiceAudioEngine />
     </div>
   )
 }

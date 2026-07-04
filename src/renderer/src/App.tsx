@@ -51,6 +51,29 @@ function App(): JSX.Element {
     })
   }, [])
 
+  // Re-establish server presence on EVERY signaling (re)connect — not just at
+  // startup. The signaling server deletes a server entry the moment the
+  // host's socket drops, so after any reconnect the host MUST re-register or
+  // every join attempt gets "Host is currently offline" while the host is
+  // sitting right there. Members likewise rejoin their rooms and republish
+  // status.
+  useEffect(() => {
+    return window.api.signaling.onConnected(() => {
+      const identity = useIdentityStore.getState().identity
+      if (!identity) return
+      window.api.server.reregisterMine({
+        selfUserId: identity.userId,
+        selfUsername: identity.username,
+        selfAvatarColor: (identity as unknown as { avatarPath?: string | null }).avatarPath ?? null
+      }).catch(() => { /* retried on next reconnect */ })
+      useStatusStore.getState().publishFriendsSubscription()
+      useStatusStore.getState().publishSelf('online')
+      // Relays are registered on the signaling server — refresh the ICE
+      // config now that we can query the live list again.
+      useSettingsStore.getState().reapplyIceConfig().catch(() => {})
+    })
+  }, [])
+
   // Task 9: fallback signaling-relayed DM payloads (messages + delivery acks)
   // must still land in the messages store even when no DM page is mounted.
   useEffect(() => {
@@ -153,7 +176,11 @@ function App(): JSX.Element {
           try {
             await window.api.signaling.connect(signalingUrl, identity.userId)
             // After connecting, re-register hosted servers + rejoin member servers.
-            await window.api.server.reregisterMine({ selfUserId: identity.userId })
+            await window.api.server.reregisterMine({
+              selfUserId: identity.userId,
+              selfUsername: identity.username,
+              selfAvatarColor: (identity as unknown as { avatarPath?: string | null }).avatarPath ?? null
+            })
             // Publish presence + fetch nearby list.
             await useDiscoveryStore.getState().publishSelf()
             await useDiscoveryStore.getState().refresh()

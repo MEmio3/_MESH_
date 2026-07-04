@@ -20,6 +20,8 @@ interface RelayStatus {
   scope: 'isp-local' | 'global'
   connections: number
   credentials: { username: string; password: string } | null
+  advertisedAddress: string | null
+  relayId: string | null
   error: string | null
 }
 
@@ -51,7 +53,13 @@ function RelaySettings(): JSX.Element {
 
   const handleToggleContributing = async (enabled: boolean): Promise<void> => {
     if (enabled) {
-      const res = await window.api.relay.start({ scope: relayScope })
+      // Pass the signaling URL so the relay registers itself, heartbeats,
+      // and becomes discoverable by every peer — starting without
+      // registering made the relay invisible to the entire network.
+      const res = await window.api.relay.start({
+        scope: relayScope,
+        signalingUrl: network.signalingUrl || 'http://localhost:3000'
+      })
       if (!res.success) {
         alert(`Failed to start relay: ${res.error}`)
       }
@@ -59,6 +67,7 @@ function RelaySettings(): JSX.Element {
       await window.api.relay.stop()
     }
     await refreshStatus()
+    await refreshRelays()
   }
 
   const handleAddRelay = (): void => {
@@ -196,6 +205,17 @@ function RelaySettings(): JSX.Element {
               <div className="rounded-lg bg-mesh-bg-tertiary p-3">
                 <span className="text-mesh-text-muted block mb-1">Connections</span>
                 <span className="text-mesh-text-primary font-semibold">{status.connections}</span>
+              </div>
+              <div className="rounded-lg bg-mesh-bg-tertiary p-3 col-span-2">
+                <span className="text-mesh-text-muted block mb-1">Advertised address</span>
+                <span className="text-mesh-text-primary font-mono text-[11px]">
+                  {status.advertisedAddress ?? 'Not determined'}
+                </span>
+                {status.relayId ? (
+                  <span className="block mt-1 text-[10px] text-mesh-green">Registered on signaling · heartbeating</span>
+                ) : (
+                  <span className="block mt-1 text-[10px] text-mesh-text-muted">Not registered — peers must add it manually</span>
+                )}
               </div>
             </div>
             {status.error && (

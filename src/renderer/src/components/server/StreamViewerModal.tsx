@@ -74,8 +74,8 @@ function StreamViewerModal(): JSX.Element | null {
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-2.5 bg-black/80 border-b border-mesh-border/40">
               <div className="flex items-center gap-2.5">
-                <span className="inline-flex items-center gap-1.5 rounded bg-red-500 px-2 py-0.5 text-[10px] font-bold uppercase leading-none text-white">
-                  <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
+                <span className="inline-flex items-center gap-1.5 rounded-sm border border-mesh-danger/40 bg-black/50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider leading-none text-mesh-danger">
+                  <span className="h-1 w-1 rounded-full bg-mesh-danger animate-pulse" />
                   Live
                 </span>
                 <span className="text-sm font-semibold text-white truncate">
@@ -94,11 +94,13 @@ function StreamViewerModal(): JSX.Element | null {
 
             {/* Video */}
             <div className="relative flex-1 bg-black">
+              {/* Muted: audio playback is owned by VoiceAudioEngine — an unmuted
+                  element here would double every remote voice while viewing. */}
               <video
                 ref={videoRef}
                 autoPlay
                 playsInline
-                muted={isSelf}
+                muted
                 className={cn(
                   'w-full h-full bg-black',
                   isCamera ? '-scale-x-100 object-contain' : 'object-contain'

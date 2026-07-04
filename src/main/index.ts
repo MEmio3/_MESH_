@@ -8,6 +8,14 @@ if (process.env.MESH_USER_DATA) {
   app.setPath('userData', process.env.MESH_USER_DATA)
 }
 
+// Chromium hides local IPs behind mDNS "*.local" hostnames in ICE candidates.
+// On networks where multicast DNS is blocked (managed switches, AP isolation,
+// VPN adapters, many Windows setups) those names never resolve, so ICE fails
+// even between two machines on the same subnet — the call "connects" at the
+// signaling level but no media ever flows. MESH runs on LAN/intranet by
+// design, so expose real local IPs and make host candidates directly dialable.
+app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns')
+
 import { initSodium } from './identity'
 import {
   registerWindowHandlers,

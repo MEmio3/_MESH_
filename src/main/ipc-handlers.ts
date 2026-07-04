@@ -150,7 +150,10 @@ export function registerDatabaseHandlers(): void {
 
   // ── Relays ──
   ipcMain.handle('db:relays:list', () => db.getRelays())
-  ipcMain.handle('db:relays:add', (_e, relay: RelayRow) => db.addRelay(relay))
+  ipcMain.handle('db:relays:add', (_e, relay: RelayRow) =>
+    // Normalise credential fields — better-sqlite3 throws on `undefined`
+    // bind values, and older callers won't send username/password.
+    db.addRelay({ ...relay, username: relay.username ?? null, password: relay.password ?? null }))
   ipcMain.handle('db:relays:remove', (_e, id: string) => db.removeRelay(id))
 
   // ── Settings ──
@@ -695,6 +698,10 @@ export function registerMessageRequestHandlers(): void {
 /**
  * Register community-server orchestration IPC handlers.
  */
+// Password hash supplied with the most recent join attempt per server —
+// persisted into the local row on join-ack so auto-rejoin can reuse it.
+const pendingJoinPasswords = new Map<string, string | null>()
+
 export function registerServerHandlers(): void {
   // Create a new server (I am the host). Persists locally + registers with signaling.
   ipcMain.handle('server:create', async (_e, payload: {
@@ -780,6 +787,9 @@ export function registerServerHandlers(): void {
     if (!socketClient.isConnected()) {
       return { success: false, error: 'Not connected to signaling server. Check your network settings.' }
     }
+    // Remember the hash so join-ack-persist can store it — needed for silent
+    // auto-rejoin of password servers after a reconnect.
+    pendingJoinPasswords.set(payload.serverId, payload.passwordHash ?? null)
     socketClient.emitSignaling('server:join', payload)
     return { success: true }
   })
@@ -819,7 +829,7 @@ export function registerServerHandlers(): void {
         hostUsername: payload.server.hostUsername,
         hostAvatarColor: payload.server.hostAvatarColor,
         banned: '[]',
-        passwordHash: null
+        passwordHash: pendingJoinPasswords.get(payload.server.id) ?? null
       })
       // Replace member list: remove stale, then add current.
       const existing = db.getServerMembers(payload.server.id)
@@ -858,13 +868,17 @@ export function registerServerHandlers(): void {
     return { success: true }
   })
 
-  // Send a text message in a server.
+  // Send a text (or file) message in a server. File payloads carry base64 in
+  // the signaling broadcast so every member receives the actual bytes — the
+  // old path stuffed a data-URL into the content string for images only and
+  // reduced every other file to a "[File: ...]" placeholder.
   ipcMain.handle('server:send-message', async (_e, payload: {
     serverId: string
     senderId: string
     senderName: string
     content: string
     channelId?: string | null
+    file?: { fileId: string; fileName: string; fileSize: number; fileType: string; base64: string; filePath?: string | null } | null
   }) => {
     // Renderer only passes content + sender info — we mint the id/timestamp here
     // so every message has non-null primary key + timestamp columns.
@@ -878,7 +892,15 @@ export function registerServerHandlers(): void {
       content: payload.content,
       timestamp,
       status: 'sent',
-      channelId: payload.channelId ?? null
+      channelId: payload.channelId ?? null,
+      fileId: payload.file?.fileId ?? null,
+      fileName: payload.file?.fileName ?? null,
+      fileSize: payload.file?.fileSize ?? null,
+      fileType: payload.file?.fileType ?? null,
+      filePath: payload.file?.filePath ?? null,
+      editedAt: null,
+      isDeleted: 0,
+      reactions: '{}'
     })
     socketClient.emitSignaling('server:message', {
       serverId: payload.serverId,
@@ -888,16 +910,30 @@ export function registerServerHandlers(): void {
         senderName: payload.senderName,
         content: payload.content,
         timestamp,
-        channelId: payload.channelId ?? null
+        channelId: payload.channelId ?? null,
+        file: payload.file
+          ? {
+              fileId: payload.file.fileId,
+              fileName: payload.file.fileName,
+              fileSize: payload.file.fileSize,
+              fileType: payload.file.fileType,
+              base64: payload.file.base64
+            }
+          : null
       }
     })
     return { success: true, messageId: id }
   })
 
   // Called by renderer when server:message event arrives — persist inbound.
+  // For file messages the renderer saves the bytes first and passes the
+  // resulting local filePath so history renders after restart.
   ipcMain.handle('server:message-remote', async (_e, payload: {
     serverId: string
-    message: { id: string; senderId: string; senderName: string; content: string; timestamp: number; channelId?: string | null }
+    message: {
+      id: string; senderId: string; senderName: string; content: string; timestamp: number; channelId?: string | null
+      file?: { fileId: string; fileName: string; fileSize: number; fileType: string; filePath?: string | null } | null
+    }
   }) => {
     db.insertServerMessage({
       id: payload.message.id,
@@ -907,7 +943,15 @@ export function registerServerHandlers(): void {
       content: payload.message.content,
       timestamp: payload.message.timestamp,
       status: 'delivered',
-      channelId: payload.message.channelId ?? null
+      channelId: payload.message.channelId ?? null,
+      fileId: payload.message.file?.fileId ?? null,
+      fileName: payload.message.file?.fileName ?? null,
+      fileSize: payload.message.file?.fileSize ?? null,
+      fileType: payload.message.file?.fileType ?? null,
+      filePath: payload.message.file?.filePath ?? null,
+      editedAt: null,
+      isDeleted: 0,
+      reactions: '{}'
     })
     return { success: true }
   })
@@ -991,7 +1035,11 @@ export function registerServerHandlers(): void {
   })
 
   // Re-register my hosted servers on signaling (e.g. after reconnect).
-  ipcMain.handle('server:reregister-mine', async (_e, payload: { selfUserId: string }) => {
+  ipcMain.handle('server:reregister-mine', async (_e, payload: {
+    selfUserId: string
+    selfUsername?: string
+    selfAvatarColor?: string | null
+  }) => {
     const all = db.getServers().filter((s) => s.hostUserId === payload.selfUserId)
     for (const s of all) {
       const members = db.getServerMembers(s.id).map((m) => ({
@@ -1014,14 +1062,18 @@ export function registerServerHandlers(): void {
         banned: JSON.parse(s.banned || '[]')
       })
     }
-    // Rejoin rooms of servers where I'm a member.
+    // Rejoin rooms of servers where I'm a member. Send real identity info —
+    // if the host's authoritative snapshot doesn't have us yet, the signaling
+    // server creates our member record from THIS payload, and an empty
+    // username produced blank entries in everyone's member list.
     const mine = db.getServers().filter((s) => s.hostUserId !== payload.selfUserId)
     for (const s of mine) {
       socketClient.emitSignaling('server:join', {
         serverId: s.id,
         userId: payload.selfUserId,
-        username: '', // signaling will use stored member info
-        avatarColor: null
+        username: payload.selfUsername || '',
+        avatarColor: payload.selfAvatarColor ?? null,
+        passwordHash: s.passwordHash ?? null
       })
     }
     return { success: true, count: all.length }
@@ -1202,7 +1254,7 @@ export function registerSignalingHandlers(): void {
  * Runs node-turn (pure JS TURN server) in-process — no binaries, no installs.
  */
 export function registerRelayHandlers(): void {
-  ipcMain.handle('relay:start', async (_e, args: { port?: number; scope?: 'isp-local' | 'global' }) => {
+  ipcMain.handle('relay:start', async (_e, args: { port?: number; scope?: 'isp-local' | 'global'; signalingUrl?: string }) => {
     return relayManager.startRelay(args || {})
   })
 
@@ -1212,6 +1264,13 @@ export function registerRelayHandlers(): void {
 
   ipcMain.handle('relay:register', async (_e, args: { signalingUrl: string; address: string; scope: 'isp-local' | 'global' }) => {
     return relayManager.registerWithSignaling(args.signalingUrl, args.address, args.scope)
+  })
+
+  // Live relay list from the signaling server — fetched in the main process
+  // because the express routes have no CORS headers, so a renderer fetch
+  // would be blocked.
+  ipcMain.handle('relay:fetch-remote', async (_e, args: { signalingUrl: string }) => {
+    return relayManager.fetchRemoteRelays(args.signalingUrl)
   })
 }
 

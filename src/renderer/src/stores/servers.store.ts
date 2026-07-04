@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { Server, ServerMember } from '@/types/server'
-import type { Message } from '@/types/messages'
+import type { Message, FileAttachment } from '@/types/messages'
 import { useIdentityStore } from './identity.store'
 import { useAvatarStore } from './avatar.store'
 import { normalizeReactions } from './messages.store'
@@ -27,6 +27,7 @@ interface ServersStore {
   joinServer: (serverId: string, passwordHash?: string | null) => Promise<{ success: boolean; error?: string }>
   leaveServer: (serverId: string, destroy?: boolean) => Promise<void>
   sendServerMessage: (serverId: string, content: string, channelId?: string | null) => Promise<void>
+  sendServerFileMessage: (serverId: string, filePath: string, channelId?: string | null) => Promise<void>
   muteMember: (serverId: string, targetId: string, mute: boolean) => Promise<void>
   kickMember: (serverId: string, targetId: string) => Promise<void>
   banMember: (serverId: string, targetId: string) => Promise<void>
@@ -87,10 +88,23 @@ export const useServersStore = create<ServersStore>((set, get) => ({
       const msgRows = await window.api.db.serverMessages.list({ serverId: srv.id, limit: 50 })
       // Parse the reactions JSON column; without this a `"{}"` string leaks
       // into the store and renders as ghost "0"/"1" reaction chips.
+      // Also rebuild the `file` object from the flat DB columns — without
+      // this, file attachments vanished from history after every restart.
       serverMessages[srv.id] = msgRows.reverse().map((m) => {
-        const msg = m as Message
+        // Row → Message: server rows have no conversationId (serverId plays
+        // that role downstream), hence the unknown hop.
+        const msg = m as unknown as Message & { fileId?: string | null; fileName?: string | null; fileSize?: number | null; fileType?: string | null; filePath?: string | null }
+        if (msg.fileId) {
+          msg.file = {
+            fileId: msg.fileId,
+            fileName: msg.fileName || 'unknown',
+            fileSize: msg.fileSize || 0,
+            fileType: msg.fileType || 'application/octet-stream',
+            filePath: msg.filePath
+          }
+        }
         msg.reactions = normalizeReactions(msg.reactions)
-        return msg
+        return msg as Message
       })
     }
     set({ servers, serverMembers, serverMessages })
@@ -179,6 +193,68 @@ export const useServersStore = create<ServersStore>((set, get) => ({
         timestamp: Date.now(),
         status: 'sent',
         channelId: channelId ?? null
+      }
+      set((s) => {
+        const existing = s.serverMessages[serverId] || []
+        if (existing.some((m) => m.id === msg.id)) return {}
+        return { serverMessages: { ...s.serverMessages, [serverId]: [...existing, msg] } }
+      })
+    } else if (res.error) {
+      set({ lastError: res.error })
+    }
+  },
+
+  sendServerFileMessage: async (serverId, filePath, channelId) => {
+    const identity = useIdentityStore.getState().identity
+    if (!identity) return
+
+    const fileData = await window.api.file.read(filePath)
+    if (!fileData) return
+
+    // Server attachments are relayed through the signaling host as base64
+    // (no per-member P2P fan-out yet), so cap the size at 2MB — the host's
+    // socket accepts up to 8MB frames, leaving comfortable headroom.
+    const MAX_SERVER_FILE = 2 * 1024 * 1024
+    if (fileData.fileSize > MAX_SERVER_FILE) {
+      set({ lastError: 'Files up to 2 MB can be shared in servers for now.' })
+      return
+    }
+
+    const file: FileAttachment = {
+      fileId: `file_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      fileName: fileData.fileName,
+      fileSize: fileData.fileSize,
+      fileType: fileData.fileType,
+      filePath,
+      base64: fileData.fileType.startsWith('image/') ? fileData.base64 : undefined
+    }
+
+    const res = await window.api.server.sendMessage({
+      serverId,
+      senderId: identity.userId,
+      senderName: identity.username,
+      content: `[File: ${file.fileName}]`,
+      channelId: channelId ?? null,
+      file: {
+        fileId: file.fileId,
+        fileName: file.fileName,
+        fileSize: file.fileSize,
+        fileType: file.fileType,
+        base64: fileData.base64,
+        filePath
+      }
+    })
+    if (res.success && res.messageId) {
+      const msg: Message = {
+        id: res.messageId,
+        conversationId: serverId,
+        senderId: identity.userId,
+        senderName: identity.username,
+        content: `[File: ${file.fileName}]`,
+        timestamp: Date.now(),
+        status: 'sent',
+        channelId: channelId ?? null,
+        file
       }
       set((s) => {
         const existing = s.serverMessages[serverId] || []
@@ -452,8 +528,46 @@ export const useServersStore = create<ServersStore>((set, get) => ({
     }))
 
     unsubs.push(window.api.signaling.onServerEvent('message', async (payload) => {
-      const p = payload as { serverId: string; message: { id: string; senderId: string; senderName: string; content: string; timestamp: number; channelId?: string | null } }
-      await window.api.server.messageRemote(p)
+      const p = payload as {
+        serverId: string
+        message: {
+          id: string; senderId: string; senderName: string; content: string; timestamp: number; channelId?: string | null
+          file?: { fileId: string; fileName: string; fileSize: number; fileType: string; base64?: string } | null
+        }
+      }
+      // Dedupe BEFORE any work — the broadcast echoes back to the sender,
+      // and for file messages we must not re-save the bytes we just sent.
+      if ((get().serverMessages[p.serverId] || []).some((m) => m.id === p.message.id)) return
+
+      // File attachment: save the relayed bytes to disk first so the message
+      // is persisted with a real local path and renders after restart.
+      let file: FileAttachment | undefined
+      if (p.message.file) {
+        const f = p.message.file
+        let savedPath: string | null = null
+        if (f.base64) {
+          try {
+            const saved = await window.api.file.saveReceived({ fileId: f.fileId, fileName: f.fileName, base64: f.base64 })
+            savedPath = saved.filePath
+          } catch (err) {
+            console.error('[servers.store] failed to save received file:', err)
+          }
+        }
+        file = {
+          fileId: f.fileId,
+          fileName: f.fileName,
+          fileSize: f.fileSize,
+          fileType: f.fileType,
+          filePath: savedPath,
+          base64: f.fileType.startsWith('image/') ? f.base64 : undefined
+        }
+        await window.api.server.messageRemote({
+          serverId: p.serverId,
+          message: { ...p.message, file: { fileId: f.fileId, fileName: f.fileName, fileSize: f.fileSize, fileType: f.fileType, filePath: savedPath } }
+        })
+      } else {
+        await window.api.server.messageRemote(p)
+      }
       let appended = false
       set((s) => {
         const existing = s.serverMessages[p.serverId] || []
@@ -466,7 +580,8 @@ export const useServersStore = create<ServersStore>((set, get) => ({
           content: p.message.content,
           timestamp: p.message.timestamp,
           status: 'delivered',
-          channelId: p.message.channelId ?? null
+          channelId: p.message.channelId ?? null,
+          file: file ?? null
         }
         appended = true
         return { serverMessages: { ...s.serverMessages, [p.serverId]: [...existing, msg] } }
@@ -551,6 +666,26 @@ export const useServersStore = create<ServersStore>((set, get) => ({
         route: '/channels/@me',
         force: true
       })
+    }))
+
+    // A host (re-)registered their server on signaling. If we're a member of
+    // it, silently rejoin the room — covers the race where our auto-rejoin
+    // was denied ("Host is currently offline") because our socket connected
+    // before the host's did. Without this, members received no server
+    // events until an app restart.
+    unsubs.push(window.api.signaling.onServerEvent('host-online', async (payload) => {
+      const p = payload as { serverId: string }
+      if (!p?.serverId) return
+      const identity = useIdentityStore.getState().identity
+      if (!identity) return
+      const known = get().servers.find((s) => s.id === p.serverId)
+      if (!known || known.role === 'host') return
+      await window.api.server.join({
+        serverId: p.serverId,
+        userId: identity.userId,
+        username: identity.username,
+        avatarColor: (identity as unknown as { avatarPath?: string | null }).avatarPath ?? null
+      }).catch(() => { /* silent — this is a background rejoin */ })
     }))
 
     unsubs.push(window.api.signaling.onServerEvent('error', (payload) => {

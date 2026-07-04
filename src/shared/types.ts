@@ -174,4 +174,8 @@ export interface RelayRow {
   latency: number | null
   users: number
   isCustom: number
+  /** TURN long-term credentials — REQUIRED to get relay candidates from an
+   *  authenticated relay; a turn: url without them is silently useless. */
+  username: string | null
+  password: string | null
 }

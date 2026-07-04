@@ -100,6 +100,15 @@ function migrateSchema(): void {
     if (!srvNames.has('banned')) d.exec("ALTER TABLE servers ADD COLUMN banned TEXT NOT NULL DEFAULT '[]'")
     if (!srvNames.has('password_hash')) d.exec("ALTER TABLE servers ADD COLUMN password_hash TEXT")
   }
+
+  // TURN credentials on relays — a turn: url without username/password is
+  // rejected by node-turn's long-term auth, making the relay useless.
+  const relayCols = d.prepare("PRAGMA table_info('relays')").all() as { name: string }[]
+  const relayNames = new Set(relayCols.map((c) => c.name))
+  if (relayCols.length > 0) {
+    if (!relayNames.has('username')) d.exec('ALTER TABLE relays ADD COLUMN username TEXT')
+    if (!relayNames.has('password')) d.exec('ALTER TABLE relays ADD COLUMN password TEXT')
+  }
 }
 
 function createTables(): void {
@@ -238,7 +247,9 @@ function createTables(): void {
       scope TEXT NOT NULL DEFAULT 'global',
       latency INTEGER,
       users INTEGER DEFAULT 0,
-      is_custom INTEGER NOT NULL DEFAULT 0
+      is_custom INTEGER NOT NULL DEFAULT 0,
+      username TEXT,
+      password TEXT
     );
 
     CREATE TABLE IF NOT EXISTS blocked_users (
@@ -657,11 +668,11 @@ export function unblockUser(userId: string): void {
 // ── Relays ──
 
 export function getRelays(): RelayRow[] {
-  return getDb().prepare('SELECT id, address, scope, latency, users, is_custom AS isCustom FROM relays').all() as RelayRow[]
+  return getDb().prepare('SELECT id, address, scope, latency, users, is_custom AS isCustom, username, password FROM relays').all() as RelayRow[]
 }
 
 export function addRelay(r: RelayRow): void {
-  getDb().prepare('INSERT OR REPLACE INTO relays (id, address, scope, latency, users, is_custom) VALUES (?, ?, ?, ?, ?, ?)').run(r.id, r.address, r.scope, r.latency, r.users, r.isCustom)
+  getDb().prepare('INSERT OR REPLACE INTO relays (id, address, scope, latency, users, is_custom, username, password) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(r.id, r.address, r.scope, r.latency, r.users, r.isCustom, r.username, r.password)
 }
 
 export function removeRelay(id: string): void {

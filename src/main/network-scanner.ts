@@ -53,18 +53,31 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 // ── Layer 1 ────────────────────────────────────────────────────────────────
 
 /**
- * First active, non-internal IPv4 address on the machine.
- * Returns null if the host has no external-facing interface (rare).
+ * Best local IPv4 address on the machine — prefers real LAN ranges
+ * (192.168/16, 10/8, 172.16/12) over anything else, so VPN and virtual
+ * adapters (Hamachi, ZeroTier, VMware, WSL...) don't win just by being
+ * enumerated first. "First non-internal interface" regularly returned a
+ * virtual adapter's address, which no friend could ever reach.
  */
 function getLocalIp(): string | null {
+  const isLan = (addr: string): boolean => {
+    const [a, b] = addr.split('.').map((n) => parseInt(n, 10))
+    if (a === 192 && b === 168) return true
+    if (a === 10) return true
+    if (a === 172 && b >= 16 && b <= 31) return true
+    return false
+  }
+  let fallback: string | null = null
   const ifaces = networkInterfaces()
   for (const list of Object.values(ifaces)) {
     if (!list) continue
     for (const net of list) {
-      if (net.family === 'IPv4' && !net.internal) return net.address
+      if (net.family !== 'IPv4' || net.internal) continue
+      if (isLan(net.address)) return net.address
+      if (!fallback) fallback = net.address
     }
   }
-  return null
+  return fallback
 }
 
 // ── Layer 2 ────────────────────────────────────────────────────────────────

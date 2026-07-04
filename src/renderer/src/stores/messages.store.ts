@@ -404,6 +404,11 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
     const existing = get().conversations.find(
       (c) => c.recipientId === fromUserId || c.id === conversationId
     )
+    // Dedupe re-delivered file messages the same way as text messages.
+    if (existing && msg.id && existing.messages.some((m) => m.id === msg.id)) {
+      sendControlToPeer(fromUserId, { type: 'dm-ack', messageId: msg.id, status: 'delivered' })
+      return
+    }
     const targetConvId = existing?.id ?? conversationId
     msg.conversationId = targetConvId
     if (!existing) {
@@ -531,6 +536,13 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
     const existing = get().conversations.find(
       (c) => c.recipientId === fromUserId || c.id === conversationId
     )
+    // Dedupe: the same message can arrive twice (P2P delivery + a queued
+    // signaling copy flushed on reconnect). Re-ack so the sender's status
+    // resolves even if the first ack was lost, but never append twice.
+    if (existing && msg.id && existing.messages.some((m) => m.id === msg.id)) {
+      sendControlToPeer(fromUserId, { type: 'dm-ack', messageId: msg.id, status: 'delivered' })
+      return
+    }
     // If an existing conversation is found via recipientId but has a legacy
     // id different from dm_<fromUserId>, keep storing into the existing one
     // so messages stay consolidated and no sidebar duplicate appears.

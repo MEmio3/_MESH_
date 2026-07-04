@@ -14,7 +14,13 @@ import path from 'path'
 
 const app = express()
 const httpServer = createServer(app)
-const io = new SocketServer(httpServer, { cors: { origin: '*' } })
+// maxHttpBufferSize: socket.io's default is 1MB and it DISCONNECTS a client
+// whose message exceeds it — base64 file payloads (DM fallback + server
+// attachments, ≤2MB raw ≈ 2.7MB encoded) silently killed the socket.
+const io = new SocketServer(httpServer, {
+  cors: { origin: '*' },
+  maxHttpBufferSize: 8 * 1024 * 1024
+})
 
 // ── Relay Registry ──
 
@@ -22,6 +28,7 @@ interface RelayEntry {
   id: string
   address: string
   scope: 'isp-local' | 'global'
+  credentials: { username: string; password: string } | null
   lastHeartbeat: number
   users: number
 }
@@ -31,10 +38,31 @@ const relays = new Map<string, RelayEntry>()
 app.use(express.json())
 
 app.post('/register-relay', (req, res) => {
-  const { id, address, scope } = req.body
-  relays.set(id, { id, address, scope, lastHeartbeat: Date.now(), users: 0 })
+  const { address, scope, credentials } = req.body as {
+    address?: string
+    scope?: 'isp-local' | 'global'
+    credentials?: { username: string; password: string } | null
+  }
+  if (!address || typeof address !== 'string') {
+    res.status(400).json({ error: 'address required' })
+    return
+  }
+  // The SERVER generates the id and returns it — the old contract read `id`
+  // from the request (which clients never sent, keying every relay under
+  // `undefined`) and returned `{ok:true}` (so clients stored id undefined).
+  // Credentials are stored too: node-turn runs long-term auth, and a TURN
+  // url without username/password is a silent no-op for every client.
+  const id = `relay_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+  relays.set(id, {
+    id,
+    address,
+    scope: scope === 'global' ? 'global' : 'isp-local',
+    credentials: credentials ?? null,
+    lastHeartbeat: Date.now(),
+    users: 0
+  })
   console.log(`[relay] registered: ${id} @ ${address} (${scope})`)
-  res.json({ ok: true })
+  res.json({ id })
 })
 
 app.post('/deregister-relay', (req, res) => {
@@ -155,7 +183,20 @@ interface QueuedEvent {
   args: unknown[]
 }
 
-const QUEUE_FILE = path.join(process.cwd(), 'offline_queue.json')
+// Queue persistence location: inside Electron use userData (cwd is the
+// read-only install directory in packaged builds, where writes silently
+// fail); standalone CLI mode falls back to cwd.
+function resolveQueueFile(): string {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const electron = require('electron') as { app?: { getPath: (name: string) => string } }
+    if (electron?.app?.getPath) {
+      return path.join(electron.app.getPath('userData'), 'offline_queue.json')
+    }
+  } catch { /* not running inside Electron */ }
+  return path.join(process.cwd(), 'offline_queue.json')
+}
+const QUEUE_FILE = resolveQueueFile()
 let offlineQueue = new Map<string, QueuedEvent[]>()
 
 try {
@@ -488,6 +529,11 @@ io.on('connection', (socket) => {
     entry.members.clear()
     for (const m of payload.members) entry.members.set(m.userId, m)
     socket.join(roomName(payload.serverId))
+    // Tell everyone the host is (back) online so members whose auto-rejoin
+    // raced ahead of this re-register can silently join now. Without this,
+    // a member denied with "Host is currently offline" never retried and
+    // received no server events until an app restart.
+    io.emit('server:host-online', { serverId: payload.serverId })
   })
 
   // Member requests to join. We validate + broadcast + send state to joiner.
@@ -538,7 +584,12 @@ io.on('connection', (socket) => {
       socket.emit('server:join-denied', { serverId: payload.serverId, reason: 'You are banned from this server.' })
       return
     }
-    if (entry.passwordHash && entry.passwordHash !== payload.passwordHash) {
+    // Existing members (present in the host's authoritative snapshot) skip
+    // the password check — they were already admitted once. Without this,
+    // members could never auto-rejoin a password server after a reconnect
+    // because clients don't retain the hash they joined with.
+    const alreadyMember = entry.members.has(payload.userId)
+    if (!alreadyMember && entry.passwordHash && entry.passwordHash !== payload.passwordHash) {
       socket.emit('server:join-denied', { serverId: payload.serverId, reason: 'Incorrect password.' })
       return
     }
@@ -699,12 +750,12 @@ io.on('connection', (socket) => {
     io.to(targetSocketId).emit('ice-candidate', socket.id, candidate)
   })
 
-  // DM message relay — used when no P2P data channel exists yet
+  // DM message relay — used when no P2P data channel exists yet.
+  // deliverOrQueue, NOT direct emit: edits/deletes/reactions were already
+  // queued for offline users, but the actual MESSAGE was silently dropped —
+  // sender saw "sent", recipient never received anything.
   socket.on('dm-message', (targetUserId: string, message: string) => {
-    const targetSocketId = userSockets.get(targetUserId)
-    if (targetSocketId) {
-      io.to(targetSocketId).emit('dm-message', socket.data.userId, message)
-    }
+    deliverOrQueue(targetUserId, 'dm-message', socket.data.userId, message)
   })
 
   // DM edit/delete relay

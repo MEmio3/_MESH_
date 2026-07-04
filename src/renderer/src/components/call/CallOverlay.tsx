@@ -197,10 +197,13 @@ function CallOverlay(): JSX.Element | null {
       {/* Body */}
       <div className="relative flex-1 flex items-center justify-center overflow-hidden bg-mesh-bg-secondary">
         {showVideoSurface && hasRemoteVideo ? (
+          /* Muted: the dedicated <audio> sink below carries the sound — an
+             unmuted video element would play the remote voice twice. */
           <video
             ref={videoRef}
             autoPlay
             playsInline
+            muted
             className="max-h-full max-w-full object-contain bg-black"
           />
         ) : (

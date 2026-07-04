@@ -55,6 +55,13 @@ class WebRTCManager {
   // File transfer state: accumulates chunks per fileId
   private fileChunks: Map<string, { meta: FileTransferMeta; chunks: ArrayBuffer[]; received: number }> = new Map()
 
+  // ICE candidates that arrived before their peer existed or before its
+  // remoteDescription was set, keyed by socketId. addIceCandidate throws in
+  // that window and the old code dropped the candidate on the floor — on
+  // slower signaling paths that silently starved ICE of pairs and produced
+  // "connected UI, no media." Flushed right after setRemoteDescription.
+  private pendingCandidates: Map<string, RTCIceCandidateInit[]> = new Map()
+
   // Callbacks — set by consumers (useSignaling hook, voice store, etc.)
   onRemoteStream: ((userId: string, stream: MediaStream) => void) | null = null
   onRemoteStreamRemoved: ((userId: string) => void) | null = null
@@ -138,11 +145,22 @@ class WebRTCManager {
 
     // Connection state
     pc.onconnectionstatechange = () => {
+      console.log(`[webrtc][${userId}] connectionState: ${pc.connectionState}`)
       if (pc.connectionState === 'connected') {
+        this.logSelectedCandidatePair(userId, pc)
         this.onPeerConnected?.(userId)
       } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
         this.onPeerDisconnected?.(userId)
       }
+    }
+
+    // ICE diagnostics — these two lines are what turn "calls silently fail"
+    // into a readable console trail (checking → connected, or → failed).
+    pc.oniceconnectionstatechange = () => {
+      console.log(`[webrtc][${userId}] iceConnectionState: ${pc.iceConnectionState}`)
+    }
+    pc.onicegatheringstatechange = () => {
+      console.log(`[webrtc][${userId}] iceGatheringState: ${pc.iceGatheringState}`)
     }
 
     // Perfect Negotiation: onnegotiationneeded always attempts an offer,
@@ -322,6 +340,7 @@ class WebRTCManager {
         } catch { /* already rolled back */ }
       }
       await pc.setRemoteDescription(new RTCSessionDescription(offer))
+      await this.flushPendingCandidates(peer)
       await pc.setLocalDescription()
       return pc.localDescription?.toJSON() ?? null
     } catch (err) {
@@ -347,6 +366,7 @@ class WebRTCManager {
     const next = existing.then(async () => {
       try {
         await peer.pc.setRemoteDescription(new RTCSessionDescription(answer))
+        await this.flushPendingCandidates(peer)
       } catch (err) {
         console.error('[webrtc] handleAnswer failed:', err)
       }
@@ -358,11 +378,17 @@ class WebRTCManager {
   /**
    * Handle an incoming ICE candidate. Candidates arriving after an ignored
    * offer are swallowed — they belong to a negotiation that never happened
-   * from our side.
+   * from our side. Candidates arriving BEFORE the peer exists or before its
+   * remoteDescription is set are buffered and flushed after SRD — dropping
+   * them starves ICE of candidate pairs.
    */
   async handleIceCandidate(socketId: string, candidate: RTCIceCandidateInit): Promise<void> {
     for (const peer of this.peers.values()) {
       if (peer.socketId === socketId) {
+        if (!peer.pc.remoteDescription) {
+          this.bufferCandidate(socketId, candidate)
+          return
+        }
         try {
           await peer.pc.addIceCandidate(new RTCIceCandidate(candidate))
         } catch (err) {
@@ -372,6 +398,61 @@ class WebRTCManager {
         }
         return
       }
+    }
+    // No peer for this socket yet — the offer is still in flight. Buffer for
+    // the flush that follows setRemoteDescription.
+    this.bufferCandidate(socketId, candidate)
+  }
+
+  private bufferCandidate(socketId: string, candidate: RTCIceCandidateInit): void {
+    const q = this.pendingCandidates.get(socketId) ?? []
+    if (q.length < 64) q.push(candidate)
+    this.pendingCandidates.set(socketId, q)
+  }
+
+  private async flushPendingCandidates(peer: PeerConnection): Promise<void> {
+    const q = this.pendingCandidates.get(peer.socketId)
+    if (!q || q.length === 0) return
+    this.pendingCandidates.delete(peer.socketId)
+    console.log(`[webrtc][${peer.userId}] flushing ${q.length} buffered ICE candidate(s)`)
+    for (const candidate of q) {
+      try {
+        await peer.pc.addIceCandidate(new RTCIceCandidate(candidate))
+      } catch (err) {
+        if (!peer.ignoreOffer) {
+          console.error('[webrtc] buffered addIceCandidate failed:', err)
+        }
+      }
+    }
+  }
+
+  /** Log which candidate pair actually carries the connection (host/srflx/relay). */
+  private async logSelectedCandidatePair(userId: string, pc: RTCPeerConnection): Promise<void> {
+    try {
+      const stats = await pc.getStats()
+      let logged = false
+      stats.forEach((report) => {
+        if (logged) return
+        const r = report as unknown as { type?: string; selectedCandidatePairId?: string }
+        if (r.type !== 'transport' || !r.selectedCandidatePairId) return
+        const pair = stats.get(r.selectedCandidatePairId) as
+          | { localCandidateId?: string; remoteCandidateId?: string }
+          | undefined
+        if (!pair) return
+        const local = (pair.localCandidateId ? stats.get(pair.localCandidateId) : undefined) as
+          | { candidateType?: string; address?: string; ip?: string }
+          | undefined
+        const remote = (pair.remoteCandidateId ? stats.get(pair.remoteCandidateId) : undefined) as
+          | { candidateType?: string; address?: string; ip?: string }
+          | undefined
+        console.log(
+          `[webrtc][${userId}] connected via local=${local?.candidateType ?? '?'} (${local?.address ?? local?.ip ?? '?'}) ` +
+          `remote=${remote?.candidateType ?? '?'} (${remote?.address ?? remote?.ip ?? '?'})`
+        )
+        logged = true
+      })
+    } catch {
+      /* diagnostics only — never fatal */
     }
   }
 
@@ -446,6 +527,12 @@ class WebRTCManager {
 
       if (!this.inputAudioCtx) this.inputAudioCtx = new AudioContext()
       const ctx = this.inputAudioCtx
+      // A suspended AudioContext outputs pure silence — the call connects,
+      // tracks flow, but the other side hears NOTHING. Resume defensively;
+      // in Electron this always succeeds (no user-gesture requirement).
+      if (ctx.state === 'suspended') {
+        ctx.resume().catch(() => { /* fall through — raw fallback below */ })
+      }
       const src = ctx.createMediaStreamSource(raw)
       const gain = ctx.createGain()
       gain.gain.value = this.inputGainValue
@@ -697,6 +784,7 @@ class WebRTCManager {
       peer.pc.close()
       this.peers.delete(userId)
       this.offerQueues.delete(userId)
+      this.pendingCandidates.delete(peer.socketId)
       this.onRemoteStreamRemoved?.(userId)
     }
   }

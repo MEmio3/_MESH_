@@ -39,6 +39,7 @@ function ServerTextChannel({ server, channelName, channelId, isDefaultChannel }:
     : allMessages
   const members = useServersStore((s) => s.serverMembers[server.id] || [])
   const sendMessage = useServersStore((s) => s.sendServerMessage)
+  const sendFileMessage = useServersStore((s) => s.sendServerFileMessage)
   const editServerMessage = useServersStore((s) => s.editServerMessage)
   const deleteServerMessage = useServersStore((s) => s.deleteServerMessage)
   const toggleServerReaction = useServersStore((s) => s.toggleServerReaction)
@@ -100,22 +101,12 @@ function ServerTextChannel({ server, channelName, channelId, isDefaultChannel }:
           canDeleteMessage={(msg) => msg.senderId === selfId || isModerator}
         />
 
-        {/* Input — file sharing available (relayed through signaling for servers) */}
+        {/* Input — real file attachments, relayed through the signaling host
+            to every member (2 MB cap; see sendServerFileMessage). */}
         <MessageInput
           recipientName={displayName}
           onSend={(content) => sendMessage(server.id, content, channelId ?? null)}
-          onSendFile={async (filePath) => {
-            const fileData = await window.api.file.read(filePath)
-            if (!fileData) return
-            // Images < 2MB → embed as data URL inline so server members see preview.
-            // Larger files / non-images → fall back to text reference (no P2P in servers).
-            const isImage = fileData.fileType.startsWith('image/')
-            if (isImage && fileData.fileSize <= 2 * 1024 * 1024) {
-              sendMessage(server.id, `data:${fileData.fileType};base64,${fileData.base64}`, channelId ?? null)
-            } else {
-              sendMessage(server.id, `[File: ${fileData.fileName} (${(fileData.fileSize / 1024).toFixed(1)} KB)]`, channelId ?? null)
-            }
-          }}
+          onSendFile={(filePath) => sendFileMessage(server.id, filePath, channelId ?? null)}
         />
       </div>
 

@@ -3,26 +3,61 @@ import { webrtcManager } from '@/lib/webrtc'
 
 /**
  * Apply ICE configuration to the WebRTC manager based on user settings.
- * - p2p-first: empty iceServers, transport 'all' (pure P2P, no TURN).
- * - relay-fallback: iceServers from registered relays (if any), transport 'all'.
- * - relay-only: iceServers from relays, transport 'relay' (force TURN).
  *
- * Per MESH design: no external STUN/TURN by default — only user-registered coturn relays.
+ * Relay sources (deduped, in priority order):
+ *   1. Live registry on the signaling server (`/get-relays`) — this is how
+ *      peers discover each other's relays; the old code never queried it,
+ *      so relays were never actually shared across the mesh.
+ *   2. Local DB rows (our own hosted relay + previously known ones).
+ *   3. Manually-entered custom relay addresses (no credentials).
+ *
+ * Every relay contributes a `stun:` entry as well — a TURN server answers
+ * STUN for free, and srflx candidates (hole punching) are what let peers on
+ * different subnets or behind the same CGNAT connect WITHOUT relaying any
+ * media. These are friend-run relays, not third-party servers, so this
+ * costs zero privacy. Strategies:
+ *   - p2p-first:      STUN only (hole punching, never relays media).
+ *   - relay-fallback: STUN + authenticated TURN, transport 'all'.
+ *   - relay-only:     same servers, transport 'relay' (force TURN).
  */
-async function applyIceConfig(strategy: 'p2p-first' | 'relay-fallback' | 'relay-only'): Promise<void> {
-  if (strategy === 'p2p-first') {
-    webrtcManager.setIceConfig([], 'all')
-    return
+async function applyIceConfig(network: NetworkSettings): Promise<void> {
+  const strategy = network.preferredIceStrategy
+  const signalingUrl = network.signalingUrl || 'http://localhost:3000'
+
+  const [remote, local] = await Promise.all([
+    window.api.relay.fetchRemote({ signalingUrl }).catch(() => []),
+    window.api.db.relays.list().catch(() => [])
+  ])
+
+  const seen = new Set<string>()
+  const iceServers: RTCIceServer[] = []
+
+  const addRelayEntry = (address: string, username?: string | null, password?: string | null): void => {
+    const addr = address.trim()
+    if (!addr) return
+    const bare = addr.replace(/^(turns?:|stun:)/, '')
+    if (seen.has(bare)) return
+    seen.add(bare)
+    iceServers.push({ urls: `stun:${bare}` })
+    if (strategy !== 'p2p-first') {
+      const turnUrl = addr.startsWith('turn') ? addr : `turn:${bare}`
+      if (username && password) {
+        // Credentials are REQUIRED: the relay runs long-term auth, and an
+        // unauthenticated turn: url is silently rejected (401) — the exact
+        // bug that made every previous relay configuration a no-op.
+        iceServers.push({ urls: turnUrl, username, credential: password })
+      } else {
+        iceServers.push({ urls: turnUrl })
+      }
+    }
   }
 
-  const relays = await window.api.db.relays.list()
-  const iceServers: RTCIceServer[] = relays.map((r) => ({ urls: r.address }))
+  for (const r of remote) addRelayEntry(r.address, r.credentials?.username, r.credentials?.password)
+  for (const r of local) addRelayEntry(r.address, r.username, r.password)
+  for (const addr of network.customRelays) addRelayEntry(addr)
 
-  if (strategy === 'relay-only') {
-    webrtcManager.setIceConfig(iceServers, 'relay')
-  } else {
-    webrtcManager.setIceConfig(iceServers, 'all')
-  }
+  webrtcManager.setIceConfig(iceServers, strategy)
+  console.log(`[ice] applied ${iceServers.length} ICE server entr${iceServers.length === 1 ? 'y' : 'ies'} (strategy: ${strategy})`)
 }
 
 interface AppearanceSettings {
@@ -69,6 +104,8 @@ interface SettingsStore {
   updatePrivacy: (partial: Partial<PrivacySettings>) => void
   addCustomRelay: (address: string) => void
   removeCustomRelay: (address: string) => void
+  /** Re-resolve relays + rebuild ICE config (e.g. after signaling reconnect). */
+  reapplyIceConfig: () => Promise<void>
 }
 
 const DEFAULT_APPEARANCE: AppearanceSettings = {
@@ -89,7 +126,12 @@ const DEFAULT_NOTIFICATIONS: NotificationSettings = {
 }
 
 const DEFAULT_NETWORK: NetworkSettings = {
-  preferredIceStrategy: 'p2p-first',
+  // relay-fallback by default: with no relays registered it behaves exactly
+  // like p2p-first, but the moment anyone on the network contributes a relay
+  // it starts working as a fallback — which is the entire point of relays.
+  // The old p2p-first default meant relays were NEVER used unless the user
+  // found and changed a buried setting.
+  preferredIceStrategy: 'relay-fallback',
   customRelays: [],
   hostSignaling: false,
   signalingUrl: 'http://localhost:3000'
@@ -125,7 +167,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     })
 
     // Apply ICE config to WebRTC manager on load
-    applyIceConfig(network.preferredIceStrategy)
+    applyIceConfig(network)
   },
 
   updateAppearance: (partial) => {
@@ -149,7 +191,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       const updated = { ...s.network, ...partial }
       window.api.db.settings.set('network', JSON.stringify(updated))
       // Re-apply ICE config when the strategy (or relay list impact) changes
-      applyIceConfig(updated.preferredIceStrategy)
+      applyIceConfig(updated)
       return { network: updated }
     })
   },
@@ -166,6 +208,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     set((s) => {
       const updated = { ...s.network, customRelays: [...s.network.customRelays, address] }
       window.api.db.settings.set('network', JSON.stringify(updated))
+      applyIceConfig(updated)
       return { network: updated }
     })
   },
@@ -174,7 +217,12 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     set((s) => {
       const updated = { ...s.network, customRelays: s.network.customRelays.filter((r) => r !== address) }
       window.api.db.settings.set('network', JSON.stringify(updated))
+      applyIceConfig(updated)
       return { network: updated }
     })
+  },
+
+  reapplyIceConfig: async () => {
+    await applyIceConfig(get().network)
   }
 }))

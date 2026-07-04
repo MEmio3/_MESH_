@@ -27,9 +27,16 @@ export interface DetectedIp {
  * Classify an IPv4 address into one of three scopes using only the address
  * itself — no DNS, no STUN, no external services.
  *
- *   home   — RFC1918 LAN:   192.168/16, 172.16/12
- *   isp    — carrier-grade: 10/8, 100.64/10
+ *   home   — RFC1918 LAN:   192.168/16, 172.16/12, 10/8
+ *   isp    — carrier-grade: 100.64/10 (RFC6598)
  *   public — anything else non-internal
+ *
+ * 10/8 counts as HOME here: on a machine's own interface it is almost always
+ * the router's LAN range (countless routers ship with 10.0.0.x defaults).
+ * Carrier-grade NAT shows up on the ROUTER'S WAN address (network-scanner's
+ * job), not on a local NIC. The old classification labelled 10.x as "ISP
+ * Network — friends on same ISP", telling users to share a LAN-only address
+ * with friends across town — a direct cause of "the app picks the wrong IP".
  */
 function classify(addr: string): IpScope {
   const parts = addr.split('.').map((p) => parseInt(p, 10))
@@ -37,7 +44,7 @@ function classify(addr: string): IpScope {
   const [a, b] = parts
   if (a === 192 && b === 168) return 'home'
   if (a === 172 && b >= 16 && b <= 31) return 'home'
-  if (a === 10) return 'isp'
+  if (a === 10) return 'home'
   if (a === 100 && b >= 64 && b <= 127) return 'isp'
   return 'public'
 }

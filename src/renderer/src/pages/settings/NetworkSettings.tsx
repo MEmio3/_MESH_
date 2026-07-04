@@ -32,7 +32,7 @@ function NetworkSettings(): JSX.Element {
   const updateNetwork = useSettingsStore((s) => s.updateNetwork)
 
   const [isConnected, setIsConnected] = useState(false)
-  const [reconnectState, setReconnectState] = useState<{ state: 'reconnecting' | 'connected' | 'failed'; attempt?: number; max?: number } | null>(null)
+  const [reconnectState, setReconnectState] = useState<{ state: 'reconnecting' | 'connected' | 'failed'; attempt?: number; max?: number | null } | null>(null)
   const [relayCount, setRelayCount] = useState(0)
   type IpScope = 'home' | 'isp' | 'public'
   interface DetectedIp { address: string; scope: IpScope; label: string; iface: string }
@@ -61,14 +61,22 @@ function NetworkSettings(): JSX.Element {
     let cancelled = false
 
     const refresh = async (): Promise<void> => {
-      const [connected, relays, host] = await Promise.all([
+      const signalingUrl = useSettingsStore.getState().network.signalingUrl || 'http://localhost:3000'
+      const [connected, relays, host, remote] = await Promise.all([
         window.api.signaling.isConnected(),
         window.api.db.relays.list(),
-        window.api.signalingHost.status()
+        window.api.signalingHost.status(),
+        window.api.relay.fetchRemote({ signalingUrl }).catch(() => [])
       ])
       if (cancelled) return
       setIsConnected(connected)
-      setRelayCount(relays.length)
+      // Count unique relay addresses across the live signaling registry and
+      // the local DB — the old local-only count showed 0 even when peers had
+      // working relays registered.
+      const unique = new Set<string>()
+      for (const r of relays) unique.add(r.address.replace(/^(turns?:|stun:)/, ''))
+      for (const r of remote) unique.add(r.address.replace(/^(turns?:|stun:)/, ''))
+      setRelayCount(unique.size)
       setHostStatus(host)
     }
 
@@ -174,7 +182,7 @@ function NetworkSettings(): JSX.Element {
             <span className="text-xs text-mesh-text-muted block mb-1">Signaling</span>
             {reconnectState?.state === 'reconnecting' ? (
               <span className="text-sm font-semibold flex items-center justify-center gap-1 text-amber-500">
-                Reconnecting... (attempt {reconnectState.attempt}/{reconnectState.max})
+                Reconnecting... (attempt {reconnectState.attempt}{reconnectState.max ? `/${reconnectState.max}` : ''})
               </span>
             ) : reconnectState?.state === 'failed' ? (
               <div className="flex flex-col items-center gap-1 mt-1">

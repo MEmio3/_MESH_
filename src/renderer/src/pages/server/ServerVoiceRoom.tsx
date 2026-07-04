@@ -4,7 +4,6 @@ import { cn } from '@/lib/utils'
 import { useVoiceStore } from '@/stores/voice.store'
 import { useIdentityStore } from '@/stores/identity.store'
 import { useAvatarStore } from '@/stores/avatar.store'
-import { registerAudioSink } from '@/stores/audioPrefs.store'
 import { VoiceControlBar } from '@/components/server/VoiceControlBar'
 import { Avatar } from '@/components/ui/Avatar'
 import type { Server } from '@/types/server'
@@ -123,42 +122,11 @@ function ServerVoiceRoom({ server }: ServerVoiceRoomProps): JSX.Element {
 
 
       <VoiceControlBar />
-      <HiddenAudioPlayers remoteStreams={remoteStreams} selfId={selfId} />
+      {/* Audio playback lives in the app-level VoiceAudioEngine (AppShell) so
+          it survives navigating away from this page. */}
     </div>
   )
 }
-
-/* ─────────────────────────────── Hidden Audio Engine ─────────────────────── */
-
-function HiddenAudioPlayers({ remoteStreams, selfId }: { remoteStreams: Map<string, MediaStream>; selfId?: string }): JSX.Element {
-  const entries = Array.from(remoteStreams.entries()).filter(([id]) => id !== selfId)
-  
-  return (
-    <div className="hidden">
-      {entries.map(([userId, stream]) => (
-        <AudioPlayer key={userId} stream={stream} />
-      ))}
-    </div>
-  )
-}
-
-function AudioPlayer({ stream }: { stream: MediaStream }): JSX.Element {
-  const ref = useRef<HTMLAudioElement>(null)
-  
-  useEffect(() => {
-    const el = ref.current
-    if (!el || !stream) return
-    if (el.srcObject !== stream) el.srcObject = stream
-    el.play().catch(() => {})
-  }, [stream])
-  
-  useEffect(() => {
-    if (ref.current) return registerAudioSink(ref.current)
-  }, [stream])
-  
-  return <audio ref={ref} autoPlay />
-}
-
 
 /* ─────────────────────────────── Stream grid ─────────────────────────────── */
 
@@ -231,12 +199,6 @@ function StreamTile({ participant, stream, isSelf, isCameraStream }: StreamTileP
     }
   }, [stream])
 
-  // Honor the global speaker device + output volume on remote tiles.
-  useEffect(() => {
-    if (isSelf) return
-    return registerAudioSink(videoRef.current)
-  }, [isSelf, stream])
-
   return (
     <button
       type="button"
@@ -245,12 +207,14 @@ function StreamTile({ participant, stream, isSelf, isCameraStream }: StreamTileP
       className="relative rounded-xl overflow-hidden bg-black border border-mesh-border/40 aspect-video cursor-pointer group text-left focus:outline-none focus:ring-2 focus:ring-mesh-green"
     >
       {/* Always mount the <video> so the ref is stable; show a placeholder overlay
-          when we don't yet have a MediaStream (self: stream starting; remote: awaiting tracks). */}
+          when we don't yet have a MediaStream (self: stream starting; remote: awaiting tracks).
+          Muted for remote too — VoiceAudioEngine is the single audio authority,
+          otherwise the same remote stream would play twice. */}
       <video
         ref={videoRef}
         autoPlay
         playsInline
-        muted={isSelf}
+        muted
         className={cn(
           'w-full h-full bg-black',
           isCameraStream ? '-scale-x-100 object-cover' : 'object-contain'
@@ -264,9 +228,9 @@ function StreamTile({ participant, stream, isSelf, isCameraStream }: StreamTileP
         </div>
       )}
 
-      {/* LIVE badge — clickable (whole tile is a button; visual affordance only) */}
-      <div className="absolute top-2 left-2 inline-flex items-center gap-1 rounded bg-red-500 px-2 py-0.5 text-[10px] font-bold uppercase leading-none text-white shadow-md group-hover:bg-red-600 transition-colors">
-        <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
+      {/* LIVE badge — quiet technical indicator, not an alarm */}
+      <div className="absolute top-2 left-2 inline-flex items-center gap-1.5 rounded-sm bg-black/70 border border-mesh-danger/40 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider leading-none text-mesh-danger backdrop-blur-sm">
+        <span className="h-1 w-1 rounded-full bg-mesh-danger animate-pulse" />
         Live
       </div>
 

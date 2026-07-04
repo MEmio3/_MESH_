@@ -220,10 +220,25 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   setRemoteStream: (userId, stream) => {
     set((s) => {
       const remoteStreams = new Map(s.remoteStreams)
-      remoteStreams.set(userId, stream)
-      // If the stream has video tracks, mark the user as streaming
+      // MERGE with any existing stream for this user instead of replacing.
+      // ontrack fires with a different MediaStream object per source (mic
+      // stream vs screen/camera stream) — a naive replace dropped the peer's
+      // audio the moment they started streaming video.
+      const existing = remoteStreams.get(userId)
+      let next = stream
+      if (existing && existing !== stream) {
+        const merged = new MediaStream()
+        for (const t of [...existing.getTracks(), ...stream.getTracks()]) {
+          if (t.readyState === 'live' && !merged.getTracks().some((m) => m.id === t.id)) {
+            merged.addTrack(t)
+          }
+        }
+        next = merged
+      }
+      remoteStreams.set(userId, next)
+      // If the stream has live video tracks, mark the user as streaming
       const streamingUsers = new Set(s.streamingUsers)
-      if (stream.getVideoTracks().length > 0) {
+      if (next.getVideoTracks().some((t) => t.readyState === 'live')) {
         streamingUsers.add(userId)
       }
       return { remoteStreams, streamingUsers }

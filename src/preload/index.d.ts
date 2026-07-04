@@ -131,7 +131,7 @@ interface DbServerMembersAPI {
 }
 
 interface DbServerMessagesAPI {
-  list: (args: { serverId: string; limit?: number; before?: number }) => Promise<{ id: string; serverId: string; senderId: string; senderName: string; content: string; timestamp: number; status: string; editedAt?: number | null; isDeleted?: number }[]>
+  list: (args: { serverId: string; limit?: number; before?: number }) => Promise<{ id: string; serverId: string; senderId: string; senderName: string; content: string; timestamp: number; status: string; fileId?: string | null; fileName?: string | null; fileSize?: number | null; fileType?: string | null; filePath?: string | null; editedAt?: number | null; isDeleted?: number; reactions?: string; channelId?: string | null }[]>
   send: (msg: unknown) => Promise<void>
   edit: (id: string, content: string, editedAt: number) => Promise<void>
   delete: (id: string) => Promise<void>
@@ -144,8 +144,8 @@ interface DbBlockedAPI {
 }
 
 interface DbRelaysAPI {
-  list: () => Promise<{ id: string; address: string; scope: string; latency: number | null; users: number; isCustom: number }[]>
-  add: (relay: { id: string; address: string; scope: string; latency: number | null; users: number; isCustom: number }) => Promise<void>
+  list: () => Promise<{ id: string; address: string; scope: string; latency: number | null; users: number; isCustom: number; username: string | null; password: string | null }[]>
+  add: (relay: { id: string; address: string; scope: string; latency: number | null; users: number; isCustom: number; username: string | null; password: string | null }) => Promise<void>
   remove: (id: string) => Promise<void>
 }
 
@@ -176,7 +176,7 @@ interface SignalingAPI {
   emit: (event: string, ...args: unknown[]) => void
 
   onConnected: (cb: () => void) => () => void
-  onReconnectStatus: (cb: (payload: { state: 'reconnecting' | 'connected' | 'failed'; attempt?: number; max?: number }) => void) => () => void
+  onReconnectStatus: (cb: (payload: { state: 'reconnecting' | 'connected' | 'failed'; attempt?: number; max?: number | null }) => void) => () => void
   onDisconnected: (cb: (reason: string) => void) => () => void
   onError: (cb: (message: string) => void) => () => void
   onUserJoined: (cb: (userId: string, socketId: string) => void) => () => void
@@ -240,14 +240,14 @@ interface ServerAPI {
   memberJoinedPersist: (p: unknown) => Promise<{ success: boolean }>
   leave: (p: { serverId: string; userId: string; destroy?: boolean }) => Promise<{ success: boolean }>
   removeLocal: (serverId: string) => Promise<{ success: boolean }>
-  sendMessage: (p: { serverId: string; senderId: string; senderName: string; content: string; channelId?: string | null }) => Promise<{ success: boolean; error?: string; messageId?: string }>
-  messageRemote: (p: { serverId: string; message: { id: string; senderId: string; senderName: string; content: string; timestamp: number; channelId?: string | null } }) => Promise<{ success: boolean }>
+  sendMessage: (p: { serverId: string; senderId: string; senderName: string; content: string; channelId?: string | null; file?: { fileId: string; fileName: string; fileSize: number; fileType: string; base64: string; filePath?: string | null } | null }) => Promise<{ success: boolean; error?: string; messageId?: string }>
+  messageRemote: (p: { serverId: string; message: { id: string; senderId: string; senderName: string; content: string; timestamp: number; channelId?: string | null; file?: { fileId: string; fileName: string; fileSize: number; fileType: string; filePath?: string | null } | null } }) => Promise<{ success: boolean }>
   mute: (p: { serverId: string; actorId: string; targetId: string; mute: boolean }) => Promise<{ success: boolean }>
   kick: (p: { serverId: string; actorId: string; targetId: string }) => Promise<{ success: boolean }>
   ban: (p: { serverId: string; actorId: string; targetId: string }) => Promise<{ success: boolean }>
   setRole: (p: { serverId: string; actorId: string; targetId: string; role: 'moderator' | 'member' }) => Promise<{ success: boolean }>
   applyModeration: (p: { serverId: string; kind: 'mute' | 'kick' | 'ban' | 'role'; targetId: string; mute?: boolean; role?: 'moderator' | 'member' }) => Promise<{ success: boolean }>
-  reregisterMine: (p: { selfUserId: string }) => Promise<{ success: boolean; count: number }>
+  reregisterMine: (p: { selfUserId: string; selfUsername?: string; selfAvatarColor?: string | null }) => Promise<{ success: boolean; count: number }>
   editMessage: (p: { serverId: string; messageId: string; senderId: string; content: string }) => Promise<{ success: boolean; editedAt?: number }>
   deleteMessage: (p: { serverId: string; messageId: string; actorId: string }) => Promise<{ success: boolean; error?: string }>
   applyMessageEdit: (p: { serverId: string; messageId: string; content: string; editedAt: number }) => Promise<{ success: boolean }>
@@ -324,7 +324,17 @@ interface RelayStatus {
   scope: 'isp-local' | 'global'
   connections: number
   credentials: { username: string; password: string } | null
+  advertisedAddress: string | null
+  relayId: string | null
   error: string | null
+}
+
+interface RemoteRelay {
+  id: string
+  address: string
+  scope: 'isp-local' | 'global'
+  credentials: { username: string; password: string } | null
+  users: number
 }
 
 interface ReactionAPI {
@@ -335,10 +345,11 @@ interface ReactionAPI {
 }
 
 interface RelayAPI {
-  start: (args: { port?: number; scope?: 'isp-local' | 'global' }) => Promise<{ success: boolean; error?: string; credentials?: { username: string; password: string } }>
+  start: (args: { port?: number; scope?: 'isp-local' | 'global'; signalingUrl?: string }) => Promise<{ success: boolean; error?: string; credentials?: { username: string; password: string }; advertisedAddress?: string; relayId?: string }>
   stop: () => Promise<{ success: boolean }>
   status: () => Promise<RelayStatus>
   register: (args: { signalingUrl: string; address: string; scope: 'isp-local' | 'global' }) => Promise<{ success: boolean; relayId?: string; error?: string }>
+  fetchRemote: (args: { signalingUrl: string }) => Promise<RemoteRelay[]>
 }
 
 interface CryptoAPI {

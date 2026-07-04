@@ -104,7 +104,7 @@ const api = {
       ipcRenderer.on('signaling:connected', h)
       return () => ipcRenderer.removeListener('signaling:connected', h)
     },
-    onReconnectStatus: (cb: (payload: { state: 'reconnecting' | 'connected' | 'failed'; attempt?: number; max?: number }) => void): (() => void) => {
+    onReconnectStatus: (cb: (payload: { state: 'reconnecting' | 'connected' | 'failed'; attempt?: number; max?: number | null }) => void): (() => void) => {
       const h = (_e: Electron.IpcRendererEvent, payload: { state: 'reconnecting' | 'connected' | 'failed'; attempt?: number; max?: number }): void => cb(payload)
       ipcRenderer.on('signaling:reconnect-status', h)
       return () => ipcRenderer.removeListener('signaling:reconnect-status', h)
@@ -301,9 +301,9 @@ const api = {
       ipcRenderer.invoke('server:leave', payload),
     removeLocal: (serverId: string): Promise<{ success: boolean }> =>
       ipcRenderer.invoke('server:remove-local', { serverId }),
-    sendMessage: (payload: { serverId: string; senderId: string; senderName: string; content: string; channelId?: string | null }): Promise<{ success: boolean; error?: string; messageId?: string }> =>
+    sendMessage: (payload: { serverId: string; senderId: string; senderName: string; content: string; channelId?: string | null; file?: { fileId: string; fileName: string; fileSize: number; fileType: string; base64: string; filePath?: string | null } | null }): Promise<{ success: boolean; error?: string; messageId?: string }> =>
       ipcRenderer.invoke('server:send-message', payload),
-    messageRemote: (payload: { serverId: string; message: { id: string; senderId: string; senderName: string; content: string; timestamp: number; channelId?: string | null } }): Promise<{ success: boolean }> =>
+    messageRemote: (payload: { serverId: string; message: { id: string; senderId: string; senderName: string; content: string; timestamp: number; channelId?: string | null; file?: { fileId: string; fileName: string; fileSize: number; fileType: string; filePath?: string | null } | null } }): Promise<{ success: boolean }> =>
       ipcRenderer.invoke('server:message-remote', payload),
     mute: (payload: { serverId: string; actorId: string; targetId: string; mute: boolean }): Promise<{ success: boolean }> =>
       ipcRenderer.invoke('server:mute', payload),
@@ -315,7 +315,7 @@ const api = {
       ipcRenderer.invoke('server:set-role', payload),
     applyModeration: (payload: { serverId: string; kind: 'mute' | 'kick' | 'ban' | 'role'; targetId: string; mute?: boolean; role?: 'moderator' | 'member' }): Promise<{ success: boolean }> =>
       ipcRenderer.invoke('server:apply-moderation', payload),
-    reregisterMine: (payload: { selfUserId: string }): Promise<{ success: boolean; count: number }> =>
+    reregisterMine: (payload: { selfUserId: string; selfUsername?: string; selfAvatarColor?: string | null }): Promise<{ success: boolean; count: number }> =>
       ipcRenderer.invoke('server:reregister-mine', payload),
     editMessage: (payload: { serverId: string; messageId: string; senderId: string; content: string }): Promise<{ success: boolean; editedAt?: number }> =>
       ipcRenderer.invoke('server:edit-message', payload),
@@ -468,8 +468,13 @@ const api = {
 
   // Relay (node-turn in-process, no external binaries)
   relay: {
-    start: (args: { port?: number; scope?: 'isp-local' | 'global' }): Promise<{ success: boolean; error?: string; credentials?: { username: string; password: string } }> =>
-      ipcRenderer.invoke('relay:start', args),
+    start: (args: { port?: number; scope?: 'isp-local' | 'global'; signalingUrl?: string }): Promise<{
+      success: boolean
+      error?: string
+      credentials?: { username: string; password: string }
+      advertisedAddress?: string
+      relayId?: string
+    }> => ipcRenderer.invoke('relay:start', args),
     stop: (): Promise<{ success: boolean }> => ipcRenderer.invoke('relay:stop'),
     status: (): Promise<{
       running: boolean
@@ -477,10 +482,19 @@ const api = {
       scope: 'isp-local' | 'global'
       connections: number
       credentials: { username: string; password: string } | null
+      advertisedAddress: string | null
+      relayId: string | null
       error: string | null
     }> => ipcRenderer.invoke('relay:status'),
     register: (args: { signalingUrl: string; address: string; scope: 'isp-local' | 'global' }): Promise<{ success: boolean; relayId?: string; error?: string }> =>
-      ipcRenderer.invoke('relay:register', args)
+      ipcRenderer.invoke('relay:register', args),
+    fetchRemote: (args: { signalingUrl: string }): Promise<Array<{
+      id: string
+      address: string
+      scope: 'isp-local' | 'global'
+      credentials: { username: string; password: string } | null
+      users: number
+    }>> => ipcRenderer.invoke('relay:fetch-remote', args)
   }
 }
 
