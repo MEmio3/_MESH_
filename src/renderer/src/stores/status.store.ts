@@ -139,6 +139,21 @@ export const useStatusStore = create<StatusStore>((set, get) => ({
       })
     )
 
+    // When OUR socket drops we can no longer see anyone's presence — showing
+    // the last-known green dots would be lying. Downgrade everyone to
+    // offline; the reconnect snapshot restores the truth.
+    unsubs.push(
+      window.api.signaling.onDisconnected(() => {
+        set((s) => {
+          const next: Record<string, FriendStatus> = {}
+          for (const [id, st] of Object.entries(s.friendStatuses)) {
+            next[id] = { status: 'offline', lastSeen: st.lastSeen }
+          }
+          return { friendStatuses: next }
+        })
+      })
+    )
+
     // When the friends list changes (accepted friend, removed, etc.), refresh subscription.
     const friendsUnsub = useFriendsStore.subscribe((state, prev) => {
       if (state.friends.length !== prev.friends.length) {

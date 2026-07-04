@@ -49,7 +49,8 @@ const api = {
     conversations: {
       list: () => ipcRenderer.invoke('db:conversations:list'),
       upsert: (conv: unknown) => ipcRenderer.invoke('db:conversations:upsert', conv),
-      updateUnread: (id: string, unreadCount: number) => ipcRenderer.invoke('db:conversations:update-unread', { id, unreadCount })
+      updateUnread: (id: string, unreadCount: number) => ipcRenderer.invoke('db:conversations:update-unread', { id, unreadCount }),
+      close: (id: string) => ipcRenderer.invoke('db:conversations:close', id)
     },
     messages: {
       list: (args: { conversationId: string; limit?: number; before?: number }) => ipcRenderer.invoke('db:messages:list', args),

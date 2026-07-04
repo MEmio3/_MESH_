@@ -15,9 +15,13 @@ export type PresenceStatus = 'online' | 'idle' | 'offline' | 'dnd'
  *  2. If the user is a known friend with a live status → read from
  *     `useStatusStore.friendStatuses` (populated by `onStatusChanged` /
  *     `onStatusSnapshot`).
- *  3. Else fall back to the friends-store row (DB-persisted `status`).
- *  4. Else fall back to the caller-supplied `fallback` (typically the
- *     `ServerMember.status` snapshot the component already had).
+ *  3. Friends WITHOUT a live entry → 'offline'. The friends-store DB row
+ *     persists whatever was true when it was last written — trusting its
+ *     'online' lit green dots for people who quit hours ago. Positive
+ *     presence must come from live data only; the snapshot arrives within
+ *     a second of connecting, so this window is brief and honest.
+ *  4. Non-friends → the caller-supplied `fallback` (typically the
+ *     `ServerMember.status` snapshot from the live member list).
  */
 export function useLiveStatus(
   userId: string | undefined,
@@ -33,7 +37,7 @@ export function useLiveStatus(
   const live = friendStatuses[userId]?.status
   if (live) return live
   const friend = friends.find((f) => f.userId === userId)
-  if (friend?.status) return normalize(friend.status)
+  if (friend) return 'offline'
   return normalize(fallback)
 }
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Wifi, Globe, Shield, Copy, Check, Server } from 'lucide-react'
+import { Wifi, Globe, Shield, Copy, Check, Server, ChevronRight, Link2 } from 'lucide-react'
 import { useSettingsStore } from '@/stores/settings.store'
 import { useIdentityStore } from '@/stores/identity.store'
 import { Toggle } from '@/components/ui/Toggle'
@@ -51,6 +51,7 @@ function NetworkSettings(): JSX.Element {
   const [urlDraft, setUrlDraft] = useState(network.signalingUrl)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [showAdvanced, setShowAdvanced] = useState(false)
 
   // Keep draft in sync if the store changes externally.
   useEffect(() => {
@@ -168,186 +169,183 @@ function NetworkSettings(): JSX.Element {
   for (const ip of hostStatus.localIps) grouped[ip.scope].push(ip)
   const scopeOrder: IpScope[] = ['home', 'isp', 'public']
 
+  // The one address that works for the overwhelmingly common case: a friend
+  // on the same Wi-Fi / LAN. Everything else lives under Advanced.
+  const primaryIp = grouped.home[0] ?? hostStatus.localIps[0] ?? null
+  const primaryAddr = primaryIp ? `http://${primaryIp.address}:${hostedPort}` : null
+
+  const CopyRow = ({ addr, tag }: { addr: string; tag?: string }): JSX.Element => (
+    <div className="flex items-center gap-2 rounded-lg bg-mesh-bg-tertiary border border-mesh-border px-3 py-2.5">
+      <code className="flex-1 text-sm text-mesh-green font-mono truncate">{addr}</code>
+      {tag && <span className="text-[10px] text-mesh-text-muted font-mono shrink-0">{tag}</span>}
+      <button
+        onClick={() => handleCopyAddress(addr)}
+        className="shrink-0 h-7 w-7 rounded flex items-center justify-center text-mesh-text-muted hover:text-mesh-text-primary hover:bg-mesh-bg-hover transition-colors"
+        title="Copy address"
+      >
+        {copiedAddr === addr ? <Check className="h-3.5 w-3.5 text-mesh-green" /> : <Copy className="h-3.5 w-3.5" />}
+      </button>
+    </div>
+  )
+
   return (
     <div className="max-w-2xl mx-auto py-6 px-6">
-      <h2 className="text-lg font-bold text-mesh-text-primary mb-6">Connection</h2>
+      <h2 className="text-lg font-bold text-mesh-text-primary mb-1">Connection</h2>
+      <p className="text-xs text-mesh-text-muted mb-6">
+        One person hosts, everyone else joins with their address. That&apos;s it.
+      </p>
 
-      {/* Connection Status */}
-      <div className="rounded-xl bg-mesh-bg-secondary border border-mesh-border p-5 mb-6">
-        <h3 className="text-xs font-semibold text-mesh-text-secondary uppercase tracking-wide mb-3">
-          Connection Status
-        </h3>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="rounded-lg bg-mesh-bg-tertiary p-3 text-center">
-            <span className="text-xs text-mesh-text-muted block mb-1">Signaling</span>
-            {reconnectState?.state === 'reconnecting' ? (
-              <span className="text-sm font-semibold flex items-center justify-center gap-1 text-amber-500">
-                Reconnecting... (attempt {reconnectState.attempt}{reconnectState.max ? `/${reconnectState.max}` : ''})
-              </span>
-            ) : reconnectState?.state === 'failed' ? (
-              <div className="flex flex-col items-center gap-1 mt-1">
-                <span className="text-[11px] font-semibold text-red-400">
-                  Could not reconnect. Check your network or relay.
-                </span>
-                <Button size="sm" onClick={() => reconnectSignaling(network.signalingUrl)} className="mt-1 bg-red-500 hover:bg-red-600 text-white h-7 text-xs">
-                  Retry
-                </Button>
-              </div>
-            ) : (
-              <span
-                className={cn(
-                  'text-sm font-semibold flex items-center justify-center gap-1',
-                  isConnected ? 'text-mesh-green' : 'text-mesh-text-muted'
-                )}
-              >
-                <div
-                  className={cn(
-                    'h-2 w-2 rounded-full',
-                    isConnected ? 'bg-mesh-green animate-pulse' : 'bg-mesh-text-muted'
-                  )}
-                />
-                {isConnected ? 'Connected' : 'Disconnected'}
-              </span>
-            )}
-          </div>
-          <div className="rounded-lg bg-mesh-bg-tertiary p-3 text-center">
-            <span className="text-xs text-mesh-text-muted block mb-1">Relays</span>
-            <span className="text-sm text-mesh-text-primary font-semibold">
-              {relayCount} registered
-            </span>
-          </div>
-        </div>
+      {/* Status strip — one line, no jargon */}
+      <div className="flex items-center gap-2.5 rounded-lg bg-mesh-bg-secondary border border-mesh-border px-4 py-3 mb-4">
+        <div className={cn('h-2 w-2 rounded-full shrink-0', isConnected ? 'bg-mesh-green' : reconnectState?.state === 'reconnecting' ? 'bg-mesh-warning animate-pulse' : 'bg-mesh-text-muted')} />
+        <span className="text-sm text-mesh-text-primary flex-1 min-w-0 truncate">
+          {reconnectState?.state === 'reconnecting'
+            ? `Reconnecting… (attempt ${reconnectState.attempt ?? 1})`
+            : isConnected
+              ? network.hostSignaling ? 'Connected — you are the host' : 'Connected'
+              : 'Not connected'}
+        </span>
+        {!isConnected && reconnectState?.state !== 'reconnecting' && (
+          <Button size="sm" variant="secondary" onClick={() => reconnectSignaling(network.signalingUrl)}>
+            Retry
+          </Button>
+        )}
       </div>
 
-      {/* Host Signaling Server */}
-      <div className="rounded-xl bg-mesh-bg-secondary border border-mesh-border p-5 mb-6">
-        <div className="flex items-start justify-between gap-4 mb-3">
+      {/* Card: Host for your friends */}
+      <div className="rounded-xl bg-mesh-bg-secondary border border-mesh-border p-5 mb-4">
+        <div className="flex items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
               <Server className="h-4 w-4 text-mesh-text-secondary" />
-              <h3 className="text-sm font-semibold text-mesh-text-primary">Host Signaling Server</h3>
+              <h3 className="text-sm font-semibold text-mesh-text-primary">Host for your friends</h3>
             </div>
             <p className="text-xs text-mesh-text-muted mt-1">
-              Run the signaling server on this machine so friends can connect through you.
+              Turn this on, share your address, and friends connect through you.
             </p>
           </div>
-          <Toggle
-            checked={network.hostSignaling}
-            onChange={(v) => toggleHost(v)}
-          />
+          <Toggle checked={network.hostSignaling} onChange={(v) => toggleHost(v)} />
         </div>
 
-        {network.hostSignaling ? (
+        {network.hostSignaling && (
           <div className="mt-4">
-            <p className="text-xs text-mesh-text-secondary mb-3">
-              Share the address that matches where your friend is:
-              same WiFi → Home, same ISP → ISP / Internet, different ISP → Public.
-            </p>
+            {primaryAddr ? (
+              <>
+                <p className="text-[11px] font-semibold text-mesh-text-secondary uppercase tracking-wide mb-1.5">
+                  Share this address
+                </p>
+                <CopyRow addr={primaryAddr} />
+                <p className="text-[11px] text-mesh-text-muted mt-2">
+                  Works for friends on the same Wi-Fi or network as you. Friend somewhere
+                  else? Open <span className="text-mesh-text-secondary">Advanced</span> below for more addresses.
+                </p>
+              </>
+            ) : (
+              <p className="text-[11px] text-mesh-text-muted">
+                No network detected. Friends on this machine can still use
+                <code className="mx-1 text-mesh-green">http://localhost:{hostedPort}</code>.
+              </p>
+            )}
+            {hostStatus.error && (
+              <p className="text-[11px] text-mesh-danger mt-2">{hostStatus.error}</p>
+            )}
+          </div>
+        )}
+      </div>
 
-            {scopeOrder.map((scope) => {
-              const items = grouped[scope]
-              if (items.length === 0) return null
-              return (
-                <div key={scope} className="mb-3 last:mb-0">
-                  <p className="text-[11px] font-semibold text-mesh-text-secondary uppercase tracking-wide mb-1.5">
-                    {items[0].label}
-                  </p>
-                  <div className="flex flex-col gap-1.5">
-                    {items.map((ip) => {
-                      const addr = `http://${ip.address}:${hostedPort}`
-                      const isCopied = copiedAddr === addr
-                      return (
-                        <div
-                          key={`${ip.iface}-${ip.address}`}
-                          className="flex items-center gap-2 rounded-lg bg-mesh-bg-tertiary border border-mesh-border px-3 py-2.5"
-                        >
-                          <code className="flex-1 text-sm text-mesh-green font-mono truncate">
-                            {addr}
-                          </code>
-                          <span className="text-[10px] text-mesh-text-muted font-mono shrink-0">
-                            {ip.iface}
-                          </span>
-                          <button
-                            onClick={() => handleCopyAddress(addr)}
-                            className="shrink-0 h-7 w-7 rounded flex items-center justify-center text-mesh-text-muted hover:text-mesh-text-primary hover:bg-mesh-bg-hover transition-colors"
-                            title="Copy address"
-                          >
-                            {isCopied ? <Check className="h-3.5 w-3.5 text-mesh-green" /> : <Copy className="h-3.5 w-3.5" />}
-                          </button>
-                        </div>
-                      )
-                    })}
+      {/* Card: Join a friend (hidden while hosting — your address is set automatically) */}
+      {!network.hostSignaling && (
+        <div className="rounded-xl bg-mesh-bg-secondary border border-mesh-border p-5 mb-4">
+          <div className="flex items-center gap-2 mb-1">
+            <Link2 className="h-4 w-4 text-mesh-text-secondary" />
+            <h3 className="text-sm font-semibold text-mesh-text-primary">Join a friend</h3>
+          </div>
+          <p className="text-xs text-mesh-text-muted mb-3">
+            Paste the address your friend shared, then hit Connect.
+          </p>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={urlDraft}
+              onChange={(e) => setUrlDraft(e.target.value)}
+              placeholder="http://192.168.1.20:3000"
+              className="flex-1 h-9 px-3 rounded-lg bg-mesh-bg-tertiary border border-mesh-border text-sm text-mesh-text-primary font-mono focus:outline-none focus:border-mesh-green focus:ring-1 focus:ring-mesh-green/30"
+            />
+            <Button size="sm" onClick={handleSaveUrl} disabled={saving || urlDraft.trim() === network.signalingUrl}>
+              {saved ? 'Saved' : saving ? 'Saving…' : 'Connect'}
+            </Button>
+          </div>
+          <p className="text-[11px] text-mesh-text-muted mt-2">
+            Remembered for next launch — you only do this once.
+          </p>
+        </div>
+      )}
+
+      {/* Advanced — everything network-nerdy lives behind this */}
+      <button
+        onClick={() => setShowAdvanced((v) => !v)}
+        className="flex items-center gap-1.5 text-xs font-medium text-mesh-text-secondary hover:text-mesh-text-primary transition-colors mb-4"
+      >
+        <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', showAdvanced && 'rotate-90')} />
+        Advanced
+      </button>
+
+      {showAdvanced && (
+        <div className="flex flex-col gap-4">
+          {/* All host addresses by scope */}
+          {network.hostSignaling && (
+            <div className="rounded-xl bg-mesh-bg-secondary border border-mesh-border p-5">
+              <h3 className="text-xs font-semibold text-mesh-text-secondary uppercase tracking-wide mb-3">
+                All your addresses
+              </h3>
+              <p className="text-xs text-mesh-text-muted mb-3">
+                Pick by where your friend is: same Wi-Fi → Home, same internet provider → ISP,
+                anywhere else → Public.
+              </p>
+              {scopeOrder.map((scope) => {
+                const items = grouped[scope]
+                if (items.length === 0) return null
+                return (
+                  <div key={scope} className="mb-3 last:mb-0">
+                    <p className="text-[11px] font-semibold text-mesh-text-secondary uppercase tracking-wide mb-1.5">
+                      {items[0].label}
+                    </p>
+                    <div className="flex flex-col gap-1.5">
+                      {items.map((ip) => (
+                        <CopyRow key={`${ip.iface}-${ip.address}`} addr={`http://${ip.address}:${hostedPort}`} tag={ip.iface} />
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )
-            })}
-
-            {/* Layer 2 / Layer 3 addresses from the Network Signature Scanner. */}
-            <div className="mb-3">
+                )
+              })}
               {!netSig ? (
-                <div className="rounded-lg border border-mesh-border bg-mesh-bg-tertiary p-3 flex items-center justify-between">
-                  <span className="text-[11px] text-mesh-text-muted">Analyzing network topology...</span>
-                </div>
+                <p className="text-[11px] text-mesh-text-muted">Analyzing network topology…</p>
               ) : (
                 <>
                   {netSig.signature.routerWanIp && (
                     <div className="mb-3">
                       <p className="text-[11px] font-semibold text-mesh-text-secondary uppercase tracking-wide mb-1.5">
-                        ISP / Internet address (from your router)
+                        ISP address (from your router)
                       </p>
-                      {(() => {
-                        const addr = `http://${netSig.signature.routerWanIp}:${hostedPort}`
-                        const isCopied = copiedAddr === addr
-                        return (
-                          <div className="flex items-center gap-2 rounded-lg bg-mesh-bg-tertiary border border-mesh-border px-3 py-2.5">
-                            <code className="flex-1 text-sm text-mesh-green font-mono truncate">{addr}</code>
-                            <span className="text-[10px] text-mesh-text-muted font-mono shrink-0">upnp</span>
-                            <button
-                              onClick={() => handleCopyAddress(addr)}
-                              className="shrink-0 h-7 w-7 rounded flex items-center justify-center text-mesh-text-muted hover:text-mesh-text-primary hover:bg-mesh-bg-hover transition-colors"
-                              title="Copy address"
-                            >
-                              {isCopied ? <Check className="h-3.5 w-3.5 text-mesh-green" /> : <Copy className="h-3.5 w-3.5" />}
-                            </button>
-                          </div>
-                        )
-                      })()}
-                      <p className="text-[11px] text-mesh-text-muted mt-1">
-                        Use this for friends on the same ISP as you.
-                      </p>
+                      <CopyRow addr={`http://${netSig.signature.routerWanIp}:${hostedPort}`} tag="upnp" />
+                      <p className="text-[11px] text-mesh-text-muted mt-1">For friends on the same internet provider.</p>
                     </div>
                   )}
                   {netSig.signature.publicIp && (
                     <div className="mb-3">
                       <p className="text-[11px] font-semibold text-mesh-text-secondary uppercase tracking-wide mb-1.5">
-                        Public Internet address
+                        Public internet address
                       </p>
-                      {(() => {
-                        const addr = `http://${netSig.signature.publicIp}:${hostedPort}`
-                        const isCopied = copiedAddr === addr
-                        return (
-                          <div className="flex items-center gap-2 rounded-lg bg-mesh-bg-tertiary border border-mesh-border px-3 py-2.5">
-                            <code className="flex-1 text-sm text-mesh-green font-mono truncate">{addr}</code>
-                            <span className="text-[10px] text-mesh-text-muted font-mono shrink-0">ipify</span>
-                            <button
-                              onClick={() => handleCopyAddress(addr)}
-                              className="shrink-0 h-7 w-7 rounded flex items-center justify-center text-mesh-text-muted hover:text-mesh-text-primary hover:bg-mesh-bg-hover transition-colors"
-                              title="Copy address"
-                            >
-                              {isCopied ? <Check className="h-3.5 w-3.5 text-mesh-green" /> : <Copy className="h-3.5 w-3.5" />}
-                            </button>
-                          </div>
-                        )
-                      })()}
+                      <CopyRow addr={`http://${netSig.signature.publicIp}:${hostedPort}`} tag="ipify" />
                       <p className="text-[11px] text-mesh-text-muted mt-1">
-                        Use this for friends on a different ISP — requires port {hostedPort} forwarded on your router.
+                        For friends anywhere — needs port {hostedPort} forwarded on your router.
                       </p>
                     </div>
                   )}
                   <div className={cn(
                     'rounded-lg border p-2.5 text-[11px]',
                     netSig.interpretation.behindCgnat
-                      ? 'border-yellow-500/40 bg-yellow-500/5 text-yellow-200'
+                      ? 'border-mesh-warning/40 bg-mesh-warning/5 text-mesh-warning'
                       : netSig.interpretation.directlyReachable
                       ? 'border-mesh-green/40 bg-mesh-green/5 text-mesh-text-secondary'
                       : 'border-mesh-border bg-mesh-bg-tertiary text-mesh-text-muted'
@@ -364,79 +362,56 @@ function NetworkSettings(): JSX.Element {
                 </>
               )}
             </div>
+          )}
 
-            {hostStatus.localIps.length === 0 && (
-              <p className="text-[11px] text-mesh-text-muted">
-                No network interfaces detected. Friends on the same machine can still use
-                <code className="mx-1 text-mesh-green">http://localhost:{hostedPort}</code>.
-              </p>
-            )}
-
-            {hostStatus.error && (
-              <p className="text-[11px] text-red-400 mt-2">{hostStatus.error}</p>
-            )}
-          </div>
-        ) : (
-          <div className="mt-4">
-            <p className="text-xs text-mesh-text-secondary mb-2">
-              Signaling server address (paste the address a friend shared with you):
-            </p>
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={urlDraft}
-                onChange={(e) => setUrlDraft(e.target.value)}
-                placeholder="http://203.0.113.4:3000"
-                className="flex-1 h-9 px-3 rounded-lg bg-mesh-bg-tertiary border border-mesh-border text-sm text-mesh-text-primary font-mono focus:outline-none focus:ring-2 focus:ring-mesh-green"
-              />
-              <Button size="sm" onClick={handleSaveUrl} disabled={saving || urlDraft.trim() === network.signalingUrl}>
-                {saved ? 'Saved' : saving ? 'Saving…' : 'Connect'}
-              </Button>
+          {/* Relays */}
+          <div className="rounded-xl bg-mesh-bg-secondary border border-mesh-border px-5 py-4 flex items-center justify-between">
+            <div>
+              <h3 className="text-xs font-semibold text-mesh-text-secondary uppercase tracking-wide">Relays</h3>
+              <p className="text-[11px] text-mesh-text-muted mt-0.5">Fallback servers used when a direct connection fails.</p>
             </div>
-            <p className="text-[11px] text-mesh-text-muted mt-2">
-              Saved automatically and reused on next launch.
-            </p>
+            <span className="text-sm text-mesh-text-primary font-semibold">{relayCount} available</span>
           </div>
-        )}
-      </div>
 
-      {/* ICE Strategy */}
-      <div>
-        <h3 className="text-xs font-semibold text-mesh-text-secondary uppercase tracking-wide mb-3">
-          Connection Strategy
-        </h3>
-        <div className="flex flex-col gap-2">
-          {strategies.map((strat) => {
-            const isActive = network.preferredIceStrategy === strat.value
-            const Icon = strat.icon
-            return (
-              <button
-                key={strat.value}
-                onClick={() => updateNetwork({ preferredIceStrategy: strat.value })}
-                className={cn(
-                  'flex items-start gap-3 px-4 py-3.5 rounded-lg border text-left transition-colors',
-                  isActive
-                    ? 'bg-mesh-green/10 border-mesh-green'
-                    : 'bg-mesh-bg-tertiary border-mesh-border hover:border-mesh-border-light'
-                )}
-              >
-                <Icon className={cn('h-5 w-5 mt-0.5 shrink-0', isActive ? 'text-mesh-green' : 'text-mesh-text-muted')} />
-                <div>
-                  <span className={cn('text-sm font-medium block', isActive ? 'text-mesh-green' : 'text-mesh-text-primary')}>
-                    {strat.label}
-                  </span>
-                  <span className="text-xs text-mesh-text-muted">{strat.description}</span>
-                </div>
-                {isActive && (
-                  <div className="ml-auto mt-1 h-4 w-4 rounded-full bg-mesh-green flex items-center justify-center shrink-0">
-                    <div className="h-1.5 w-1.5 rounded-full bg-white" />
-                  </div>
-                )}
-              </button>
-            )
-          })}
+          {/* ICE Strategy */}
+          <div>
+            <h3 className="text-xs font-semibold text-mesh-text-secondary uppercase tracking-wide mb-3">
+              Connection Strategy
+            </h3>
+            <div className="flex flex-col gap-2">
+              {strategies.map((strat) => {
+                const isActive = network.preferredIceStrategy === strat.value
+                const Icon = strat.icon
+                return (
+                  <button
+                    key={strat.value}
+                    onClick={() => updateNetwork({ preferredIceStrategy: strat.value })}
+                    className={cn(
+                      'flex items-start gap-3 px-4 py-3 rounded-lg border text-left transition-colors',
+                      isActive
+                        ? 'bg-mesh-green/10 border-mesh-green/60'
+                        : 'bg-mesh-bg-tertiary border-mesh-border hover:border-mesh-border-light'
+                    )}
+                  >
+                    <Icon className={cn('h-4 w-4 mt-0.5 shrink-0', isActive ? 'text-mesh-green' : 'text-mesh-text-muted')} />
+                    <div>
+                      <span className={cn('text-sm font-medium block', isActive ? 'text-mesh-green' : 'text-mesh-text-primary')}>
+                        {strat.label}
+                      </span>
+                      <span className="text-xs text-mesh-text-muted">{strat.description}</span>
+                    </div>
+                    {isActive && (
+                      <div className="ml-auto mt-1 h-3.5 w-3.5 rounded-full bg-mesh-green flex items-center justify-center shrink-0">
+                        <div className="h-1 w-1 rounded-full bg-white" />
+                      </div>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

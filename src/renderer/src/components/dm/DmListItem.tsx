@@ -1,7 +1,9 @@
+import { useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { UserAvatar } from '@/components/ui/UserAvatar'
 import { X } from 'lucide-react'
 import { useLiveStatus } from '@/lib/useLiveStatus'
+import { useMessagesStore } from '@/stores/messages.store'
 import type { Conversation } from '@/types/messages'
 
 interface DmListItemProps {
@@ -24,10 +26,18 @@ function formatRelativeTime(timestamp: number): string {
 }
 
 function DmListItem({ conversation, isActive, onClick }: DmListItemProps): JSX.Element {
+  const navigate = useNavigate()
+  const closeConversation = useMessagesStore((s) => s.closeConversation)
   const lastMsg = conversation.lastMessage
-  // Read live presence (status.store → friends.store → snapshot) so the dot
-  // stays in sync with whatever the server-side MemberListPanel also shows.
-  const status = useLiveStatus(conversation.recipientId, conversation.recipientStatus)
+  // Live presence only — the persisted recipientStatus is whatever was true
+  // when the row was written (hardcoded 'online' at creation) and must never
+  // light the dot on its own.
+  const status = useLiveStatus(conversation.recipientId, 'offline')
+
+  const handleClose = (): void => {
+    closeConversation(conversation.id)
+    if (isActive) navigate('/channels/@me')
+  }
 
   return (
     <button
@@ -62,9 +72,10 @@ function DmListItem({ conversation, isActive, onClick }: DmListItemProps): JSX.E
         <span
           role="button"
           tabIndex={0}
+          title="Close DM (history is kept)"
           className="opacity-0 group-hover:opacity-100 p-1 mr-1 text-mesh-text-muted hover:text-mesh-text-primary transition-opacity cursor-pointer"
-          onClick={(e) => { e.stopPropagation(); /* Close logic */ }}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); /* Close logic */ } }}
+          onClick={(e) => { e.stopPropagation(); handleClose() }}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); handleClose() } }}
         >
           <X className="h-3.5 w-3.5" />
         </span>

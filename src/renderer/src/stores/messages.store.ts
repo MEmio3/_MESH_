@@ -44,6 +44,8 @@ interface MessagesStore {
   receiveMessage: (fromUserId: string, fromUsername: string, content: string) => void
   receiveFileMessage: (fromUserId: string, fromUsername: string, file: FileAttachment, messagePayload: { id: string; conversationId: string; content: string; timestamp: number }) => void
   markAsRead: (conversationId: string) => void
+  /** Hide a DM from the sidebar. Messages are kept — reopening restores history. */
+  closeConversation: (conversationId: string) => void
   getConversation: (id: string) => Conversation | undefined
   updateMessageStatus: (messageId: string, status: Message['status']) => void
   updateFileProgress: (messageId: string, progress: number) => void
@@ -646,6 +648,15 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
         })
       }
     }
+  },
+
+  closeConversation: (conversationId) => {
+    set((state) => ({
+      conversations: state.conversations.filter((c) => c.id !== conversationId),
+      activeConversationId:
+        state.activeConversationId === conversationId ? null : state.activeConversationId
+    }))
+    window.api.db.conversations.close(conversationId).catch(console.error)
   },
 
   getConversation: (id) => get().conversations.find((c) => c.id === id),

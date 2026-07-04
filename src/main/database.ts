@@ -386,6 +386,14 @@ export function updateConversationUnread(id: string, unreadCount: number): void 
   getDb().prepare('UPDATE conversations SET unread_count = ? WHERE id = ?').run(unreadCount, id)
 }
 
+/**
+ * Close (hide) a DM from the sidebar WITHOUT touching its messages —
+ * reopening the conversation later restores the full history.
+ */
+export function closeConversation(id: string): void {
+  getDb().prepare('DELETE FROM conversations WHERE id = ?').run(id)
+}
+
 export function deleteConversationWith(recipientId: string): void {
   const db = getDb()
   const rows = db.prepare('SELECT id FROM conversations WHERE recipient_id = ?').all(recipientId) as Array<{ id: string }>

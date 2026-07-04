@@ -108,6 +108,7 @@ interface DbConversationsAPI {
   list: () => Promise<{ id: string; recipientId: string; recipientName: string; recipientAvatarColor: string | null; recipientStatus: string; unreadCount: number }[]>
   upsert: (conv: { id: string; recipientId: string; recipientName: string; recipientAvatarColor: string | null; recipientStatus: string; unreadCount: number }) => Promise<void>
   updateUnread: (id: string, unreadCount: number) => Promise<void>
+  close: (id: string) => Promise<void>
 }
 
 interface DbMessagesAPI {

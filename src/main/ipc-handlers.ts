@@ -99,6 +99,7 @@ export function registerDatabaseHandlers(): void {
   ipcMain.handle('db:conversations:list', () => db.getConversations())
   ipcMain.handle('db:conversations:upsert', (_e, conv: ConversationRow) => db.upsertConversation(conv))
   ipcMain.handle('db:conversations:update-unread', (_e, args: { id: string; unreadCount: number }) => db.updateConversationUnread(args.id, args.unreadCount))
+  ipcMain.handle('db:conversations:close', (_e, id: string) => db.closeConversation(id))
 
   // ── Messages ──
   ipcMain.handle('db:messages:list', (_e, args: { conversationId: string; limit?: number; before?: number }) => db.getMessages(args.conversationId, args.limit, args.before))
