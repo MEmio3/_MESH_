@@ -60,3 +60,7 @@ Desktop.ini
 .claude/
 .codex/
 .agents/
+
+# Local-only project notes
+README.md
+UI_POLISH_GUIDE.md
