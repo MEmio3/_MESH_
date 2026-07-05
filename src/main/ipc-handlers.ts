@@ -7,6 +7,7 @@ import * as avatar from './avatar'
 import * as serverAvatar from './server-avatar'
 import * as fileManager from './file-manager'
 import { showNotification, type NotifyPayload } from './notifications'
+import { PERM, MODERATOR_BUNDLE, effectivePermissions, hasPerm } from '../shared/permissions'
 import type {
   FriendRow,
   FriendRequestRow,
@@ -804,18 +805,22 @@ export function registerServerHandlers(): void {
     actorId: string
     name: string
     color: string
-    canModerate: boolean
+    permissions: number
   }) => {
-    if (!isHostOf(payload.serverId, payload.actorId)) return { success: false, error: 'forbidden' }
+    if (!isHostOf(payload.serverId, payload.actorId) && !actorHasPerm(payload.serverId, payload.actorId, PERM.manageRoles)) {
+      return { success: false, error: 'forbidden' }
+    }
     const existing = db.getServerRoles(payload.serverId)
     const id = `${payload.serverId}__role-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+    const permissions = Number.isFinite(payload.permissions) ? payload.permissions : 0
     db.insertServerRole({
       id,
       serverId: payload.serverId,
       name: (payload.name || 'new role').slice(0, 32),
       color: payload.color || '#9b9ba3',
       position: existing.length,
-      canModerate: payload.canModerate ? 1 : 0
+      canModerate: (permissions & MODERATOR_BUNDLE) !== 0 ? 1 : 0,
+      permissions
     })
     broadcastRoles(payload.serverId)
     return { success: true, roleId: id }
@@ -827,16 +832,20 @@ export function registerServerHandlers(): void {
     roleId: string
     name: string
     color: string
-    canModerate: boolean
+    permissions: number
   }) => {
-    if (!isHostOf(payload.serverId, payload.actorId)) return { success: false, error: 'forbidden' }
+    if (!isHostOf(payload.serverId, payload.actorId) && !actorHasPerm(payload.serverId, payload.actorId, PERM.manageRoles)) {
+      return { success: false, error: 'forbidden' }
+    }
     const existing = db.getServerRoles(payload.serverId).find((r) => r.id === payload.roleId)
     if (!existing) return { success: false, error: 'not found' }
+    const permissions = Number.isFinite(payload.permissions) ? payload.permissions : existing.permissions
     db.insertServerRole({
       ...existing,
       name: (payload.name || existing.name).slice(0, 32),
       color: payload.color || existing.color,
-      canModerate: payload.canModerate ? 1 : 0
+      canModerate: (permissions & MODERATOR_BUNDLE) !== 0 ? 1 : 0,
+      permissions
     })
     broadcastRoles(payload.serverId)
     return { success: true }
@@ -847,7 +856,9 @@ export function registerServerHandlers(): void {
     actorId: string
     roleId: string
   }) => {
-    if (!isHostOf(payload.serverId, payload.actorId)) return { success: false, error: 'forbidden' }
+    if (!isHostOf(payload.serverId, payload.actorId) && !actorHasPerm(payload.serverId, payload.actorId, PERM.manageRoles)) {
+      return { success: false, error: 'forbidden' }
+    }
     db.deleteServerRole(payload.serverId, payload.roleId)
     broadcastRoles(payload.serverId)
     emitLayoutUpdate(payload.serverId) // channel allow-lists may have changed
@@ -862,15 +873,15 @@ export function registerServerHandlers(): void {
     return { success: true }
   })
 
-  // Assign/unassign custom roles on a member. Host or moderation-powered
-  // actors; nobody can edit the host's assignments except the host.
+  // Assign/unassign custom roles on a member. Requires Manage Roles;
+  // nobody can edit the host's assignments except the host.
   ipcMain.handle('server:assign-member-roles', async (_e, payload: {
     serverId: string
     actorId: string
     targetId: string
     roleIds: string[]
   }) => {
-    if (!canManageServer(payload.serverId, payload.actorId)) return { success: false, error: 'forbidden' }
+    if (!actorHasPerm(payload.serverId, payload.actorId, PERM.manageRoles)) return { success: false, error: 'forbidden' }
     const srv = db.getServer(payload.serverId)
     if (srv && srv.hostUserId === payload.targetId && payload.actorId !== payload.targetId) {
       return { success: false, error: 'forbidden' }
@@ -895,7 +906,8 @@ export function registerServerHandlers(): void {
       payload.serverId,
       (payload.roles as import('../shared/types').ServerRoleRow[]).map((r) => ({
         ...r,
-        canModerate: r.canModerate ? 1 : 0
+        canModerate: r.canModerate ? 1 : 0,
+        permissions: Number.isFinite(r.permissions) ? r.permissions : 0
       }))
     )
     return { success: true }
@@ -924,14 +936,17 @@ export function registerServerHandlers(): void {
     return { success: true }
   })
 
-  // Host renames the role tiers for a server (display names only).
+  // Rename the role tiers for a server (display names only).
   ipcMain.handle('server:set-role-names', async (_e, payload: {
     serverId: string
     actorId: string
     roleNames: { host: string; moderator: string; member: string } | null
   }) => {
     const srv = db.getServer(payload.serverId)
-    if (!srv || srv.hostUserId !== payload.actorId) return { success: false, error: 'forbidden' }
+    if (!srv) return { success: false, error: 'not found' }
+    if (srv.hostUserId !== payload.actorId && !actorHasPerm(payload.serverId, payload.actorId, PERM.manageServer)) {
+      return { success: false, error: 'forbidden' }
+    }
     db.updateServerRoleNames(payload.serverId, payload.roleNames ? JSON.stringify(payload.roleNames) : null)
     socketClient.emitSignaling('server:role-names-update', {
       serverId: payload.serverId,
@@ -1077,6 +1092,13 @@ export function registerServerHandlers(): void {
     channelId?: string | null
     file?: { fileId: string; fileName: string; fileSize: number; fileType: string; base64: string; filePath?: string | null } | null
   }) => {
+    // Permission gates: sending and attaching are role-controlled.
+    if (!actorHasPerm(payload.serverId, payload.senderId, PERM.sendMessages)) {
+      return { success: false, error: 'You do not have permission to send messages here.' }
+    }
+    if (payload.file && !actorHasPerm(payload.serverId, payload.senderId, PERM.attachFiles)) {
+      return { success: false, error: 'You do not have permission to attach files here.' }
+    }
     // Renderer only passes content + sender info — we mint the id/timestamp here
     // so every message has non-null primary key + timestamp columns.
     const id = `smsg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -1338,18 +1360,21 @@ export function registerServerHandlers(): void {
   // For now these are local-only; multi-peer sync will piggyback on
   // existing server signaling in a follow-up.
 
+  /** Effective permission mask for a member (see shared/permissions.ts). */
+  function memberPerms(serverId: string, userId: string): number {
+    const me = db.getServerMembers(serverId).find((m) => m.userId === userId)
+    if (!me) return 0
+    let roleIds: string[] = []
+    try { roleIds = JSON.parse(me.roleIds || '[]') } catch { /* default */ }
+    return effectivePermissions(me.role, roleIds, db.getServerRoles(serverId))
+  }
+
+  function actorHasPerm(serverId: string, actorId: string, perm: number): boolean {
+    return hasPerm(memberPerms(serverId, actorId), perm)
+  }
+
   function canManageServer(serverId: string, actorId: string): boolean {
-    const members = db.getServerMembers(serverId)
-    const me = members.find((m) => m.userId === actorId)
-    if (!me) return false
-    if (me.role === 'host' || me.role === 'moderator') return true
-    // Custom roles can also grant moderation power.
-    try {
-      const myRoleIds = new Set(JSON.parse(me.roleIds || '[]') as string[])
-      return db.getServerRoles(serverId).some((r) => r.canModerate === 1 && myRoleIds.has(r.id))
-    } catch {
-      return false
-    }
+    return actorHasPerm(serverId, actorId, PERM.manageChannels)
   }
 
   // Push the authoritative channel layout to signaling so every member's

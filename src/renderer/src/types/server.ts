@@ -31,7 +31,8 @@ export interface ServerRoleDef {
   name: string
   color: string
   position: number
-  canModerate: boolean
+  /** Permission bitmask — see shared/permissions.ts. */
+  permissions: number
 }
 
 export interface VoiceParticipant {

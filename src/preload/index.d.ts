@@ -269,9 +269,9 @@ interface ServerAPI {
   applyLayout: (p: { serverId: string; layout: unknown }) => Promise<{ success: boolean }>
   setRoleNames: (p: { serverId: string; actorId: string; roleNames: { host: string; moderator: string; member: string } | null }) => Promise<{ success: boolean; error?: string }>
   applyRoleNames: (p: { serverId: string; roleNames: { host?: string; moderator?: string; member?: string } | null }) => Promise<{ success: boolean }>
-  listRoles: (p: { serverId: string }) => Promise<Array<{ id: string; serverId: string; name: string; color: string; position: number; canModerate: number }>>
-  createRole: (p: { serverId: string; actorId: string; name: string; color: string; canModerate: boolean }) => Promise<{ success: boolean; error?: string; roleId?: string }>
-  updateRole: (p: { serverId: string; actorId: string; roleId: string; name: string; color: string; canModerate: boolean }) => Promise<{ success: boolean; error?: string }>
+  listRoles: (p: { serverId: string }) => Promise<Array<{ id: string; serverId: string; name: string; color: string; position: number; canModerate: number; permissions: number }>>
+  createRole: (p: { serverId: string; actorId: string; name: string; color: string; permissions: number }) => Promise<{ success: boolean; error?: string; roleId?: string }>
+  updateRole: (p: { serverId: string; actorId: string; roleId: string; name: string; color: string; permissions: number }) => Promise<{ success: boolean; error?: string }>
   deleteRole: (p: { serverId: string; actorId: string; roleId: string }) => Promise<{ success: boolean; error?: string }>
   assignMemberRoles: (p: { serverId: string; actorId: string; targetId: string; roleIds: string[] }) => Promise<{ success: boolean; error?: string }>
   applyRoles: (p: { serverId: string; roles: unknown }) => Promise<{ success: boolean }>

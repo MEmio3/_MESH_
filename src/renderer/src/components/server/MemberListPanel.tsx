@@ -6,6 +6,7 @@ import { useServersStore } from '@/stores/servers.store'
 import { useAvatarStore } from '@/stores/avatar.store'
 import { useLiveStatus } from '@/lib/useLiveStatus'
 import { resolveRoleNames } from '@/lib/roleNames'
+import { PERM, MODERATOR_BUNDLE, effectivePermissions, hasPerm } from '../../../../shared/permissions'
 import type { ServerMember, ServerRole } from '@/types/server'
 
 interface MemberListPanelProps {
@@ -48,11 +49,15 @@ function MemberListPanel({ serverId, members }: MemberListPanelProps): JSX.Eleme
   const selfId = identity?.userId
   const selfMember = members.find((m) => m.userId === selfId)
   const selfRole: ServerRole | null = selfMember?.role ?? null
-  // Moderation power: tier ladder OR any assigned custom role with the flag.
-  const canModerate =
-    selfRole === 'host' ||
-    selfRole === 'moderator' ||
-    customRoles.some((r) => r.canModerate && (selfMember?.roleIds ?? []).includes(r.id))
+  // Effective permission mask — tier bundle + custom role grants.
+  const myPerms = selfMember
+    ? effectivePermissions(selfMember.role, selfMember.roleIds, customRoles)
+    : 0
+  const canMute = hasPerm(myPerms, PERM.muteMembers)
+  const canKick = hasPerm(myPerms, PERM.kickMembers)
+  const canBan = hasPerm(myPerms, PERM.banMembers)
+  const canManageRoles = hasPerm(myPerms, PERM.manageRoles)
+  const canModerate = canMute || canKick || canBan || canManageRoles
   const isHost = selfRole === 'host'
   const selfAvatar = useAvatarStore((s) => s.self)
   const avatarsByUser = useAvatarStore((s) => s.byUser)
@@ -109,18 +114,30 @@ function MemberListPanel({ serverId, members }: MemberListPanelProps): JSX.Eleme
         >
           {menu.target.role !== 'host' && menu.target.userId !== selfId && (
             <>
-              <button
-                onClick={() => { muteMember(serverId, menu.target.userId, !menu.target.isMuted); setMenu(null) }}
-                className="flex items-center gap-2.5 w-[calc(100%-8px)] px-2.5 py-1.5 text-sm rounded-sm mx-1 text-left transition-colors text-mesh-text-secondary hover:bg-mesh-green hover:text-white"
-              >
-                {menu.target.isMuted ? 'Unmute' : 'Mute'}
-              </button>
-              <button
-                onClick={() => { kickMember(serverId, menu.target.userId); setMenu(null) }}
-                className="flex items-center gap-2.5 w-[calc(100%-8px)] px-2.5 py-1.5 text-sm rounded-sm mx-1 text-left transition-colors text-red-400 hover:bg-red-500 hover:text-white"
-              >
-                Kick
-              </button>
+              {canMute && (
+                <button
+                  onClick={() => { muteMember(serverId, menu.target.userId, !menu.target.isMuted); setMenu(null) }}
+                  className="flex items-center gap-2.5 w-[calc(100%-8px)] px-2.5 py-1.5 text-sm rounded-sm mx-1 text-left transition-colors text-mesh-text-secondary hover:bg-mesh-green hover:text-white"
+                >
+                  {menu.target.isMuted ? 'Unmute' : 'Mute'}
+                </button>
+              )}
+              {canKick && (
+                <button
+                  onClick={() => { kickMember(serverId, menu.target.userId); setMenu(null) }}
+                  className="flex items-center gap-2.5 w-[calc(100%-8px)] px-2.5 py-1.5 text-sm rounded-sm mx-1 text-left transition-colors text-red-400 hover:bg-red-500 hover:text-white"
+                >
+                  Kick
+                </button>
+              )}
+              {canBan && !isHost && (
+                <button
+                  onClick={() => { banMember(serverId, menu.target.userId); setMenu(null) }}
+                  className="flex items-center gap-2.5 w-[calc(100%-8px)] px-2.5 py-1.5 text-sm rounded-sm mx-1 text-left transition-colors text-red-400 hover:bg-red-500 hover:text-white"
+                >
+                  Ban
+                </button>
+              )}
             </>
           )}
           {isHost && menu.target.role !== 'host' && (
@@ -150,8 +167,8 @@ function MemberListPanel({ serverId, members }: MemberListPanelProps): JSX.Eleme
             </>
           )}
 
-          {/* Custom role assignment — Discord-style checklist. */}
-          {customRoles.length > 0 && (
+          {/* Custom role assignment — Discord-style checklist (Manage Roles). */}
+          {canManageRoles && customRoles.length > 0 && (
             <>
               <div className="h-px bg-mesh-border/50 my-1 mx-2" />
               <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-mesh-text-muted">
@@ -182,7 +199,7 @@ function MemberListPanel({ serverId, members }: MemberListPanelProps): JSX.Eleme
                     </span>
                     <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: role.color }} />
                     <span className="truncate flex-1">{role.name}</span>
-                    {role.canModerate && (
+                    {(role.permissions & MODERATOR_BUNDLE) !== 0 && (
                       <span className="text-[8px] font-bold uppercase text-mesh-text-muted shrink-0">mod</span>
                     )}
                   </button>

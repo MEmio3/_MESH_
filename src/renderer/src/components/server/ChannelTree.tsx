@@ -19,6 +19,7 @@ import { useIdentityStore } from '@/stores/identity.store'
 import { useAvatarStore } from '@/stores/avatar.store'
 import { useServersStore } from '@/stores/servers.store'
 import { resolveRoleNames } from '@/lib/roleNames'
+import { PERM, effectivePermissions, hasPerm } from '../../../../shared/permissions'
 
 interface ChannelTreeProps {
   serverId: string
@@ -84,7 +85,12 @@ export function ChannelTree({
   const customRoles = useServersStore((s) => s.serverRoles[serverId]) ?? []
   const serverMembers = useServersStore((s) => s.serverMembers[serverId])
   const setChannelRoles = useChannelsStore((s) => s.setChannelRoles)
-  const selfRoleIds = serverMembers?.find((m) => m.userId === selfId)?.roleIds ?? []
+  const selfMemberEntry = serverMembers?.find((m) => m.userId === selfId)
+  const selfRoleIds = selfMemberEntry?.roleIds ?? []
+  const canConnectVoice = hasPerm(
+    selfMemberEntry ? effectivePermissions(selfMemberEntry.role, selfRoleIds, customRoles) : 0,
+    PERM.connectVoice
+  )
 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [menu, setMenu] = useState<MenuAnchor | null>(null)
@@ -178,6 +184,8 @@ export function ChannelTree({
             if (isText) {
               onSelectTextChannel(ch.id)
             } else if (!isJoinedVoice) {
+              // Permission gate: Connect is role-controlled.
+              if (!canConnectVoice) return
               // Either not in any voice channel, or in a different one — hop
               // into this channel's room (voice.store handles the switch).
               joinRoom(serverId, ch.id)

@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3'
 import { app } from 'electron'
 import { join } from 'path'
+import { MODERATOR_BUNDLE } from '../shared/permissions'
 import type {
   FriendRow,
   FriendRequestRow,
@@ -125,6 +126,16 @@ function migrateSchema(): void {
   const memNames = new Set(memCols.map((c) => c.name))
   if (memCols.length > 0 && !memNames.has('role_ids')) {
     d.exec("ALTER TABLE server_members ADD COLUMN role_ids TEXT NOT NULL DEFAULT '[]'")
+  }
+
+  // Permission bitmask on roles; migrate the old can_moderate flag into the
+  // moderator bundle so existing roles keep their powers.
+  const roleCols = d.prepare("PRAGMA table_info('server_roles')").all() as { name: string }[]
+  const roleNames2 = new Set(roleCols.map((c) => c.name))
+  if (roleCols.length > 0 && !roleNames2.has('permissions')) {
+    d.exec('ALTER TABLE server_roles ADD COLUMN permissions INTEGER NOT NULL DEFAULT 0')
+    d.prepare('UPDATE server_roles SET permissions = ? WHERE can_moderate = 1 AND permissions = 0')
+      .run(MODERATOR_BUNDLE)
   }
 }
 
@@ -257,6 +268,7 @@ function createTables(): void {
       color TEXT NOT NULL DEFAULT '#9b9ba3',
       position INTEGER NOT NULL DEFAULT 0,
       can_moderate INTEGER NOT NULL DEFAULT 0,
+      permissions INTEGER NOT NULL DEFAULT 0,
       FOREIGN KEY (server_id) REFERENCES servers(id)
     );
     CREATE INDEX IF NOT EXISTS idx_server_roles_server ON server_roles(server_id, position);
@@ -659,14 +671,14 @@ export function seedDefaultServerChannelsIfMissing(): void {
 
 // ── Server Roles (custom, Discord-style) ──
 
-const ROLE_COLS = 'id, server_id AS serverId, name, color, position, can_moderate AS canModerate'
+const ROLE_COLS = 'id, server_id AS serverId, name, color, position, can_moderate AS canModerate, permissions'
 
 export function getServerRoles(serverId: string): ServerRoleRow[] {
   return getDb().prepare(`SELECT ${ROLE_COLS} FROM server_roles WHERE server_id = ? ORDER BY position ASC`).all(serverId) as ServerRoleRow[]
 }
 
 export function insertServerRole(row: ServerRoleRow): void {
-  getDb().prepare('INSERT OR REPLACE INTO server_roles (id, server_id, name, color, position, can_moderate) VALUES (?, ?, ?, ?, ?, ?)').run(row.id, row.serverId, row.name, row.color, row.position, row.canModerate)
+  getDb().prepare('INSERT OR REPLACE INTO server_roles (id, server_id, name, color, position, can_moderate, permissions) VALUES (?, ?, ?, ?, ?, ?, ?)').run(row.id, row.serverId, row.name, row.color, row.position, row.canModerate, row.permissions ?? 0)
 }
 
 export function deleteServerRole(serverId: string, roleId: string): void {

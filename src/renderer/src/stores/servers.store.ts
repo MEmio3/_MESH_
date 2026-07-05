@@ -4,6 +4,7 @@ import type { Message, FileAttachment } from '@/types/messages'
 import { useIdentityStore } from './identity.store'
 import { useAvatarStore } from './avatar.store'
 import { useChannelsStore } from './channels.store'
+import { PERM, effectivePermissions, hasPerm } from '../../../shared/permissions'
 import { normalizeReactions } from './messages.store'
 import { notify } from '@/lib/notify'
 import { playServerMessage } from '@/lib/sounds'
@@ -45,10 +46,12 @@ interface ServersStore {
   /** Host-only: rename the role tiers for a server (display names only). */
   setRoleNames: (serverId: string, roleNames: { host: string; moderator: string; member: string } | null) => Promise<void>
   // Custom roles (Discord-style)
-  createRole: (serverId: string, name: string, color: string, canModerate: boolean) => Promise<void>
-  updateRole: (serverId: string, roleId: string, name: string, color: string, canModerate: boolean) => Promise<void>
+  createRole: (serverId: string, name: string, color: string, permissions: number) => Promise<void>
+  updateRole: (serverId: string, roleId: string, name: string, color: string, permissions: number) => Promise<void>
   deleteRole: (serverId: string, roleId: string) => Promise<void>
   assignMemberRoles: (serverId: string, targetId: string, roleIds: string[]) => Promise<void>
+  /** Effective permission mask for the current user in a server. */
+  selfPermissions: (serverId: string) => number
   editServerMessage: (serverId: string, messageId: string, newContent: string) => Promise<void>
   deleteServerMessage: (serverId: string, messageId: string) => Promise<void>
   toggleServerReaction: (serverId: string, messageId: string, emojiId: string) => Promise<void>
@@ -111,7 +114,14 @@ export const useServersStore = create<ServersStore>((set, get) => ({
     const serverRoles: Record<string, ServerRoleDef[]> = {}
     for (const srv of servers) {
       const roleRows = await window.api.server.listRoles({ serverId: srv.id }).catch(() => [])
-      serverRoles[srv.id] = roleRows.map((r) => ({ ...r, canModerate: r.canModerate === 1 }))
+      serverRoles[srv.id] = roleRows.map((r) => ({
+        id: r.id,
+        serverId: r.serverId,
+        name: r.name,
+        color: r.color,
+        position: r.position,
+        permissions: r.permissions ?? 0
+      }))
       const memberRows = await window.api.db.serverMembers.list(srv.id)
       serverMembers[srv.id] = memberRows.map((m) => {
         let roleIds: string[] = []
@@ -342,20 +352,28 @@ export const useServersStore = create<ServersStore>((set, get) => ({
     else set({ lastError: res.error ?? 'Failed to update role names' })
   },
 
-  createRole: async (serverId, name, color, canModerate) => {
+  createRole: async (serverId, name, color, permissions) => {
     const identity = useIdentityStore.getState().identity
     if (!identity) return
-    const res = await window.api.server.createRole({ serverId, actorId: identity.userId, name, color, canModerate })
+    const res = await window.api.server.createRole({ serverId, actorId: identity.userId, name, color, permissions })
     if (res.success) await get().reloadFromDb()
     else set({ lastError: res.error ?? 'Failed to create role' })
   },
 
-  updateRole: async (serverId, roleId, name, color, canModerate) => {
+  updateRole: async (serverId, roleId, name, color, permissions) => {
     const identity = useIdentityStore.getState().identity
     if (!identity) return
-    const res = await window.api.server.updateRole({ serverId, actorId: identity.userId, roleId, name, color, canModerate })
+    const res = await window.api.server.updateRole({ serverId, actorId: identity.userId, roleId, name, color, permissions })
     if (res.success) await get().reloadFromDb()
     else set({ lastError: res.error ?? 'Failed to update role' })
+  },
+
+  selfPermissions: (serverId) => {
+    const selfId = useIdentityStore.getState().identity?.userId
+    if (!selfId) return 0
+    const me = (get().serverMembers[serverId] || []).find((m) => m.userId === selfId)
+    if (!me) return 0
+    return effectivePermissions(me.role, me.roleIds, get().serverRoles[serverId] ?? [])
   },
 
   deleteRole: async (serverId, roleId) => {
@@ -407,7 +425,8 @@ export const useServersStore = create<ServersStore>((set, get) => ({
     const canDelete =
       existing.senderId === identity.userId ||
       selfMember?.role === 'host' ||
-      selfMember?.role === 'moderator'
+      selfMember?.role === 'moderator' ||
+      hasPerm(get().selfPermissions(serverId), PERM.manageMessages)
     if (!canDelete) return
     await window.api.server.deleteMessage({ serverId, messageId, actorId: identity.userId })
     set((s) => ({
@@ -423,6 +442,7 @@ export const useServersStore = create<ServersStore>((set, get) => ({
   toggleServerReaction: async (serverId, messageId, emojiId) => {
     const identity = useIdentityStore.getState().identity
     if (!identity) return
+    if (!hasPerm(get().selfPermissions(serverId), PERM.addReactions)) return
 
     const msgs = get().serverMessages[serverId]
     if (!msgs) return

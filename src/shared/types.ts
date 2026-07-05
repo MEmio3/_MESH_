@@ -129,8 +129,10 @@ export interface ServerRoleRow {
   name: string
   color: string
   position: number
-  /** 1 = grants kick/mute/channel-management powers. */
+  /** Legacy flag — superseded by `permissions`; kept for migration. */
   canModerate: number
+  /** Permission bitmask (see shared/permissions.ts). */
+  permissions: number
 }
 
 export interface ServerMemberRow {

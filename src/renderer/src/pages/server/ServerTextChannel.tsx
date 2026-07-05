@@ -7,6 +7,7 @@ import { MessageFeed } from '@/components/chat/MessageFeed'
 import { MessageInput } from '@/components/chat/MessageInput'
 import { MemberListPanel } from '@/components/server/MemberListPanel'
 import { Tooltip } from '@/components/ui/Tooltip'
+import { PERM, effectivePermissions, hasPerm } from '../../../../shared/permissions'
 import type { Server } from '@/types/server'
 
 interface ServerTextChannelProps {
@@ -45,7 +46,14 @@ function ServerTextChannel({ server, channelName, channelId, isDefaultChannel }:
   const toggleServerReaction = useServersStore((s) => s.toggleServerReaction)
   const selfId = useIdentityStore((s) => s.identity?.userId)
   const selfMember = members.find((m) => m.userId === selfId)
-  const isModerator = selfMember?.role === 'host' || selfMember?.role === 'moderator'
+  const customRoles = useServersStore((s) => s.serverRoles[server.id]) ?? []
+  const myPerms = selfMember
+    ? effectivePermissions(selfMember.role, selfMember.roleIds, customRoles)
+    : 0
+  const isModerator =
+    selfMember?.role === 'host' || selfMember?.role === 'moderator' || hasPerm(myPerms, PERM.manageMessages)
+  const canSend = hasPerm(myPerms, PERM.sendMessages)
+  const canAttach = hasPerm(myPerms, PERM.attachFiles)
 
   return (
     <div className="flex h-full">
@@ -102,12 +110,21 @@ function ServerTextChannel({ server, channelName, channelId, isDefaultChannel }:
         />
 
         {/* Input — real file attachments, relayed through the signaling host
-            to every member (2 MB cap; see sendServerFileMessage). */}
-        <MessageInput
-          recipientName={displayName}
-          onSend={(content) => sendMessage(server.id, content, channelId ?? null)}
-          onSendFile={(filePath) => sendFileMessage(server.id, filePath, channelId ?? null)}
-        />
+            to every member (2 MB cap; see sendServerFileMessage). Send/attach
+            are permission-gated per role. */}
+        {canSend ? (
+          <MessageInput
+            recipientName={displayName}
+            onSend={(content) => sendMessage(server.id, content, channelId ?? null)}
+            onSendFile={canAttach ? (filePath) => sendFileMessage(server.id, filePath, channelId ?? null) : undefined}
+          />
+        ) : (
+          <div className="shrink-0 px-4 pb-4 pt-1">
+            <div className="flex items-center justify-center h-11 rounded-lg bg-mesh-bg-tertiary/60 border border-mesh-border/50 text-sm text-mesh-text-muted select-none">
+              You don&apos;t have permission to send messages in this channel.
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Member list */}

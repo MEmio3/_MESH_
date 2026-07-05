@@ -11,6 +11,7 @@ import { createServer } from 'http'
 import { Server as SocketServer } from 'socket.io'
 import fs from 'fs'
 import path from 'path'
+import { PERM, MODERATOR_BUNDLE } from '../shared/permissions'
 
 const app = express()
 const httpServer = createServer(app)
@@ -719,17 +720,28 @@ io.on('connection', (socket) => {
     io.to(roomName(payload.serverId)).emit('server:message', payload)
   })
 
-  // Moderation — authoriser must be host or moderator.
-  function canModerate(entry: ServerEntry, actorId: string, requireHost = false): boolean {
+  // Moderation — permission-based: host always; the legacy moderator tier
+  // carries the moderator bundle; custom roles grant specific bits.
+  function actorPermitted(entry: ServerEntry, actorId: string, perm: number): boolean {
+    if (actorId === entry.hostUserId) return true
     const actor = entry.members.get(actorId)
     if (!actor) return false
-    if (requireHost) return actor.role === 'host'
-    return actor.role === 'host' || actor.role === 'moderator'
+    if (actor.role === 'host') return true
+    let mask = 0
+    if (actor.role === 'moderator') mask |= MODERATOR_BUNDLE
+    const roles = Array.isArray(entry.roles)
+      ? (entry.roles as Array<{ id?: string; permissions?: number }>)
+      : []
+    const ids = actor.roleIds ?? []
+    for (const r of roles) {
+      if (r?.id && ids.includes(r.id)) mask |= r.permissions ?? 0
+    }
+    return (mask & perm) === perm
   }
 
   socket.on('server:mute', (payload: { serverId: string; actorId: string; targetId: string; mute: boolean }) => {
     const entry = servers.get(payload.serverId)
-    if (!entry || !canModerate(entry, payload.actorId)) return
+    if (!entry || !actorPermitted(entry, payload.actorId, PERM.muteMembers)) return
     const target = entry.members.get(payload.targetId)
     if (!target || target.role === 'host') return
     target.isMuted = payload.mute
@@ -738,7 +750,7 @@ io.on('connection', (socket) => {
 
   socket.on('server:kick', (payload: { serverId: string; actorId: string; targetId: string }) => {
     const entry = servers.get(payload.serverId)
-    if (!entry || !canModerate(entry, payload.actorId)) return
+    if (!entry || !actorPermitted(entry, payload.actorId, PERM.kickMembers)) return
     const target = entry.members.get(payload.targetId)
     if (!target || target.role === 'host') return
     entry.members.delete(payload.targetId)
@@ -750,7 +762,7 @@ io.on('connection', (socket) => {
 
   socket.on('server:ban', (payload: { serverId: string; actorId: string; targetId: string }) => {
     const entry = servers.get(payload.serverId)
-    if (!entry || !canModerate(entry, payload.actorId, true)) return
+    if (!entry || !actorPermitted(entry, payload.actorId, PERM.banMembers)) return
     const target = entry.members.get(payload.targetId)
     if (target && target.role === 'host') return
     entry.banned.add(payload.targetId)
@@ -762,7 +774,8 @@ io.on('connection', (socket) => {
 
   socket.on('server:set-role', (payload: { serverId: string; actorId: string; targetId: string; role: 'moderator' | 'member' }) => {
     const entry = servers.get(payload.serverId)
-    if (!entry || !canModerate(entry, payload.actorId, true)) return
+    // Tier changes remain host-only — tiers are the trust anchor.
+    if (!entry || payload.actorId !== entry.hostUserId) return
     const target = entry.members.get(payload.targetId)
     if (!target || target.role === 'host') return
     target.role = payload.role

@@ -356,10 +356,10 @@ const api = {
 
     // Custom roles (Discord-style)
     listRoles: (payload: { serverId: string }) =>
-      ipcRenderer.invoke('server:list-roles', payload) as Promise<Array<{ id: string; serverId: string; name: string; color: string; position: number; canModerate: number }>>,
-    createRole: (payload: { serverId: string; actorId: string; name: string; color: string; canModerate: boolean }) =>
+      ipcRenderer.invoke('server:list-roles', payload) as Promise<Array<{ id: string; serverId: string; name: string; color: string; position: number; canModerate: number; permissions: number }>>,
+    createRole: (payload: { serverId: string; actorId: string; name: string; color: string; permissions: number }) =>
       ipcRenderer.invoke('server:create-role', payload) as Promise<{ success: boolean; error?: string; roleId?: string }>,
-    updateRole: (payload: { serverId: string; actorId: string; roleId: string; name: string; color: string; canModerate: boolean }) =>
+    updateRole: (payload: { serverId: string; actorId: string; roleId: string; name: string; color: string; permissions: number }) =>
       ipcRenderer.invoke('server:update-role', payload) as Promise<{ success: boolean; error?: string }>,
     deleteRole: (payload: { serverId: string; actorId: string; roleId: string }) =>
       ipcRenderer.invoke('server:delete-role', payload) as Promise<{ success: boolean; error?: string }>,
