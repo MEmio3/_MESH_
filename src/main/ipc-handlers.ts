@@ -703,6 +703,14 @@ export function registerMessageRequestHandlers(): void {
 // persisted into the local row on join-ack so auto-rejoin can reuse it.
 const pendingJoinPasswords = new Map<string, string | null>()
 
+/** The full channel layout for a server, as broadcast to members. */
+function buildServerLayout(serverId: string): { categories: unknown[]; channels: unknown[] } {
+  return {
+    categories: db.getServerCategories(serverId),
+    channels: db.getServerChannels(serverId)
+  }
+}
+
 export function registerServerHandlers(): void {
   // Create a new server (I am the host). Persists locally + registers with signaling.
   ipcMain.handle('server:create', async (_e, payload: {
@@ -763,7 +771,8 @@ export function registerServerHandlers(): void {
         isMuted: false
       }],
       banned: [],
-      passwordHash: payload.passwordHash
+      passwordHash: payload.passwordHash,
+      layout: buildServerLayout(serverId)
     })
 
     return { success: true, serverId }
@@ -1060,7 +1069,8 @@ export function registerServerHandlers(): void {
         hostUsername: s.hostUsername,
         hostAvatarColor: s.hostAvatarColor,
         members,
-        banned: JSON.parse(s.banned || '[]')
+        banned: JSON.parse(s.banned || '[]'),
+        layout: buildServerLayout(s.id)
       })
     }
     // Rejoin rooms of servers where I'm a member. Send real identity info —
@@ -1139,6 +1149,17 @@ export function registerServerHandlers(): void {
     return !!me && (me.role === 'host' || me.role === 'moderator')
   }
 
+  // Push the authoritative channel layout to signaling so every member's
+  // client mirrors it. Called after any channel/category mutation — without
+  // this, custom channels (and their role gates) only ever existed on the
+  // machine that created them.
+  function emitLayoutUpdate(serverId: string): void {
+    socketClient.emitSignaling('server:layout-update', {
+      serverId,
+      layout: buildServerLayout(serverId)
+    })
+  }
+
   ipcMain.handle('server:list-channels', async (_e, payload: { serverId: string }) => {
     return {
       categories: db.getServerCategories(payload.serverId),
@@ -1156,6 +1177,7 @@ export function registerServerHandlers(): void {
     const position = existing.length
     const id = `${payload.serverId}__cat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
     db.insertServerCategory({ id, serverId: payload.serverId, name: payload.name || 'New Category', position })
+    emitLayoutUpdate(payload.serverId)
     return { success: true, categoryId: id }
   })
 
@@ -1176,9 +1198,46 @@ export function registerServerHandlers(): void {
       categoryId: payload.categoryId ?? null,
       name: payload.name || (payload.type === 'voice' ? 'voice' : 'channel'),
       type: payload.type,
-      position
+      position,
+      minRole: 'member'
     })
+    emitLayoutUpdate(payload.serverId)
     return { success: true, channelId: id }
+  })
+
+  // Restrict who can see a channel (host/moderator only, host outranks all).
+  ipcMain.handle('server:set-channel-access', async (_e, payload: {
+    serverId: string
+    actorId: string
+    channelId: string
+    minRole: 'member' | 'moderator' | 'host'
+  }) => {
+    if (!canManageServer(payload.serverId, payload.actorId)) return { success: false, error: 'forbidden' }
+    db.updateServerChannelAccess(payload.channelId, payload.minRole)
+    emitLayoutUpdate(payload.serverId)
+    return { success: true }
+  })
+
+  // Member side: persist the host's authoritative layout broadcast. Guarded
+  // so an echoed broadcast can never clobber a server we host ourselves.
+  ipcMain.handle('server:apply-layout', async (_e, payload: {
+    serverId: string
+    layout: { categories?: unknown[]; channels?: unknown[] } | null
+  }) => {
+    const srv = db.getServer(payload.serverId)
+    if (!srv || srv.role === 'host') return { success: false }
+    if (!payload.layout || !Array.isArray(payload.layout.categories) || !Array.isArray(payload.layout.channels)) {
+      return { success: false }
+    }
+    db.replaceServerLayout(
+      payload.serverId,
+      payload.layout.categories as import('../shared/types').ServerCategoryRow[],
+      (payload.layout.channels as import('../shared/types').ServerChannelRow[]).map((c) => ({
+        ...c,
+        minRole: c.minRole === 'host' || c.minRole === 'moderator' ? c.minRole : 'member'
+      }))
+    )
+    return { success: true }
   })
 
   ipcMain.handle('server:rename-channel', async (_e, payload: {
@@ -1189,6 +1248,7 @@ export function registerServerHandlers(): void {
   }) => {
     if (!canManageServer(payload.serverId, payload.actorId)) return { success: false, error: 'forbidden' }
     db.updateServerChannelName(payload.channelId, payload.name)
+    emitLayoutUpdate(payload.serverId)
     return { success: true }
   })
 
@@ -1200,6 +1260,7 @@ export function registerServerHandlers(): void {
   }) => {
     if (!canManageServer(payload.serverId, payload.actorId)) return { success: false, error: 'forbidden' }
     db.updateServerCategoryName(payload.categoryId, payload.name)
+    emitLayoutUpdate(payload.serverId)
     return { success: true }
   })
 
@@ -1210,6 +1271,7 @@ export function registerServerHandlers(): void {
   }) => {
     if (!canManageServer(payload.serverId, payload.actorId)) return { success: false, error: 'forbidden' }
     db.deleteServerChannel(payload.channelId)
+    emitLayoutUpdate(payload.serverId)
     return { success: true }
   })
 
@@ -1220,6 +1282,7 @@ export function registerServerHandlers(): void {
   }) => {
     if (!canManageServer(payload.serverId, payload.actorId)) return { success: false, error: 'forbidden' }
     db.deleteServerCategory(payload.categoryId)
+    emitLayoutUpdate(payload.serverId)
     return { success: true }
   })
 }

@@ -39,6 +39,9 @@ function MemberListPanel({ serverId, members }: MemberListPanelProps): JSX.Eleme
 
   const [menu, setMenu] = useState<MenuState | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
+  // Live presence — who actually has a socket right now. The roster rows'
+  // persisted status said 'online' forever (written once at join).
+  const onlineIds = useServersStore((s) => s.serverOnlineMembers[serverId])
 
   const selfId = identity?.userId
   const selfRole: ServerRole | null =
@@ -81,7 +84,8 @@ function MemberListPanel({ serverId, members }: MemberListPanelProps): JSX.Eleme
             <MemberRow
               key={member.userId}
               member={member}
-              avatarSrc={member.userId === selfId ? selfAvatar : avatarsByUser[member.userId]}
+              isLiveOnline={member.userId === selfId || (onlineIds?.includes(member.userId) ?? false)}
+              avatarSrc={(member.userId === selfId ? selfAvatar : avatarsByUser[member.userId]) ?? undefined}
               onContextMenu={(e) => openMenu(e, member)}
               roleBadgeColor={roleBadgeColors[member.role]}
             />
@@ -147,16 +151,20 @@ function MemberListPanel({ serverId, members }: MemberListPanelProps): JSX.Eleme
  */
 function MemberRow({
   member,
+  isLiveOnline,
   avatarSrc,
   onContextMenu,
   roleBadgeColor,
 }: {
   member: ServerMember
+  isLiveOnline: boolean
   avatarSrc: string | undefined
   onContextMenu: (e: React.MouseEvent) => void
   roleBadgeColor: string
 }): JSX.Element {
-  const status = useLiveStatus(member.userId, member.status)
+  // Fallback comes from the LIVE per-server presence set, never from the
+  // roster's persisted status (which is 'online' forever).
+  const status = useLiveStatus(member.userId, isLiveOnline ? 'online' : 'offline')
   return (
     <div
       onContextMenu={onContextMenu}

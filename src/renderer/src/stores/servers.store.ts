@@ -3,6 +3,7 @@ import type { Server, ServerMember } from '@/types/server'
 import type { Message, FileAttachment } from '@/types/messages'
 import { useIdentityStore } from './identity.store'
 import { useAvatarStore } from './avatar.store'
+import { useChannelsStore } from './channels.store'
 import { normalizeReactions } from './messages.store'
 import { notify } from '@/lib/notify'
 import { playServerMessage } from '@/lib/sounds'
@@ -12,6 +13,13 @@ interface ServersStore {
   serverMembers: Record<string, ServerMember[]>
   serverMessages: Record<string, Message[]>
   serverVoiceStates: Record<string, Record<string, string>> // serverId -> { userId: channelId }
+  /**
+   * LIVE presence per server: userIds with an active signaling socket right
+   * now. The DB member rows are a roster — their persisted `status` says
+   * whatever was true when written (always 'online' at join) and must never
+   * drive presence dots.
+   */
+  serverOnlineMembers: Record<string, string[]>
   pendingJoin: string | null
   lastError: string | null
 
@@ -63,6 +71,7 @@ export const useServersStore = create<ServersStore>((set, get) => ({
   serverMembers: {},
   serverMessages: {},
   serverVoiceStates: {},
+  serverOnlineMembers: {},
   pendingJoin: null,
   lastError: null,
 
@@ -444,6 +453,8 @@ export const useServersStore = create<ServersStore>((set, get) => ({
         hostUsername: string
         hostAvatarColor: string | null
         members: Array<{ userId: string; username: string; avatarColor: string | null; role: string; isMuted: boolean }>
+        onlineUserIds?: string[]
+        layout?: unknown | null
         yourRole: string
       }
       type NestedJoinAck = {
@@ -488,8 +499,23 @@ export const useServersStore = create<ServersStore>((set, get) => ({
 
       try {
         await window.api.server.joinAckPersist(nested)
+        // Adopt the host's channel layout (incl. role gates) before reload so
+        // the tree renders the authoritative structure, not our stale copy.
+        const layout = (raw as { layout?: unknown }).layout
+        if (layout) {
+          await window.api.server.applyLayout({ serverId: nested.server.id, layout }).catch(() => {})
+          await useChannelsStore.getState().reload(nested.server.id).catch(() => {})
+        }
         await get().reloadFromDb()
-        set({ pendingJoin: null })
+        // Live presence for this server, computed by the signaling server
+        // from actual sockets. Always include self — we're clearly online.
+        const selfIdNow = useIdentityStore.getState().identity?.userId
+        const online = new Set((raw as { onlineUserIds?: string[] }).onlineUserIds ?? [])
+        if (selfIdNow) online.add(selfIdNow)
+        set((s) => ({
+          pendingJoin: null,
+          serverOnlineMembers: { ...s.serverOnlineMembers, [nested.server.id]: [...online] }
+        }))
         // Broadcast our avatar to every existing server member so they see
         // our real picture immediately. Uses P2P when available, otherwise
         // signaling-relayed DM — every member has a known userId either way.
@@ -509,22 +535,57 @@ export const useServersStore = create<ServersStore>((set, get) => ({
     unsubs.push(window.api.signaling.onServerEvent('member-joined', async (payload) => {
       await window.api.server.memberJoinedPersist(payload)
       await get().reloadFromDb()
+      const p = payload as { serverId?: string; member?: { userId: string } }
+      // A joining member has a live socket by definition — mark them online.
+      if (p.serverId && p.member?.userId) {
+        set((s) => {
+          const cur = new Set(s.serverOnlineMembers[p.serverId!] ?? [])
+          cur.add(p.member!.userId)
+          return { serverOnlineMembers: { ...s.serverOnlineMembers, [p.serverId!]: [...cur] } }
+        })
+      }
       // Send our avatar to the newcomer so we're not just coloured initials
       // in their member list.
-      const newMemberId = (payload as { member?: { userId: string } }).member?.userId
-      if (newMemberId) {
-        useAvatarStore.getState().sendToPeer(newMemberId).catch(() => {})
+      if (p.member?.userId) {
+        useAvatarStore.getState().sendToPeer(p.member.userId).catch(() => {})
       }
     }))
 
+    const dropOnline = (serverId: string, userId: string): void => {
+      set((s) => ({
+        serverOnlineMembers: {
+          ...s.serverOnlineMembers,
+          [serverId]: (s.serverOnlineMembers[serverId] ?? []).filter((id) => id !== userId)
+        }
+      }))
+    }
+
     unsubs.push(window.api.signaling.onServerEvent('member-left', (payload) => {
       const p = payload as { serverId: string; userId: string }
+      dropOnline(p.serverId, p.userId)
       set((s) => ({
         serverMembers: {
           ...s.serverMembers,
           [p.serverId]: (s.serverMembers[p.serverId] || []).filter((m) => m.userId !== p.userId)
         }
       }))
+    }))
+
+    // The host's channel layout changed (or was re-broadcast on register) —
+    // adopt it and refresh the tree. applyLayout refuses to touch servers we
+    // host, so an echo can't clobber the authoritative copy.
+    unsubs.push(window.api.signaling.onServerEvent('layout', async (payload) => {
+      const p = payload as { serverId?: string; layout?: unknown }
+      if (!p?.serverId || !p.layout) return
+      const res = await window.api.server.applyLayout({ serverId: p.serverId, layout: p.layout }).catch(() => ({ success: false }))
+      if (res.success) {
+        await useChannelsStore.getState().reload(p.serverId).catch(() => {})
+      }
+    }))
+
+    // Our own socket dropped — we can't see anyone's presence anymore.
+    unsubs.push(window.api.signaling.onDisconnected(() => {
+      set({ serverOnlineMembers: {} })
     }))
 
     unsubs.push(window.api.signaling.onServerEvent('message', async (payload) => {
@@ -608,6 +669,7 @@ export const useServersStore = create<ServersStore>((set, get) => ({
     unsubs.push(window.api.signaling.onServerEvent('member-kicked', async (payload) => {
       const p = payload as { serverId: string; userId: string }
       await window.api.server.applyModeration({ serverId: p.serverId, kind: 'kick', targetId: p.userId })
+      dropOnline(p.serverId, p.userId)
       set((s) => ({
         serverMembers: {
           ...s.serverMembers,
@@ -619,6 +681,7 @@ export const useServersStore = create<ServersStore>((set, get) => ({
     unsubs.push(window.api.signaling.onServerEvent('member-banned', async (payload) => {
       const p = payload as { serverId: string; userId: string }
       await window.api.server.applyModeration({ serverId: p.serverId, kind: 'ban', targetId: p.userId })
+      dropOnline(p.serverId, p.userId)
       set((s) => ({
         serverMembers: {
           ...s.serverMembers,

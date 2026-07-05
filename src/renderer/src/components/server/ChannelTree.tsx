@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
-import { ChevronDown, Hash, Volume2, Plus, MicOff, Folder, Pencil, Trash2 } from 'lucide-react'
+import { ChevronDown, Hash, Volume2, Plus, MicOff, Folder, Pencil, Trash2, Lock, Eye } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
@@ -11,7 +11,8 @@ import {
   useChannelsStore,
   useServerLayout,
   type Channel,
-  type ChannelCategory
+  type ChannelCategory,
+  type ChannelMinRole
 } from '@/stores/channels.store'
 import { useVoiceStore } from '@/stores/voice.store'
 import { useIdentityStore } from '@/stores/identity.store'
@@ -20,8 +21,17 @@ import { useAvatarStore } from '@/stores/avatar.store'
 interface ChannelTreeProps {
   serverId: string
   canManage: boolean
+  /** Viewer's role in this server — decides which role-gated channels render. */
+  selfRole: ChannelMinRole
   activeChannelId: string | null
   onSelectTextChannel: (channelId: string) => void
+}
+
+const ROLE_RANK: Record<ChannelMinRole, number> = { member: 0, moderator: 1, host: 2 }
+
+/** Can `viewer` see a channel gated at `minRole`? */
+function canSee(viewer: ChannelMinRole, minRole: ChannelMinRole | undefined): boolean {
+  return ROLE_RANK[viewer] >= ROLE_RANK[minRole ?? 'member']
 }
 
 type ContextMenuState =
@@ -43,6 +53,7 @@ interface MenuAnchor { x: number; y: number; state: ContextMenuState }
 export function ChannelTree({
   serverId,
   canManage,
+  selfRole,
   activeChannelId,
   onSelectTextChannel
 }: ChannelTreeProps): JSX.Element {
@@ -55,6 +66,7 @@ export function ChannelTree({
   const renameCategory = useChannelsStore((s) => s.renameCategory)
   const deleteChannel = useChannelsStore((s) => s.deleteChannel)
   const deleteCategory = useChannelsStore((s) => s.deleteCategory)
+  const setChannelAccess = useChannelsStore((s) => s.setChannelAccess)
 
   const isConnected = useVoiceStore((s) => s.isConnected)
   const currentServerId = useVoiceStore((s) => s.currentServerId)
@@ -86,13 +98,16 @@ export function ChannelTree({
   const isVoiceHere = isConnected && currentServerId === serverId
 
   const { uncategorized, categoryBuckets } = useMemo(() => {
-    const uncategorized = layout.channels.filter((c) => !c.categoryId)
+    // Role gate: channels above the viewer's role simply don't exist for
+    // them — an employee never sees the CEO's private room in the tree.
+    const visible = layout.channels.filter((c) => canSee(selfRole, c.minRole))
+    const uncategorized = visible.filter((c) => !c.categoryId)
     const categoryBuckets = layout.categories.map((cat) => ({
       category: cat,
-      channels: layout.channels.filter((c) => c.categoryId === cat.id)
+      channels: visible.filter((c) => c.categoryId === cat.id)
     }))
     return { uncategorized, categoryBuckets }
-  }, [layout])
+  }, [layout, selfRole])
 
   // Close the menu / popover on outside click / Escape.
   useEffect(() => {
@@ -172,6 +187,12 @@ export function ChannelTree({
             )}
           />
           <span className="text-[14px] truncate flex-1 tracking-tight">{ch.name}</span>
+          {ch.minRole && ch.minRole !== 'member' && (
+            <Lock
+              className="h-3 w-3 shrink-0 text-mesh-text-muted"
+              aria-label={ch.minRole === 'host' ? 'Host only' : 'Moderators and host only'}
+            />
+          )}
         </button>
 
         {/* Voice participants rendered only under the channel we're actually in. */}
@@ -315,6 +336,31 @@ export function ChannelTree({
               }}>
                 Rename Channel
               </MenuItem>
+              <MenuSeparator />
+              <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-mesh-text-muted flex items-center gap-1.5">
+                <Eye className="h-3 w-3" /> Visible to
+              </div>
+              {([
+                ['member', 'Everyone'],
+                ['moderator', 'Moderators & Host'],
+                ['host', 'Host only']
+              ] as Array<[ChannelMinRole, string]>).map(([role, label]) => {
+                const ch = (menu.state as { kind: 'channel'; channel: Channel }).channel
+                const active = (ch.minRole ?? 'member') === role
+                return (
+                  <MenuItem
+                    key={role}
+                    icon={active ? <Lock className="h-3.5 w-3.5" /> : <span className="w-3.5" />}
+                    onClick={() => {
+                      setMenu(null)
+                      setChannelAccess(serverId, ch.id, role)
+                    }}
+                  >
+                    {label}{active ? ' ✓' : ''}
+                  </MenuItem>
+                )
+              })}
+              <MenuSeparator />
               <MenuItem danger icon={<Trash2 className="h-3.5 w-3.5" />} onClick={() => {
                 const ch = (menu.state as { kind: 'channel'; channel: Channel }).channel
                 setMenu(null); setModal({ kind: 'delete-channel', channel: ch })

@@ -166,6 +166,8 @@ interface ServerEntry {
   members: Map<string, ServerMemberInfo>
   banned: Set<string>
   passwordHash?: string | null
+  /** Host's authoritative channel layout (categories + channels), opaque here. */
+  layout: unknown | null
 }
 const servers = new Map<string, ServerEntry>()
 
@@ -498,6 +500,7 @@ io.on('connection', (socket) => {
     members: ServerMemberInfo[]
     banned: string[]
     passwordHash?: string | null
+    layout?: unknown | null
   }) => {
     let entry = servers.get(payload.serverId)
     if (!entry) {
@@ -513,7 +516,8 @@ io.on('connection', (socket) => {
         hostSocketId: socket.id,
         members: new Map(),
         banned: new Set(payload.banned),
-        passwordHash: payload.passwordHash
+        passwordHash: payload.passwordHash,
+        layout: payload.layout ?? null
       }
       servers.set(payload.serverId, entry)
       console.log(`[server] registered: ${payload.serverId} by ${payload.hostUserId}`)
@@ -524,16 +528,33 @@ io.on('connection', (socket) => {
         console.log(`[server] re-registered: ${payload.serverId} by ${payload.hostUserId}`)
       }
       entry.banned = new Set(payload.banned)
+      if (payload.layout !== undefined) entry.layout = payload.layout
     }
     // Reset member list with host authoritative snapshot
     entry.members.clear()
     for (const m of payload.members) entry.members.set(m.userId, m)
     socket.join(roomName(payload.serverId))
+    // Share the host's channel layout with current members so custom
+    // channels (and their role gates) exist on every client, not just the
+    // host's machine.
+    if (entry.layout) {
+      socket.to(roomName(payload.serverId)).emit('server:layout', { serverId: entry.id, layout: entry.layout })
+    }
     // Tell everyone the host is (back) online so members whose auto-rejoin
     // raced ahead of this re-register can silently join now. Without this,
     // a member denied with "Host is currently offline" never retried and
     // received no server events until an app restart.
     io.emit('server:host-online', { serverId: payload.serverId })
+  })
+
+  // Host pushes an updated channel layout after editing channels/categories.
+  socket.on('server:layout-update', (payload: { serverId: string; layout: unknown }) => {
+    const entry = servers.get(payload.serverId)
+    if (!entry) return
+    // Only the host's live socket may update the layout.
+    if (userSockets.get(entry.hostUserId) !== socket.id) return
+    entry.layout = payload.layout
+    socket.to(roomName(payload.serverId)).emit('server:layout', { serverId: entry.id, layout: entry.layout })
   })
 
   // Member requests to join. We validate + broadcast + send state to joiner.
@@ -605,7 +626,9 @@ io.on('connection', (socket) => {
     entry.members.set(payload.userId, member)
     socket.join(roomName(payload.serverId))
 
-    // Send joiner the current state.
+    // Send joiner the current state. `onlineUserIds` is computed from the
+    // live socket registry — the members list is a roster snapshot and its
+    // `status` fields must never be used for presence dots.
     socket.emit('server:join-ack', {
       serverId: entry.id,
       name: entry.name,
@@ -616,6 +639,8 @@ io.on('connection', (socket) => {
       hostUsername: entry.hostUsername,
       hostAvatarColor: entry.hostAvatarColor,
       members: serialiseMembers(entry),
+      onlineUserIds: [...entry.members.keys()].filter((id) => userSockets.has(id)),
+      layout: entry.layout,
       yourRole: member.role
     })
     // Broadcast to room that a new member joined.

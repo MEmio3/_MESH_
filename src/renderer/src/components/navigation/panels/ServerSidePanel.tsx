@@ -25,6 +25,7 @@ function ServerSidePanel({ serverId }: ServerSidePanelProps): JSX.Element {
   const servers = useServersStore((s) => s.servers)
   const leaveServer = useServersStore((s) => s.leaveServer)
   const members = useServersStore((s) => s.serverMembers[serverId]) || EMPTY_MEMBERS
+  const onlineIds = useServersStore((s) => s.serverOnlineMembers[serverId])
   const identity = useIdentityStore((s) => s.identity)
   const serverAvatars = useServerAvatarStore((s) => s.byServer)
   const uploadServerAvatar = useServerAvatarStore((s) => s.uploadForServer)
@@ -37,7 +38,6 @@ function ServerSidePanel({ serverId }: ServerSidePanelProps): JSX.Element {
 
   // Parse active channel id out of the URL (route pattern: /channels/:id[/:channelId]).
   const activeChannelId = location.pathname.match(/^\/channels\/[^/]+\/(.+)$/)?.[1] ?? null
-  void identity
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -61,7 +61,14 @@ function ServerSidePanel({ serverId }: ServerSidePanelProps): JSX.Element {
     )
   }
 
-  const onlineMembers = members.filter((m) => m.status !== 'offline')
+  // Count from LIVE presence (self always counts) — the roster's persisted
+  // status field claims 'online' forever and produced counts like "2 Online"
+  // with nobody actually connected.
+  const selfUserId = identity?.userId
+  const onlineCount = new Set([
+    ...(selfUserId ? [selfUserId] : []),
+    ...(onlineIds ?? [])
+  ].filter((id) => members.some((m) => m.userId === id))).size
 
   return (
     <div className="flex flex-col h-full">
@@ -156,6 +163,7 @@ function ServerSidePanel({ serverId }: ServerSidePanelProps): JSX.Element {
       <ChannelTree
         serverId={serverId}
         canManage={canManageServer}
+        selfRole={(server.role as 'host' | 'moderator' | 'member') ?? 'member'}
         activeChannelId={activeChannelId}
         onSelectTextChannel={(channelId) => navigate(`/channels/${serverId}/${channelId}`)}
       />
@@ -170,7 +178,7 @@ function ServerSidePanel({ serverId }: ServerSidePanelProps): JSX.Element {
             <span className="relative inline-flex h-2 w-2 rounded-full bg-mesh-green" />
           </span>
           <span className="text-[11px] font-medium text-mesh-text-muted tabular-nums tracking-wide">
-            <span className="text-mesh-text-secondary">{onlineMembers.length}</span> Online
+            <span className="text-mesh-text-secondary">{onlineCount}</span> Online
             <span className="mx-1.5 text-mesh-text-muted/60">·</span>
             <span className="text-mesh-text-secondary">{members.length}</span> Total
           </span>

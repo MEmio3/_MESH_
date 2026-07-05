@@ -17,6 +17,8 @@ export interface ChannelCategory {
   position: number
 }
 
+export type ChannelMinRole = 'member' | 'moderator' | 'host'
+
 export interface Channel {
   id: string
   serverId: string
@@ -24,6 +26,8 @@ export interface Channel {
   name: string
   type: 'text' | 'voice'
   position: number
+  /** Minimum role required to see this channel. */
+  minRole: ChannelMinRole
 }
 
 interface ServerLayout {
@@ -43,6 +47,7 @@ interface ChannelsStore {
   renameCategory: (serverId: string, categoryId: string, name: string) => Promise<{ success: boolean; error?: string }>
   deleteChannel: (serverId: string, channelId: string) => Promise<{ success: boolean; error?: string }>
   deleteCategory: (serverId: string, categoryId: string) => Promise<{ success: boolean; error?: string }>
+  setChannelAccess: (serverId: string, channelId: string, minRole: ChannelMinRole) => Promise<{ success: boolean; error?: string }>
 }
 
 const EMPTY_LAYOUT: ServerLayout = { categories: [], channels: [] }
@@ -104,6 +109,12 @@ export const useChannelsStore = create<ChannelsStore>((set, get) => ({
 
   deleteCategory: async (serverId, categoryId) => {
     const res = await window.api.server.deleteCategory({ serverId, actorId: selfId(), categoryId })
+    if (res.success) await get().reload(serverId)
+    return res
+  },
+
+  setChannelAccess: async (serverId, channelId, minRole) => {
+    const res = await window.api.server.setChannelAccess({ serverId, actorId: selfId(), channelId, minRole })
     if (res.success) await get().reload(serverId)
     return res
   }

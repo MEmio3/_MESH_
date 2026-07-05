@@ -15,9 +15,13 @@ interface FriendStatus {
 interface StatusStore {
   self: StatusValue
   friendStatuses: Record<string, FriendStatus>
+  /** True when the user hand-picked a status — pauses idle auto-tracking. */
+  manual: boolean
 
   startTracking: () => () => void
   publishSelf: (status?: StatusValue) => void
+  /** User explicitly picked a status from the panel. */
+  chooseStatus: (status: StatusValue) => void
   publishFriendsSubscription: () => void
   subscribe: () => () => void
   applyInvisibleChange: () => void
@@ -33,6 +37,14 @@ function clearIdleTimer(): void {
 export const useStatusStore = create<StatusStore>((set, get) => ({
   self: 'online',
   friendStatuses: {},
+  manual: false,
+
+  chooseStatus: (status) => {
+    // Hand-picked Idle sticks until the user changes it; picking Online
+    // returns control to the automatic idle tracker.
+    set({ manual: status === 'idle' })
+    get().publishSelf(status)
+  },
 
   publishSelf: (status) => {
     const invisible = useSettingsStore.getState().privacy.invisibleMode
@@ -54,15 +66,18 @@ export const useStatusStore = create<StatusStore>((set, get) => ({
 
   startTracking: () => {
     const onActivity = (): void => {
+      if (get().manual) return // user pinned a status — don't auto-flip it
       lastActivityAt = Date.now()
       if (get().self === 'idle') get().publishSelf('online')
       clearIdleTimer()
       idleTimer = setTimeout(() => {
+        if (get().manual) return
         if (Date.now() - lastActivityAt >= IDLE_MS) get().publishSelf('idle')
       }, IDLE_MS)
     }
 
     const onFocus = (): void => {
+      if (get().manual) return
       if (get().self !== 'online') get().publishSelf('online')
       onActivity()
     }

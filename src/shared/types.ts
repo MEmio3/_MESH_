@@ -144,6 +144,8 @@ export interface ServerChannelRow {
   name: string
   type: 'text' | 'voice'
   position: number
+  /** Minimum role that can see/enter this channel. */
+  minRole: 'member' | 'moderator' | 'host'
 }
 
 export interface ServerMessageRow {

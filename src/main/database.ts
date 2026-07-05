@@ -109,6 +109,13 @@ function migrateSchema(): void {
     if (!relayNames.has('username')) d.exec('ALTER TABLE relays ADD COLUMN username TEXT')
     if (!relayNames.has('password')) d.exec('ALTER TABLE relays ADD COLUMN password TEXT')
   }
+
+  // Role-gated channels: minimum role required to see a channel.
+  const chanCols = d.prepare("PRAGMA table_info('server_channels')").all() as { name: string }[]
+  const chanNames = new Set(chanCols.map((c) => c.name))
+  if (chanCols.length > 0 && !chanNames.has('min_role')) {
+    d.exec("ALTER TABLE server_channels ADD COLUMN min_role TEXT NOT NULL DEFAULT 'member'")
+  }
 }
 
 function createTables(): void {
@@ -225,6 +232,7 @@ function createTables(): void {
       name TEXT NOT NULL,
       type TEXT NOT NULL DEFAULT 'text',
       position INTEGER NOT NULL DEFAULT 0,
+      min_role TEXT NOT NULL DEFAULT 'member',
       FOREIGN KEY (server_id) REFERENCES servers(id)
     );
     CREATE INDEX IF NOT EXISTS idx_server_channels_server ON server_channels(server_id, position);
@@ -524,7 +532,7 @@ export function removeServer(serverId: string): void {
 // ── Server Categories / Channels ──
 
 const CAT_COLS = 'id, server_id AS serverId, name, position'
-const CHAN_COLS = 'id, server_id AS serverId, category_id AS categoryId, name, type, position'
+const CHAN_COLS = 'id, server_id AS serverId, category_id AS categoryId, name, type, position, min_role AS minRole'
 
 export function getServerCategories(serverId: string): ServerCategoryRow[] {
   return getDb().prepare(`SELECT ${CAT_COLS} FROM server_categories WHERE server_id = ? ORDER BY position ASC`).all(serverId) as ServerCategoryRow[]
@@ -550,11 +558,34 @@ export function deleteServerCategory(id: string): void {
 }
 
 export function insertServerChannel(row: ServerChannelRow): void {
-  getDb().prepare('INSERT OR REPLACE INTO server_channels (id, server_id, category_id, name, type, position) VALUES (?, ?, ?, ?, ?, ?)').run(row.id, row.serverId, row.categoryId, row.name, row.type, row.position)
+  getDb().prepare('INSERT OR REPLACE INTO server_channels (id, server_id, category_id, name, type, position, min_role) VALUES (?, ?, ?, ?, ?, ?, ?)').run(row.id, row.serverId, row.categoryId, row.name, row.type, row.position, row.minRole ?? 'member')
 }
 
 export function updateServerChannelName(id: string, name: string): void {
   getDb().prepare('UPDATE server_channels SET name = ? WHERE id = ?').run(name, id)
+}
+
+export function updateServerChannelAccess(id: string, minRole: 'member' | 'moderator' | 'host'): void {
+  getDb().prepare('UPDATE server_channels SET min_role = ? WHERE id = ?').run(minRole, id)
+}
+
+/**
+ * Replace a MEMBER server's channel layout with the host's authoritative
+ * broadcast. Never used on servers we host — the host's DB is the source.
+ */
+export function replaceServerLayout(
+  serverId: string,
+  categories: ServerCategoryRow[],
+  channels: ServerChannelRow[]
+): void {
+  const d = getDb()
+  const tx = d.transaction(() => {
+    d.prepare('DELETE FROM server_categories WHERE server_id = ?').run(serverId)
+    d.prepare('DELETE FROM server_channels WHERE server_id = ?').run(serverId)
+    for (const c of categories) insertServerCategory({ ...c, serverId })
+    for (const ch of channels) insertServerChannel({ ...ch, serverId })
+  })
+  tx()
 }
 
 export function deleteServerChannel(id: string): void {
@@ -587,8 +618,8 @@ export function seedDefaultServerChannelsIfMissing(): void {
     const voiceChId = `${s.id}__ch-voice-default`
     insertServerCategory({ id: textCatId, serverId: s.id, name: 'Text Channels', position: 0 })
     insertServerCategory({ id: voiceCatId, serverId: s.id, name: 'Voice Channels', position: 1 })
-    insertServerChannel({ id: textChId, serverId: s.id, categoryId: textCatId, name: s.textChannelName || 'general', type: 'text', position: 0 })
-    insertServerChannel({ id: voiceChId, serverId: s.id, categoryId: voiceCatId, name: s.voiceRoomName || 'Voice Lounge', type: 'voice', position: 0 })
+    insertServerChannel({ id: textChId, serverId: s.id, categoryId: textCatId, name: s.textChannelName || 'general', type: 'text', position: 0, minRole: 'member' })
+    insertServerChannel({ id: voiceChId, serverId: s.id, categoryId: voiceCatId, name: s.voiceRoomName || 'Voice Lounge', type: 'voice', position: 0, minRole: 'member' })
     // Backfill legacy messages onto the default text channel.
     d.prepare('UPDATE server_messages SET channel_id = ? WHERE server_id = ? AND channel_id IS NULL').run(textChId, s.id)
   }

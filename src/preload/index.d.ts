@@ -257,7 +257,7 @@ interface ServerAPI {
   // Channels / Categories
   listChannels: (serverId: string) => Promise<{
     categories: Array<{ id: string; serverId: string; name: string; position: number }>
-    channels: Array<{ id: string; serverId: string; categoryId: string | null; name: string; type: 'text' | 'voice'; position: number }>
+    channels: Array<{ id: string; serverId: string; categoryId: string | null; name: string; type: 'text' | 'voice'; position: number; minRole: 'member' | 'moderator' | 'host' }>
   }>
   createCategory: (p: { serverId: string; actorId: string; name: string }) => Promise<{ success: boolean; error?: string; categoryId?: string }>
   createChannel: (p: { serverId: string; actorId: string; name: string; type: 'text' | 'voice'; categoryId?: string | null }) => Promise<{ success: boolean; error?: string; channelId?: string }>
@@ -265,6 +265,8 @@ interface ServerAPI {
   renameCategory: (p: { serverId: string; actorId: string; categoryId: string; name: string }) => Promise<{ success: boolean; error?: string }>
   deleteChannel: (p: { serverId: string; actorId: string; channelId: string }) => Promise<{ success: boolean; error?: string }>
   deleteCategory: (p: { serverId: string; actorId: string; categoryId: string }) => Promise<{ success: boolean; error?: string }>
+  setChannelAccess: (p: { serverId: string; actorId: string; channelId: string; minRole: 'member' | 'moderator' | 'host' }) => Promise<{ success: boolean; error?: string }>
+  applyLayout: (p: { serverId: string; layout: unknown }) => Promise<{ success: boolean }>
 }
 
 interface NetworkSignature {

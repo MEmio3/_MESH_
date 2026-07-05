@@ -331,7 +331,7 @@ const api = {
     listChannels: (serverId: string) =>
       ipcRenderer.invoke('server:list-channels', { serverId }) as Promise<{
         categories: Array<{ id: string; serverId: string; name: string; position: number }>
-        channels: Array<{ id: string; serverId: string; categoryId: string | null; name: string; type: 'text' | 'voice'; position: number }>
+        channels: Array<{ id: string; serverId: string; categoryId: string | null; name: string; type: 'text' | 'voice'; position: number; minRole: 'member' | 'moderator' | 'host' }>
       }>,
     createCategory: (payload: { serverId: string; actorId: string; name: string }) =>
       ipcRenderer.invoke('server:create-category', payload) as Promise<{ success: boolean; error?: string; categoryId?: string }>,
@@ -344,7 +344,11 @@ const api = {
     deleteChannel: (payload: { serverId: string; actorId: string; channelId: string }) =>
       ipcRenderer.invoke('server:delete-channel', payload) as Promise<{ success: boolean; error?: string }>,
     deleteCategory: (payload: { serverId: string; actorId: string; categoryId: string }) =>
-      ipcRenderer.invoke('server:delete-category', payload) as Promise<{ success: boolean; error?: string }>
+      ipcRenderer.invoke('server:delete-category', payload) as Promise<{ success: boolean; error?: string }>,
+    setChannelAccess: (payload: { serverId: string; actorId: string; channelId: string; minRole: 'member' | 'moderator' | 'host' }) =>
+      ipcRenderer.invoke('server:set-channel-access', payload) as Promise<{ success: boolean; error?: string }>,
+    applyLayout: (payload: { serverId: string; layout: unknown }) =>
+      ipcRenderer.invoke('server:apply-layout', payload) as Promise<{ success: boolean }>
   },
 
   reaction: {
