@@ -37,6 +37,7 @@ function ServerSidePanel({ serverId }: ServerSidePanelProps): JSX.Element {
   const [copiedLocal, setCopiedLocal] = useState(false)
   const [showConfirmModal, setShowConfirmModal] = useState(false)
   const [showRoleNamesModal, setShowRoleNamesModal] = useState(false)
+  const [showRoleManager, setShowRoleManager] = useState(false)
   const setRoleNames = useServersStore((s) => s.setRoleNames)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
@@ -148,16 +149,28 @@ function ServerSidePanel({ serverId }: ServerSidePanelProps): JSX.Element {
               </>
             )}
             {server.role === 'host' && (
-              <button
-                onClick={() => {
-                  setShowDropdown(false)
-                  setShowRoleNamesModal(true)
-                }}
-                className="w-full flex items-center px-2.5 py-1.5 mx-1 text-sm text-mesh-text-primary hover:bg-mesh-green hover:text-white rounded-sm transition-colors"
-                style={{ width: 'calc(100% - 8px)' }}
-              >
-                Edit Role Names
-              </button>
+              <>
+                <button
+                  onClick={() => {
+                    setShowDropdown(false)
+                    setShowRoleManager(true)
+                  }}
+                  className="w-full flex items-center px-2.5 py-1.5 mx-1 text-sm text-mesh-text-primary hover:bg-mesh-green hover:text-white rounded-sm transition-colors"
+                  style={{ width: 'calc(100% - 8px)' }}
+                >
+                  Manage Roles
+                </button>
+                <button
+                  onClick={() => {
+                    setShowDropdown(false)
+                    setShowRoleNamesModal(true)
+                  }}
+                  className="w-full flex items-center px-2.5 py-1.5 mx-1 text-sm text-mesh-text-primary hover:bg-mesh-green hover:text-white rounded-sm transition-colors"
+                  style={{ width: 'calc(100% - 8px)' }}
+                >
+                  Edit Tier Names
+                </button>
+              </>
             )}
             <div className="h-px bg-mesh-border/50 my-1 mx-2" />
             <button
@@ -200,6 +213,11 @@ function ServerSidePanel({ serverId }: ServerSidePanelProps): JSX.Element {
           </span>
         </div>
       </div>
+
+      {/* Role Manager — create/edit/delete custom roles (Discord-style). */}
+      {showRoleManager && (
+        <RoleManagerModal serverId={server.id} onClose={() => setShowRoleManager(false)} />
+      )}
 
       {/* Role Names Modal — display names only; the permission ladder
           (host > moderator > member) is fixed underneath. */}
@@ -244,6 +262,141 @@ function ServerSidePanel({ serverId }: ServerSidePanelProps): JSX.Element {
         </div>
       </Modal>
     </div>
+  )
+}
+
+const ROLE_COLORS = ['#e5484d', '#e0af68', '#2f9e6e', '#7aa2f7', '#b48ead', '#d08770', '#8fbcbb', '#9b9ba3']
+
+function RoleManagerModal({ serverId, onClose }: { serverId: string; onClose: () => void }): JSX.Element {
+  const roles = useServersStore((s) => s.serverRoles[serverId]) ?? []
+  const createRole = useServersStore((s) => s.createRole)
+  const updateRole = useServersStore((s) => s.updateRole)
+  const deleteRole = useServersStore((s) => s.deleteRole)
+
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [name, setName] = useState('')
+  const [color, setColor] = useState(ROLE_COLORS[3])
+  const [canModerate, setCanModerate] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  const startEdit = (roleId: string): void => {
+    const r = roles.find((x) => x.id === roleId)
+    if (!r) return
+    setEditingId(r.id)
+    setName(r.name)
+    setColor(r.color)
+    setCanModerate(r.canModerate)
+  }
+
+  const resetForm = (): void => {
+    setEditingId(null)
+    setName('')
+    setColor(ROLE_COLORS[3])
+    setCanModerate(false)
+  }
+
+  const submit = async (): Promise<void> => {
+    const trimmed = name.trim()
+    if (!trimmed) return
+    setBusy(true)
+    try {
+      if (editingId) await updateRole(serverId, editingId, trimmed, color, canModerate)
+      else await createRole(serverId, trimmed, color, canModerate)
+      resetForm()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal isOpen onClose={onClose} title="Manage Roles">
+      <div className="flex flex-col gap-4">
+        {/* Create / edit form */}
+        <div className="rounded-lg border border-mesh-border bg-mesh-bg-tertiary p-3 flex flex-col gap-2.5">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-mesh-text-secondary">
+            {editingId ? 'Edit role' : 'New role'}
+          </span>
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Role name (e.g. Teacher, Student, MUTED)"
+            maxLength={32}
+          />
+          <div className="flex items-center gap-1.5">
+            {ROLE_COLORS.map((c) => (
+              <button
+                key={c}
+                onClick={() => setColor(c)}
+                className={cn(
+                  'h-6 w-6 rounded-full transition-transform',
+                  color === c ? 'ring-2 ring-white/70 scale-110' : 'hover:scale-105'
+                )}
+                style={{ backgroundColor: c }}
+                title={c}
+              />
+            ))}
+          </div>
+          <label className="flex items-center gap-2 text-xs text-mesh-text-secondary cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={canModerate}
+              onChange={(e) => setCanModerate(e.target.checked)}
+              className="accent-[#2f9e6e]"
+            />
+            Can moderate (mute, kick, manage channels, assign roles)
+          </label>
+          <div className="flex justify-end gap-2">
+            {editingId && (
+              <Button variant="secondary" size="sm" onClick={resetForm}>Cancel edit</Button>
+            )}
+            <Button size="sm" disabled={busy || !name.trim()} onClick={submit}>
+              {busy ? 'Saving…' : editingId ? 'Save role' : 'Create role'}
+            </Button>
+          </div>
+        </div>
+
+        {/* Existing roles */}
+        {roles.length === 0 ? (
+          <p className="text-xs text-mesh-text-muted text-center py-2">
+            No custom roles yet. Create one above, then right-click a member to assign it.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-1 max-h-64 overflow-y-auto">
+            {roles.map((r) => (
+              <div
+                key={r.id}
+                className="flex items-center gap-2.5 rounded-md border border-mesh-border bg-mesh-bg-secondary px-3 py-2"
+              >
+                <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: r.color }} />
+                <span className="text-sm text-mesh-text-primary truncate flex-1">{r.name}</span>
+                {r.canModerate && (
+                  <span className="text-[9px] font-bold uppercase px-1 py-0.5 rounded bg-mesh-info/20 text-mesh-info shrink-0">
+                    mod
+                  </span>
+                )}
+                <button
+                  onClick={() => startEdit(r.id)}
+                  className="text-xs text-mesh-text-muted hover:text-mesh-text-primary transition-colors shrink-0"
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={() => deleteRole(serverId, r.id)}
+                  className="text-xs text-mesh-danger/80 hover:text-mesh-danger transition-colors shrink-0"
+                >
+                  Delete
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <p className="text-[10px] text-mesh-text-muted leading-snug">
+          Assign roles by right-clicking a member in the member list. Restrict a
+          channel to specific roles by right-clicking the channel.
+        </p>
+      </div>
+    </Modal>
   )
 }
 

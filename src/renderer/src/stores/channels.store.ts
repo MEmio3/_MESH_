@@ -26,8 +26,11 @@ export interface Channel {
   name: string
   type: 'text' | 'voice'
   position: number
-  /** Minimum role required to see this channel. */
+  /** Minimum role required to see this channel (legacy tier gate). */
   minRole: ChannelMinRole
+  /** Custom role ids allowed to see this channel; null = everyone.
+   *  Takes precedence over minRole when set. Host always sees everything. */
+  allowedRoleIds: string[] | null
 }
 
 interface ServerLayout {
@@ -48,6 +51,7 @@ interface ChannelsStore {
   deleteChannel: (serverId: string, channelId: string) => Promise<{ success: boolean; error?: string }>
   deleteCategory: (serverId: string, categoryId: string) => Promise<{ success: boolean; error?: string }>
   setChannelAccess: (serverId: string, channelId: string, minRole: ChannelMinRole) => Promise<{ success: boolean; error?: string }>
+  setChannelRoles: (serverId: string, channelId: string, allowedRoleIds: string[] | null) => Promise<{ success: boolean; error?: string }>
 }
 
 const EMPTY_LAYOUT: ServerLayout = { categories: [], channels: [] }
@@ -66,12 +70,24 @@ export const useChannelsStore = create<ChannelsStore>((set, get) => ({
 
   reload: async (serverId) => {
     const res = await window.api.server.listChannels(serverId)
+    const channels: Channel[] = [...res.channels]
+      .sort((a, b) => a.position - b.position)
+      .map((c) => {
+        let allowedRoleIds: string[] | null = null
+        if (c.allowedRoleIds) {
+          try {
+            const parsed = JSON.parse(c.allowedRoleIds)
+            if (Array.isArray(parsed) && parsed.length > 0) allowedRoleIds = parsed
+          } catch { /* corrupted JSON → everyone */ }
+        }
+        return { ...c, allowedRoleIds }
+      })
     set((s) => ({
       byServer: {
         ...s.byServer,
         [serverId]: {
           categories: [...res.categories].sort((a, b) => a.position - b.position),
-          channels: [...res.channels].sort((a, b) => a.position - b.position)
+          channels
         }
       }
     }))
@@ -115,6 +131,12 @@ export const useChannelsStore = create<ChannelsStore>((set, get) => ({
 
   setChannelAccess: async (serverId, channelId, minRole) => {
     const res = await window.api.server.setChannelAccess({ serverId, actorId: selfId(), channelId, minRole })
+    if (res.success) await get().reload(serverId)
+    return res
+  },
+
+  setChannelRoles: async (serverId, channelId, allowedRoleIds) => {
+    const res = await window.api.server.setChannelRoles({ serverId, actorId: selfId(), channelId, allowedRoleIds })
     if (res.success) await get().reload(serverId)
     return res
   }

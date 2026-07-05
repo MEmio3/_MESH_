@@ -14,6 +14,7 @@ import type {
   ServerMessageRow,
   ServerCategoryRow,
   ServerChannelRow,
+  ServerRoleRow,
   RelayRow
 } from '../shared/types'
 
@@ -114,8 +115,16 @@ function migrateSchema(): void {
   // Role-gated channels: minimum role required to see a channel.
   const chanCols = d.prepare("PRAGMA table_info('server_channels')").all() as { name: string }[]
   const chanNames = new Set(chanCols.map((c) => c.name))
-  if (chanCols.length > 0 && !chanNames.has('min_role')) {
-    d.exec("ALTER TABLE server_channels ADD COLUMN min_role TEXT NOT NULL DEFAULT 'member'")
+  if (chanCols.length > 0) {
+    if (!chanNames.has('min_role')) d.exec("ALTER TABLE server_channels ADD COLUMN min_role TEXT NOT NULL DEFAULT 'member'")
+    if (!chanNames.has('allowed_role_ids')) d.exec('ALTER TABLE server_channels ADD COLUMN allowed_role_ids TEXT')
+  }
+
+  // Custom role assignments on members.
+  const memCols = d.prepare("PRAGMA table_info('server_members')").all() as { name: string }[]
+  const memNames = new Set(memCols.map((c) => c.name))
+  if (memCols.length > 0 && !memNames.has('role_ids')) {
+    d.exec("ALTER TABLE server_members ADD COLUMN role_ids TEXT NOT NULL DEFAULT '[]'")
   }
 }
 
@@ -214,6 +223,7 @@ function createTables(): void {
       role TEXT NOT NULL DEFAULT 'member',
       status TEXT NOT NULL DEFAULT 'offline',
       is_muted INTEGER NOT NULL DEFAULT 0,
+      role_ids TEXT NOT NULL DEFAULT '[]',
       PRIMARY KEY (server_id, user_id),
       FOREIGN KEY (server_id) REFERENCES servers(id)
     );
@@ -235,9 +245,21 @@ function createTables(): void {
       type TEXT NOT NULL DEFAULT 'text',
       position INTEGER NOT NULL DEFAULT 0,
       min_role TEXT NOT NULL DEFAULT 'member',
+      allowed_role_ids TEXT,
       FOREIGN KEY (server_id) REFERENCES servers(id)
     );
     CREATE INDEX IF NOT EXISTS idx_server_channels_server ON server_channels(server_id, position);
+
+    CREATE TABLE IF NOT EXISTS server_roles (
+      id TEXT PRIMARY KEY,
+      server_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      color TEXT NOT NULL DEFAULT '#9b9ba3',
+      position INTEGER NOT NULL DEFAULT 0,
+      can_moderate INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY (server_id) REFERENCES servers(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_server_roles_server ON server_roles(server_id, position);
 
     CREATE TABLE IF NOT EXISTS server_messages (
       id TEXT PRIMARY KEY,
@@ -538,7 +560,7 @@ export function removeServer(serverId: string): void {
 // ── Server Categories / Channels ──
 
 const CAT_COLS = 'id, server_id AS serverId, name, position'
-const CHAN_COLS = 'id, server_id AS serverId, category_id AS categoryId, name, type, position, min_role AS minRole'
+const CHAN_COLS = 'id, server_id AS serverId, category_id AS categoryId, name, type, position, min_role AS minRole, allowed_role_ids AS allowedRoleIds'
 
 export function getServerCategories(serverId: string): ServerCategoryRow[] {
   return getDb().prepare(`SELECT ${CAT_COLS} FROM server_categories WHERE server_id = ? ORDER BY position ASC`).all(serverId) as ServerCategoryRow[]
@@ -564,7 +586,11 @@ export function deleteServerCategory(id: string): void {
 }
 
 export function insertServerChannel(row: ServerChannelRow): void {
-  getDb().prepare('INSERT OR REPLACE INTO server_channels (id, server_id, category_id, name, type, position, min_role) VALUES (?, ?, ?, ?, ?, ?, ?)').run(row.id, row.serverId, row.categoryId, row.name, row.type, row.position, row.minRole ?? 'member')
+  getDb().prepare('INSERT OR REPLACE INTO server_channels (id, server_id, category_id, name, type, position, min_role, allowed_role_ids) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(row.id, row.serverId, row.categoryId, row.name, row.type, row.position, row.minRole ?? 'member', row.allowedRoleIds ?? null)
+}
+
+export function updateServerChannelRoles(id: string, allowedRoleIdsJson: string | null): void {
+  getDb().prepare('UPDATE server_channels SET allowed_role_ids = ? WHERE id = ?').run(allowedRoleIdsJson, id)
 }
 
 export function updateServerChannelName(id: string, name: string): void {
@@ -624,21 +650,71 @@ export function seedDefaultServerChannelsIfMissing(): void {
     const voiceChId = `${s.id}__ch-voice-default`
     insertServerCategory({ id: textCatId, serverId: s.id, name: 'Text Channels', position: 0 })
     insertServerCategory({ id: voiceCatId, serverId: s.id, name: 'Voice Channels', position: 1 })
-    insertServerChannel({ id: textChId, serverId: s.id, categoryId: textCatId, name: s.textChannelName || 'general', type: 'text', position: 0, minRole: 'member' })
-    insertServerChannel({ id: voiceChId, serverId: s.id, categoryId: voiceCatId, name: s.voiceRoomName || 'Voice Lounge', type: 'voice', position: 0, minRole: 'member' })
+    insertServerChannel({ id: textChId, serverId: s.id, categoryId: textCatId, name: s.textChannelName || 'general', type: 'text', position: 0, minRole: 'member', allowedRoleIds: null })
+    insertServerChannel({ id: voiceChId, serverId: s.id, categoryId: voiceCatId, name: s.voiceRoomName || 'Voice Lounge', type: 'voice', position: 0, minRole: 'member', allowedRoleIds: null })
     // Backfill legacy messages onto the default text channel.
     d.prepare('UPDATE server_messages SET channel_id = ? WHERE server_id = ? AND channel_id IS NULL').run(textChId, s.id)
   }
 }
 
+// ── Server Roles (custom, Discord-style) ──
+
+const ROLE_COLS = 'id, server_id AS serverId, name, color, position, can_moderate AS canModerate'
+
+export function getServerRoles(serverId: string): ServerRoleRow[] {
+  return getDb().prepare(`SELECT ${ROLE_COLS} FROM server_roles WHERE server_id = ? ORDER BY position ASC`).all(serverId) as ServerRoleRow[]
+}
+
+export function insertServerRole(row: ServerRoleRow): void {
+  getDb().prepare('INSERT OR REPLACE INTO server_roles (id, server_id, name, color, position, can_moderate) VALUES (?, ?, ?, ?, ?, ?)').run(row.id, row.serverId, row.name, row.color, row.position, row.canModerate)
+}
+
+export function deleteServerRole(serverId: string, roleId: string): void {
+  const d = getDb()
+  const tx = d.transaction(() => {
+    d.prepare('DELETE FROM server_roles WHERE id = ?').run(roleId)
+    // Scrub the deleted role from every member's assignment list.
+    const members = d.prepare("SELECT user_id AS userId, COALESCE(role_ids, '[]') AS roleIds FROM server_members WHERE server_id = ?").all(serverId) as Array<{ userId: string; roleIds: string }>
+    for (const m of members) {
+      try {
+        const ids = (JSON.parse(m.roleIds) as string[]).filter((id) => id !== roleId)
+        d.prepare('UPDATE server_members SET role_ids = ? WHERE server_id = ? AND user_id = ?').run(JSON.stringify(ids), serverId, m.userId)
+      } catch { /* corrupted JSON → leave */ }
+    }
+    // Scrub from channel allow-lists; empty lists fall back to everyone (null).
+    const chans = d.prepare('SELECT id, allowed_role_ids AS allowedRoleIds FROM server_channels WHERE server_id = ? AND allowed_role_ids IS NOT NULL').all(serverId) as Array<{ id: string; allowedRoleIds: string }>
+    for (const c of chans) {
+      try {
+        const ids = (JSON.parse(c.allowedRoleIds) as string[]).filter((id) => id !== roleId)
+        d.prepare('UPDATE server_channels SET allowed_role_ids = ? WHERE id = ?').run(ids.length > 0 ? JSON.stringify(ids) : null, c.id)
+      } catch { /* leave */ }
+    }
+  })
+  tx()
+}
+
+/** Member side: adopt the host's authoritative role list wholesale. */
+export function replaceServerRoles(serverId: string, roles: ServerRoleRow[]): void {
+  const d = getDb()
+  const tx = d.transaction(() => {
+    d.prepare('DELETE FROM server_roles WHERE server_id = ?').run(serverId)
+    for (const r of roles) insertServerRole({ ...r, serverId })
+  })
+  tx()
+}
+
 // ── Server Members ──
 
 export function getServerMembers(serverId: string): ServerMemberRow[] {
-  return getDb().prepare('SELECT server_id AS serverId, user_id AS userId, username, avatar_color AS avatarColor, role, status, is_muted AS isMuted FROM server_members WHERE server_id = ?').all(serverId) as ServerMemberRow[]
+  return getDb().prepare("SELECT server_id AS serverId, user_id AS userId, username, avatar_color AS avatarColor, role, status, is_muted AS isMuted, COALESCE(role_ids, '[]') AS roleIds FROM server_members WHERE server_id = ?").all(serverId) as ServerMemberRow[]
 }
 
 export function addServerMember(m: ServerMemberRow): void {
-  getDb().prepare('INSERT OR REPLACE INTO server_members (server_id, user_id, username, avatar_color, role, status, is_muted) VALUES (?, ?, ?, ?, ?, ?, ?)').run(m.serverId, m.userId, m.username, m.avatarColor, m.role, m.status, m.isMuted)
+  getDb().prepare('INSERT OR REPLACE INTO server_members (server_id, user_id, username, avatar_color, role, status, is_muted, role_ids) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(m.serverId, m.userId, m.username, m.avatarColor, m.role, m.status, m.isMuted, m.roleIds ?? '[]')
+}
+
+export function updateMemberRoleIds(serverId: string, userId: string, roleIdsJson: string): void {
+  getDb().prepare('UPDATE server_members SET role_ids = ? WHERE server_id = ? AND user_id = ?').run(roleIdsJson, serverId, userId)
 }
 
 export function removeServerMember(serverId: string, userId: string): void {

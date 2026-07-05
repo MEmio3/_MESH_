@@ -20,6 +20,18 @@ export interface ServerMember {
   role: ServerRole
   status: 'online' | 'offline' | 'idle' | 'dnd'
   isMuted: boolean
+  /** Custom role ids assigned to this member. */
+  roleIds: string[]
+}
+
+/** A custom role created by the server host (Discord-style). */
+export interface ServerRoleDef {
+  id: string
+  serverId: string
+  name: string
+  color: string
+  position: number
+  canModerate: boolean
 }
 
 export interface VoiceParticipant {

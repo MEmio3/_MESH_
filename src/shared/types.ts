@@ -122,6 +122,17 @@ export interface ServerRow {
   roleNames?: string | null
 }
 
+/** A custom role defined by the server host (Discord-style). */
+export interface ServerRoleRow {
+  id: string
+  serverId: string
+  name: string
+  color: string
+  position: number
+  /** 1 = grants kick/mute/channel-management powers. */
+  canModerate: number
+}
+
 export interface ServerMemberRow {
   serverId: string
   userId: string
@@ -130,6 +141,8 @@ export interface ServerMemberRow {
   role: string
   status: string
   isMuted: number
+  /** JSON array of custom role ids assigned to this member. */
+  roleIds: string
 }
 
 export interface ServerCategoryRow {
@@ -146,8 +159,11 @@ export interface ServerChannelRow {
   name: string
   type: 'text' | 'voice'
   position: number
-  /** Minimum role that can see/enter this channel. */
+  /** Minimum role that can see/enter this channel (legacy tier gate). */
   minRole: 'member' | 'moderator' | 'host'
+  /** JSON array of custom role ids allowed to see this channel; null = everyone.
+   *  When set, it takes precedence over minRole. Host always sees everything. */
+  allowedRoleIds: string | null
 }
 
 export interface ServerMessageRow {

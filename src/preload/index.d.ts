@@ -127,8 +127,8 @@ interface DbServersAPI {
 }
 
 interface DbServerMembersAPI {
-  list: (serverId: string) => Promise<{ serverId: string; userId: string; username: string; avatarColor: string | null; role: string; status: string; isMuted: number }[]>
-  add: (member: { serverId: string; userId: string; username: string; avatarColor: string | null; role: string; status: string; isMuted: number }) => Promise<void>
+  list: (serverId: string) => Promise<{ serverId: string; userId: string; username: string; avatarColor: string | null; role: string; status: string; isMuted: number; roleIds?: string }[]>
+  add: (member: { serverId: string; userId: string; username: string; avatarColor: string | null; role: string; status: string; isMuted: number; roleIds?: string }) => Promise<void>
 }
 
 interface DbServerMessagesAPI {
@@ -257,7 +257,7 @@ interface ServerAPI {
   // Channels / Categories
   listChannels: (serverId: string) => Promise<{
     categories: Array<{ id: string; serverId: string; name: string; position: number }>
-    channels: Array<{ id: string; serverId: string; categoryId: string | null; name: string; type: 'text' | 'voice'; position: number; minRole: 'member' | 'moderator' | 'host' }>
+    channels: Array<{ id: string; serverId: string; categoryId: string | null; name: string; type: 'text' | 'voice'; position: number; minRole: 'member' | 'moderator' | 'host'; allowedRoleIds: string | null }>
   }>
   createCategory: (p: { serverId: string; actorId: string; name: string }) => Promise<{ success: boolean; error?: string; categoryId?: string }>
   createChannel: (p: { serverId: string; actorId: string; name: string; type: 'text' | 'voice'; categoryId?: string | null }) => Promise<{ success: boolean; error?: string; channelId?: string }>
@@ -269,6 +269,14 @@ interface ServerAPI {
   applyLayout: (p: { serverId: string; layout: unknown }) => Promise<{ success: boolean }>
   setRoleNames: (p: { serverId: string; actorId: string; roleNames: { host: string; moderator: string; member: string } | null }) => Promise<{ success: boolean; error?: string }>
   applyRoleNames: (p: { serverId: string; roleNames: { host?: string; moderator?: string; member?: string } | null }) => Promise<{ success: boolean }>
+  listRoles: (p: { serverId: string }) => Promise<Array<{ id: string; serverId: string; name: string; color: string; position: number; canModerate: number }>>
+  createRole: (p: { serverId: string; actorId: string; name: string; color: string; canModerate: boolean }) => Promise<{ success: boolean; error?: string; roleId?: string }>
+  updateRole: (p: { serverId: string; actorId: string; roleId: string; name: string; color: string; canModerate: boolean }) => Promise<{ success: boolean; error?: string }>
+  deleteRole: (p: { serverId: string; actorId: string; roleId: string }) => Promise<{ success: boolean; error?: string }>
+  assignMemberRoles: (p: { serverId: string; actorId: string; targetId: string; roleIds: string[] }) => Promise<{ success: boolean; error?: string }>
+  applyRoles: (p: { serverId: string; roles: unknown }) => Promise<{ success: boolean }>
+  applyMemberRoles: (p: { serverId: string; userId: string; roleIds: string[] }) => Promise<{ success: boolean }>
+  setChannelRoles: (p: { serverId: string; actorId: string; channelId: string; allowedRoleIds: string[] | null }) => Promise<{ success: boolean; error?: string }>
 }
 
 interface NetworkSignature {

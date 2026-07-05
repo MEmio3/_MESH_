@@ -331,7 +331,7 @@ const api = {
     listChannels: (serverId: string) =>
       ipcRenderer.invoke('server:list-channels', { serverId }) as Promise<{
         categories: Array<{ id: string; serverId: string; name: string; position: number }>
-        channels: Array<{ id: string; serverId: string; categoryId: string | null; name: string; type: 'text' | 'voice'; position: number; minRole: 'member' | 'moderator' | 'host' }>
+        channels: Array<{ id: string; serverId: string; categoryId: string | null; name: string; type: 'text' | 'voice'; position: number; minRole: 'member' | 'moderator' | 'host'; allowedRoleIds: string | null }>
       }>,
     createCategory: (payload: { serverId: string; actorId: string; name: string }) =>
       ipcRenderer.invoke('server:create-category', payload) as Promise<{ success: boolean; error?: string; categoryId?: string }>,
@@ -352,7 +352,25 @@ const api = {
     setRoleNames: (payload: { serverId: string; actorId: string; roleNames: { host: string; moderator: string; member: string } | null }) =>
       ipcRenderer.invoke('server:set-role-names', payload) as Promise<{ success: boolean; error?: string }>,
     applyRoleNames: (payload: { serverId: string; roleNames: { host?: string; moderator?: string; member?: string } | null }) =>
-      ipcRenderer.invoke('server:apply-role-names', payload) as Promise<{ success: boolean }>
+      ipcRenderer.invoke('server:apply-role-names', payload) as Promise<{ success: boolean }>,
+
+    // Custom roles (Discord-style)
+    listRoles: (payload: { serverId: string }) =>
+      ipcRenderer.invoke('server:list-roles', payload) as Promise<Array<{ id: string; serverId: string; name: string; color: string; position: number; canModerate: number }>>,
+    createRole: (payload: { serverId: string; actorId: string; name: string; color: string; canModerate: boolean }) =>
+      ipcRenderer.invoke('server:create-role', payload) as Promise<{ success: boolean; error?: string; roleId?: string }>,
+    updateRole: (payload: { serverId: string; actorId: string; roleId: string; name: string; color: string; canModerate: boolean }) =>
+      ipcRenderer.invoke('server:update-role', payload) as Promise<{ success: boolean; error?: string }>,
+    deleteRole: (payload: { serverId: string; actorId: string; roleId: string }) =>
+      ipcRenderer.invoke('server:delete-role', payload) as Promise<{ success: boolean; error?: string }>,
+    assignMemberRoles: (payload: { serverId: string; actorId: string; targetId: string; roleIds: string[] }) =>
+      ipcRenderer.invoke('server:assign-member-roles', payload) as Promise<{ success: boolean; error?: string }>,
+    applyRoles: (payload: { serverId: string; roles: unknown }) =>
+      ipcRenderer.invoke('server:apply-roles', payload) as Promise<{ success: boolean }>,
+    applyMemberRoles: (payload: { serverId: string; userId: string; roleIds: string[] }) =>
+      ipcRenderer.invoke('server:apply-member-roles', payload) as Promise<{ success: boolean }>,
+    setChannelRoles: (payload: { serverId: string; actorId: string; channelId: string; allowedRoleIds: string[] | null }) =>
+      ipcRenderer.invoke('server:set-channel-roles', payload) as Promise<{ success: boolean; error?: string }>
   },
 
   reaction: {

@@ -152,6 +152,8 @@ interface ServerMemberInfo {
   avatarColor: string | null
   role: 'host' | 'moderator' | 'member'
   isMuted: boolean
+  /** Custom role ids assigned by the host. */
+  roleIds?: string[]
 }
 interface ServerEntry {
   id: string
@@ -170,6 +172,8 @@ interface ServerEntry {
   layout: unknown | null
   /** Custom display names for the role tiers ({host,moderator,member}). */
   roleNames: { host?: string; moderator?: string; member?: string } | null
+  /** Host's custom role definitions (Discord-style), opaque here. */
+  roles: unknown | null
 }
 const servers = new Map<string, ServerEntry>()
 
@@ -504,6 +508,7 @@ io.on('connection', (socket) => {
     passwordHash?: string | null
     layout?: unknown | null
     roleNames?: { host?: string; moderator?: string; member?: string } | null
+    roles?: unknown | null
   }) => {
     let entry = servers.get(payload.serverId)
     if (!entry) {
@@ -521,7 +526,8 @@ io.on('connection', (socket) => {
         banned: new Set(payload.banned),
         passwordHash: payload.passwordHash,
         layout: payload.layout ?? null,
-        roleNames: payload.roleNames ?? null
+        roleNames: payload.roleNames ?? null,
+        roles: payload.roles ?? null
       }
       servers.set(payload.serverId, entry)
       console.log(`[server] registered: ${payload.serverId} by ${payload.hostUserId}`)
@@ -534,6 +540,7 @@ io.on('connection', (socket) => {
       entry.banned = new Set(payload.banned)
       if (payload.layout !== undefined) entry.layout = payload.layout
       if (payload.roleNames !== undefined) entry.roleNames = payload.roleNames ?? null
+      if (payload.roles !== undefined) entry.roles = payload.roles ?? null
     }
     // Reset member list with host authoritative snapshot
     entry.members.clear()
@@ -572,6 +579,29 @@ io.on('connection', (socket) => {
     if (userSockets.get(entry.hostUserId) !== socket.id) return
     entry.roleNames = payload.roleNames ?? null
     socket.to(roomName(payload.serverId)).emit('server:role-names', { serverId: entry.id, roleNames: entry.roleNames })
+  })
+
+  // Host changed the custom role definitions (create/edit/delete).
+  socket.on('server:roles-update', (payload: { serverId: string; roles: unknown }) => {
+    const entry = servers.get(payload.serverId)
+    if (!entry) return
+    if (userSockets.get(entry.hostUserId) !== socket.id) return
+    entry.roles = payload.roles ?? null
+    socket.to(roomName(payload.serverId)).emit('server:roles', { serverId: entry.id, roles: entry.roles })
+  })
+
+  // Host (or a moderator via the host's authority) assigned custom roles to a member.
+  socket.on('server:member-roles-update', (payload: { serverId: string; userId: string; roleIds: string[] }) => {
+    const entry = servers.get(payload.serverId)
+    if (!entry) return
+    if (userSockets.get(entry.hostUserId) !== socket.id) return
+    const member = entry.members.get(payload.userId)
+    if (member) member.roleIds = Array.isArray(payload.roleIds) ? payload.roleIds : []
+    io.to(roomName(payload.serverId)).emit('server:member-roles', {
+      serverId: entry.id,
+      userId: payload.userId,
+      roleIds: Array.isArray(payload.roleIds) ? payload.roleIds : []
+    })
   })
 
   // Member requests to join. We validate + broadcast + send state to joiner.
@@ -659,6 +689,7 @@ io.on('connection', (socket) => {
       onlineUserIds: [...entry.members.keys()].filter((id) => userSockets.has(id)),
       layout: entry.layout,
       roleNames: entry.roleNames,
+      roles: entry.roles,
       yourRole: member.role
     })
     // Broadcast to room that a new member joined.

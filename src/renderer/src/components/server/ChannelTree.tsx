@@ -81,6 +81,10 @@ export function ChannelTree({
   const avatarsByUser = useAvatarStore((s) => s.byUser)
   const server = useServersStore((s) => s.servers.find((sv) => sv.id === serverId))
   const roleLabels = resolveRoleNames(server?.roleNames)
+  const customRoles = useServersStore((s) => s.serverRoles[serverId]) ?? []
+  const serverMembers = useServersStore((s) => s.serverMembers[serverId])
+  const setChannelRoles = useChannelsStore((s) => s.setChannelRoles)
+  const selfRoleIds = serverMembers?.find((m) => m.userId === selfId)?.roleIds ?? []
 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [menu, setMenu] = useState<MenuAnchor | null>(null)
@@ -102,16 +106,23 @@ export function ChannelTree({
   const isVoiceHere = isConnected && currentServerId === serverId
 
   const { uncategorized, categoryBuckets } = useMemo(() => {
-    // Role gate: channels above the viewer's role simply don't exist for
-    // them — an employee never sees the CEO's private room in the tree.
-    const visible = layout.channels.filter((c) => canSee(selfRole, c.minRole))
+    // Role gate: restricted channels simply don't exist for the viewer.
+    // A custom-role allow-list takes precedence over the legacy tier gate;
+    // the host always sees everything.
+    const visible = layout.channels.filter((c) => {
+      if (selfRole === 'host') return true
+      if (c.allowedRoleIds && c.allowedRoleIds.length > 0) {
+        return c.allowedRoleIds.some((id) => selfRoleIds.includes(id))
+      }
+      return canSee(selfRole, c.minRole)
+    })
     const uncategorized = visible.filter((c) => !c.categoryId)
     const categoryBuckets = layout.categories.map((cat) => ({
       category: cat,
       channels: visible.filter((c) => c.categoryId === cat.id)
     }))
     return { uncategorized, categoryBuckets }
-  }, [layout, selfRole])
+  }, [layout, selfRole, selfRoleIds])
 
   // Close the menu / popover on outside click / Escape.
   useEffect(() => {
@@ -191,11 +202,8 @@ export function ChannelTree({
             )}
           />
           <span className="text-[14px] truncate flex-1 tracking-tight">{ch.name}</span>
-          {ch.minRole && ch.minRole !== 'member' && (
-            <Lock
-              className="h-3 w-3 shrink-0 text-mesh-text-muted"
-              aria-label={ch.minRole === 'host' ? 'Host only' : 'Moderators and host only'}
-            />
+          {((ch.minRole && ch.minRole !== 'member') || (ch.allowedRoleIds && ch.allowedRoleIds.length > 0)) && (
+            <Lock className="h-3 w-3 shrink-0 text-mesh-text-muted" aria-label="Restricted channel" />
           )}
         </button>
 
@@ -350,13 +358,16 @@ export function ChannelTree({
                 ['host', `${roleLabels.host} only`]
               ] as Array<[ChannelMinRole, string]>).map(([role, label]) => {
                 const ch = (menu.state as { kind: 'channel'; channel: Channel }).channel
-                const active = (ch.minRole ?? 'member') === role
+                const restrictedByRoles = !!ch.allowedRoleIds && ch.allowedRoleIds.length > 0
+                const active = !restrictedByRoles && (ch.minRole ?? 'member') === role
                 return (
                   <MenuItem
                     key={role}
                     icon={active ? <Lock className="h-3.5 w-3.5" /> : <span className="w-3.5" />}
                     onClick={() => {
                       setMenu(null)
+                      // Tier gates clear any custom-role restriction.
+                      setChannelRoles(serverId, ch.id, null)
                       setChannelAccess(serverId, ch.id, role)
                     }}
                   >
@@ -364,6 +375,36 @@ export function ChannelTree({
                   </MenuItem>
                 )
               })}
+              {customRoles.length > 0 && (
+                <>
+                  <div className="px-3 pt-1.5 pb-1 text-[10px] font-semibold uppercase tracking-wide text-mesh-text-muted">
+                    Or specific roles
+                  </div>
+                  {customRoles.map((role) => {
+                    const ch = (menu.state as { kind: 'channel'; channel: Channel }).channel
+                    const current = ch.allowedRoleIds ?? []
+                    const has = current.includes(role.id)
+                    return (
+                      <MenuItem
+                        key={role.id}
+                        icon={
+                          <span
+                            className="h-2.5 w-2.5 rounded-full inline-block"
+                            style={{ backgroundColor: role.color, opacity: has ? 1 : 0.35 }}
+                          />
+                        }
+                        onClick={() => {
+                          setMenu(null)
+                          const next = has ? current.filter((id) => id !== role.id) : [...current, role.id]
+                          setChannelRoles(serverId, ch.id, next.length > 0 ? next : null)
+                        }}
+                      >
+                        {role.name}{has ? ' ✓' : ''}
+                      </MenuItem>
+                    )
+                  })}
+                </>
+              )}
               <MenuSeparator />
               <MenuItem danger icon={<Trash2 className="h-3.5 w-3.5" />} onClick={() => {
                 const ch = (menu.state as { kind: 'channel'; channel: Channel }).channel

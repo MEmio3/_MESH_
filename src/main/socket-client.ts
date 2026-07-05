@@ -191,6 +191,8 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
     'server:host-online',
     'server:layout',
     'server:role-names',
+    'server:roles',
+    'server:member-roles',
     'server:error'
   ]
   for (const evt of serverEvents) {

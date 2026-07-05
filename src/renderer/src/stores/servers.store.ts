@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Server, ServerMember } from '@/types/server'
+import type { Server, ServerMember, ServerRoleDef } from '@/types/server'
 import type { Message, FileAttachment } from '@/types/messages'
 import { useIdentityStore } from './identity.store'
 import { useAvatarStore } from './avatar.store'
@@ -20,6 +20,8 @@ interface ServersStore {
    * drive presence dots.
    */
   serverOnlineMembers: Record<string, string[]>
+  /** Custom role definitions per server (host-authored, synced to members). */
+  serverRoles: Record<string, ServerRoleDef[]>
   pendingJoin: string | null
   lastError: string | null
 
@@ -42,6 +44,11 @@ interface ServersStore {
   setMemberRole: (serverId: string, targetId: string, role: 'moderator' | 'member') => Promise<void>
   /** Host-only: rename the role tiers for a server (display names only). */
   setRoleNames: (serverId: string, roleNames: { host: string; moderator: string; member: string } | null) => Promise<void>
+  // Custom roles (Discord-style)
+  createRole: (serverId: string, name: string, color: string, canModerate: boolean) => Promise<void>
+  updateRole: (serverId: string, roleId: string, name: string, color: string, canModerate: boolean) => Promise<void>
+  deleteRole: (serverId: string, roleId: string) => Promise<void>
+  assignMemberRoles: (serverId: string, targetId: string, roleIds: string[]) => Promise<void>
   editServerMessage: (serverId: string, messageId: string, newContent: string) => Promise<void>
   deleteServerMessage: (serverId: string, messageId: string) => Promise<void>
   toggleServerReaction: (serverId: string, messageId: string, emojiId: string) => Promise<void>
@@ -88,6 +95,7 @@ export const useServersStore = create<ServersStore>((set, get) => ({
   serverMessages: {},
   serverVoiceStates: {},
   serverOnlineMembers: {},
+  serverRoles: {},
   pendingJoin: null,
   lastError: null,
 
@@ -100,16 +108,27 @@ export const useServersStore = create<ServersStore>((set, get) => ({
     const servers: Server[] = rows.map(toServer)
     const serverMembers: Record<string, ServerMember[]> = {}
     const serverMessages: Record<string, Message[]> = {}
+    const serverRoles: Record<string, ServerRoleDef[]> = {}
     for (const srv of servers) {
+      const roleRows = await window.api.server.listRoles({ serverId: srv.id }).catch(() => [])
+      serverRoles[srv.id] = roleRows.map((r) => ({ ...r, canModerate: r.canModerate === 1 }))
       const memberRows = await window.api.db.serverMembers.list(srv.id)
-      serverMembers[srv.id] = memberRows.map((m) => ({
-        userId: m.userId,
-        username: m.username,
-        avatarColor: m.avatarColor,
-        role: m.role as ServerMember['role'],
-        status: m.status as ServerMember['status'],
-        isMuted: m.isMuted === 1
-      }))
+      serverMembers[srv.id] = memberRows.map((m) => {
+        let roleIds: string[] = []
+        try {
+          const parsed = JSON.parse(m.roleIds || '[]')
+          if (Array.isArray(parsed)) roleIds = parsed
+        } catch { /* default */ }
+        return {
+          userId: m.userId,
+          username: m.username,
+          avatarColor: m.avatarColor,
+          role: m.role as ServerMember['role'],
+          status: m.status as ServerMember['status'],
+          isMuted: m.isMuted === 1,
+          roleIds
+        }
+      })
       const msgRows = await window.api.db.serverMessages.list({ serverId: srv.id, limit: 50 })
       // Parse the reactions JSON column; without this a `"{}"` string leaks
       // into the store and renders as ghost "0"/"1" reaction chips.
@@ -132,7 +151,7 @@ export const useServersStore = create<ServersStore>((set, get) => ({
         return msg as Message
       })
     }
-    set({ servers, serverMembers, serverMessages })
+    set({ servers, serverMembers, serverMessages, serverRoles })
   },
 
   createServer: async ({ name, iconColor, textChannelName, voiceRoomName, passwordHash }) => {
@@ -321,6 +340,38 @@ export const useServersStore = create<ServersStore>((set, get) => ({
     const res = await window.api.server.setRoleNames({ serverId, actorId: identity.userId, roleNames })
     if (res.success) await get().reloadFromDb()
     else set({ lastError: res.error ?? 'Failed to update role names' })
+  },
+
+  createRole: async (serverId, name, color, canModerate) => {
+    const identity = useIdentityStore.getState().identity
+    if (!identity) return
+    const res = await window.api.server.createRole({ serverId, actorId: identity.userId, name, color, canModerate })
+    if (res.success) await get().reloadFromDb()
+    else set({ lastError: res.error ?? 'Failed to create role' })
+  },
+
+  updateRole: async (serverId, roleId, name, color, canModerate) => {
+    const identity = useIdentityStore.getState().identity
+    if (!identity) return
+    const res = await window.api.server.updateRole({ serverId, actorId: identity.userId, roleId, name, color, canModerate })
+    if (res.success) await get().reloadFromDb()
+    else set({ lastError: res.error ?? 'Failed to update role' })
+  },
+
+  deleteRole: async (serverId, roleId) => {
+    const identity = useIdentityStore.getState().identity
+    if (!identity) return
+    const res = await window.api.server.deleteRole({ serverId, actorId: identity.userId, roleId })
+    if (res.success) await get().reloadFromDb()
+    else set({ lastError: res.error ?? 'Failed to delete role' })
+  },
+
+  assignMemberRoles: async (serverId, targetId, roleIds) => {
+    const identity = useIdentityStore.getState().identity
+    if (!identity) return
+    const res = await window.api.server.assignMemberRoles({ serverId, actorId: identity.userId, targetId, roleIds })
+    if (res.success) await get().reloadFromDb()
+    else set({ lastError: res.error ?? 'Failed to assign roles' })
   },
 
   editServerMessage: async (serverId, messageId, newContent) => {
@@ -525,7 +576,12 @@ export const useServersStore = create<ServersStore>((set, get) => ({
       }
 
       try {
-        await window.api.server.joinAckPersist(nested)
+        // Include the host's custom role definitions so the persist step can
+        // adopt them alongside the roster.
+        await window.api.server.joinAckPersist({
+          ...nested,
+          roles: (raw as { roles?: unknown[] }).roles
+        })
         // Adopt the host's channel layout (incl. role gates) before reload so
         // the tree renders the authoritative structure, not our stale copy.
         const layout = (raw as { layout?: unknown }).layout
@@ -616,6 +672,33 @@ export const useServersStore = create<ServersStore>((set, get) => ({
       if (!p?.serverId) return
       const res = await window.api.server.applyRoleNames({ serverId: p.serverId, roleNames: p.roleNames ?? null }).catch(() => ({ success: false }))
       if (res.success) await get().reloadFromDb()
+    }))
+
+    // The host changed the custom role definitions — adopt and refresh.
+    unsubs.push(window.api.signaling.onServerEvent('roles', async (payload) => {
+      const p = payload as { serverId?: string; roles?: unknown }
+      if (!p?.serverId || !Array.isArray(p.roles)) return
+      const res = await window.api.server.applyRoles({ serverId: p.serverId, roles: p.roles }).catch(() => ({ success: false }))
+      if (res.success) await get().reloadFromDb()
+    }))
+
+    // A member's custom role assignments changed.
+    unsubs.push(window.api.signaling.onServerEvent('member-roles', async (payload) => {
+      const p = payload as { serverId?: string; userId?: string; roleIds?: string[] }
+      if (!p?.serverId || !p.userId) return
+      await window.api.server.applyMemberRoles({
+        serverId: p.serverId,
+        userId: p.userId,
+        roleIds: Array.isArray(p.roleIds) ? p.roleIds : []
+      }).catch(() => {})
+      set((s) => ({
+        serverMembers: {
+          ...s.serverMembers,
+          [p.serverId!]: (s.serverMembers[p.serverId!] || []).map((m) =>
+            m.userId === p.userId ? { ...m, roleIds: Array.isArray(p.roleIds) ? p.roleIds! : [] } : m
+          )
+        }
+      }))
     }))
 
     // Our own socket dropped — we can't see anyone's presence anymore.

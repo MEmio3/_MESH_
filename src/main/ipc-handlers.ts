@@ -748,7 +748,8 @@ export function registerServerHandlers(): void {
       avatarColor: payload.hostAvatarColor,
       role: 'host',
       status: 'online',
-      isMuted: 0
+      isMuted: 0,
+      roleIds: '[]'
     })
     // Seed default category/channel pair so the new server has the same
     // shape as migrated legacy servers.
@@ -773,10 +774,154 @@ export function registerServerHandlers(): void {
       banned: [],
       passwordHash: payload.passwordHash,
       layout: buildServerLayout(serverId),
-      roleNames: null
+      roleNames: null,
+      roles: []
     })
 
     return { success: true, serverId }
+  })
+
+  // ── Custom roles (Discord-style) ──
+
+  function isHostOf(serverId: string, actorId: string): boolean {
+    const srv = db.getServer(serverId)
+    return !!srv && srv.hostUserId === actorId
+  }
+
+  function broadcastRoles(serverId: string): void {
+    socketClient.emitSignaling('server:roles-update', {
+      serverId,
+      roles: db.getServerRoles(serverId)
+    })
+  }
+
+  ipcMain.handle('server:list-roles', async (_e, payload: { serverId: string }) => {
+    return db.getServerRoles(payload.serverId)
+  })
+
+  ipcMain.handle('server:create-role', async (_e, payload: {
+    serverId: string
+    actorId: string
+    name: string
+    color: string
+    canModerate: boolean
+  }) => {
+    if (!isHostOf(payload.serverId, payload.actorId)) return { success: false, error: 'forbidden' }
+    const existing = db.getServerRoles(payload.serverId)
+    const id = `${payload.serverId}__role-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+    db.insertServerRole({
+      id,
+      serverId: payload.serverId,
+      name: (payload.name || 'new role').slice(0, 32),
+      color: payload.color || '#9b9ba3',
+      position: existing.length,
+      canModerate: payload.canModerate ? 1 : 0
+    })
+    broadcastRoles(payload.serverId)
+    return { success: true, roleId: id }
+  })
+
+  ipcMain.handle('server:update-role', async (_e, payload: {
+    serverId: string
+    actorId: string
+    roleId: string
+    name: string
+    color: string
+    canModerate: boolean
+  }) => {
+    if (!isHostOf(payload.serverId, payload.actorId)) return { success: false, error: 'forbidden' }
+    const existing = db.getServerRoles(payload.serverId).find((r) => r.id === payload.roleId)
+    if (!existing) return { success: false, error: 'not found' }
+    db.insertServerRole({
+      ...existing,
+      name: (payload.name || existing.name).slice(0, 32),
+      color: payload.color || existing.color,
+      canModerate: payload.canModerate ? 1 : 0
+    })
+    broadcastRoles(payload.serverId)
+    return { success: true }
+  })
+
+  ipcMain.handle('server:delete-role', async (_e, payload: {
+    serverId: string
+    actorId: string
+    roleId: string
+  }) => {
+    if (!isHostOf(payload.serverId, payload.actorId)) return { success: false, error: 'forbidden' }
+    db.deleteServerRole(payload.serverId, payload.roleId)
+    broadcastRoles(payload.serverId)
+    emitLayoutUpdate(payload.serverId) // channel allow-lists may have changed
+    // Re-broadcast affected members' (now scrubbed) assignments.
+    for (const m of db.getServerMembers(payload.serverId)) {
+      socketClient.emitSignaling('server:member-roles-update', {
+        serverId: payload.serverId,
+        userId: m.userId,
+        roleIds: JSON.parse(m.roleIds || '[]')
+      })
+    }
+    return { success: true }
+  })
+
+  // Assign/unassign custom roles on a member. Host or moderation-powered
+  // actors; nobody can edit the host's assignments except the host.
+  ipcMain.handle('server:assign-member-roles', async (_e, payload: {
+    serverId: string
+    actorId: string
+    targetId: string
+    roleIds: string[]
+  }) => {
+    if (!canManageServer(payload.serverId, payload.actorId)) return { success: false, error: 'forbidden' }
+    const srv = db.getServer(payload.serverId)
+    if (srv && srv.hostUserId === payload.targetId && payload.actorId !== payload.targetId) {
+      return { success: false, error: 'forbidden' }
+    }
+    const valid = new Set(db.getServerRoles(payload.serverId).map((r) => r.id))
+    const roleIds = (Array.isArray(payload.roleIds) ? payload.roleIds : []).filter((id) => valid.has(id))
+    db.updateMemberRoleIds(payload.serverId, payload.targetId, JSON.stringify(roleIds))
+    socketClient.emitSignaling('server:member-roles-update', {
+      serverId: payload.serverId,
+      userId: payload.targetId,
+      roleIds
+    })
+    return { success: true }
+  })
+
+  // Member side: adopt broadcasts. Guarded so echoes never touch hosted servers.
+  ipcMain.handle('server:apply-roles', async (_e, payload: { serverId: string; roles: unknown }) => {
+    const srv = db.getServer(payload.serverId)
+    if (!srv || srv.role === 'host') return { success: false }
+    if (!Array.isArray(payload.roles)) return { success: false }
+    db.replaceServerRoles(
+      payload.serverId,
+      (payload.roles as import('../shared/types').ServerRoleRow[]).map((r) => ({
+        ...r,
+        canModerate: r.canModerate ? 1 : 0
+      }))
+    )
+    return { success: true }
+  })
+
+  ipcMain.handle('server:apply-member-roles', async (_e, payload: { serverId: string; userId: string; roleIds: string[] }) => {
+    db.updateMemberRoleIds(
+      payload.serverId,
+      payload.userId,
+      JSON.stringify(Array.isArray(payload.roleIds) ? payload.roleIds : [])
+    )
+    return { success: true }
+  })
+
+  // Restrict a channel to specific custom roles (null/empty = everyone).
+  ipcMain.handle('server:set-channel-roles', async (_e, payload: {
+    serverId: string
+    actorId: string
+    channelId: string
+    allowedRoleIds: string[] | null
+  }) => {
+    if (!canManageServer(payload.serverId, payload.actorId)) return { success: false, error: 'forbidden' }
+    const ids = Array.isArray(payload.allowedRoleIds) ? payload.allowedRoleIds : null
+    db.updateServerChannelRoles(payload.channelId, ids && ids.length > 0 ? JSON.stringify(ids) : null)
+    emitLayoutUpdate(payload.serverId)
+    return { success: true }
   })
 
   // Host renames the role tiers for a server (display names only).
@@ -845,7 +990,8 @@ export function registerServerHandlers(): void {
       hostAvatarColor: string | null
       roleNames?: { host?: string; moderator?: string; member?: string } | null
     }
-    members: Array<{ userId: string; username: string; avatarColor: string | null; role: string; isMuted: boolean }>
+    members: Array<{ userId: string; username: string; avatarColor: string | null; role: string; isMuted: boolean; roleIds?: string[] }>
+    roles?: unknown[]
     yourRole: string
   }) => {
     // Validate payload structure to prevent crashes
@@ -882,8 +1028,19 @@ export function registerServerHandlers(): void {
           avatarColor: m.avatarColor,
           role: m.role,
           status: 'online',
-          isMuted: m.isMuted ? 1 : 0
+          isMuted: m.isMuted ? 1 : 0,
+          roleIds: JSON.stringify((m as { roleIds?: string[] }).roleIds ?? [])
         })
+      }
+      // Adopt the host's custom role definitions.
+      if (Array.isArray(payload.roles)) {
+        db.replaceServerRoles(
+          payload.server.id,
+          (payload.roles as import('../shared/types').ServerRoleRow[]).map((r) => ({
+            ...r,
+            canModerate: r.canModerate ? 1 : 0
+          }))
+        )
       }
       console.log('[server:join-ack-persist] Successfully joined server:', payload.server.id)
       return { success: true }
@@ -1063,7 +1220,8 @@ export function registerServerHandlers(): void {
       avatarColor: payload.member.avatarColor,
       role: payload.member.role,
       status: 'online',
-      isMuted: payload.member.isMuted ? 1 : 0
+      isMuted: payload.member.isMuted ? 1 : 0,
+      roleIds: JSON.stringify((payload.member as { roleIds?: string[] }).roleIds ?? [])
     })
     return { success: true }
   })
@@ -1082,13 +1240,18 @@ export function registerServerHandlers(): void {
   }) => {
     const all = db.getServers().filter((s) => s.hostUserId === payload.selfUserId)
     for (const s of all) {
-      const members = db.getServerMembers(s.id).map((m) => ({
-        userId: m.userId,
-        username: m.username,
-        avatarColor: m.avatarColor,
-        role: m.role,
-        isMuted: m.isMuted === 1
-      }))
+      const members = db.getServerMembers(s.id).map((m) => {
+        let roleIds: string[] = []
+        try { roleIds = JSON.parse(m.roleIds || '[]') } catch { /* default */ }
+        return {
+          userId: m.userId,
+          username: m.username,
+          avatarColor: m.avatarColor,
+          role: m.role,
+          isMuted: m.isMuted === 1,
+          roleIds
+        }
+      })
       socketClient.emitSignaling('server:register', {
         serverId: s.id,
         name: s.name,
@@ -1101,7 +1264,8 @@ export function registerServerHandlers(): void {
         members,
         banned: JSON.parse(s.banned || '[]'),
         layout: buildServerLayout(s.id),
-        roleNames: s.roleNames ? JSON.parse(s.roleNames) : null
+        roleNames: s.roleNames ? JSON.parse(s.roleNames) : null,
+        roles: db.getServerRoles(s.id)
       })
     }
     // Rejoin rooms of servers where I'm a member. Send real identity info —
@@ -1177,7 +1341,15 @@ export function registerServerHandlers(): void {
   function canManageServer(serverId: string, actorId: string): boolean {
     const members = db.getServerMembers(serverId)
     const me = members.find((m) => m.userId === actorId)
-    return !!me && (me.role === 'host' || me.role === 'moderator')
+    if (!me) return false
+    if (me.role === 'host' || me.role === 'moderator') return true
+    // Custom roles can also grant moderation power.
+    try {
+      const myRoleIds = new Set(JSON.parse(me.roleIds || '[]') as string[])
+      return db.getServerRoles(serverId).some((r) => r.canModerate === 1 && myRoleIds.has(r.id))
+    } catch {
+      return false
+    }
   }
 
   // Push the authoritative channel layout to signaling so every member's
@@ -1230,7 +1402,8 @@ export function registerServerHandlers(): void {
       name: payload.name || (payload.type === 'voice' ? 'voice' : 'channel'),
       type: payload.type,
       position,
-      minRole: 'member'
+      minRole: 'member',
+      allowedRoleIds: null
     })
     emitLayoutUpdate(payload.serverId)
     return { success: true, channelId: id }
