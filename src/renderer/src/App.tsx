@@ -5,6 +5,7 @@ import { WelcomePage } from '@/pages/welcome/WelcomePage'
 import { FriendsPage } from '@/pages/friends/FriendsPage'
 import { DmConversationPage } from '@/pages/dm/DmConversationPage'
 import { ServerPage } from '@/pages/server/ServerPage'
+import { ServerSettingsPage } from '@/pages/server-settings/ServerSettingsPage'
 import { SettingsPage } from '@/pages/settings/SettingsPage'
 import { useIdentityStore } from '@/stores/identity.store'
 import { useFriendsStore } from '@/stores/friends.store'
@@ -217,6 +218,9 @@ function App(): JSX.Element {
 
         {/* Welcome / Onboarding — full screen, no AppShell */}
         <Route path="/welcome" element={<WelcomePage />} />
+
+        {/* Server Settings — full screen overlay, Discord-style */}
+        <Route path="/server-settings/:serverId" element={<ServerSettingsPage />} />
 
         {/* App Shell wraps all main views */}
         <Route element={<AppShell />}>

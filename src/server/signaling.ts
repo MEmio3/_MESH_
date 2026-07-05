@@ -560,42 +560,63 @@ io.on('connection', (socket) => {
     io.emit('server:host-online', { serverId: payload.serverId })
   })
 
-  // Host pushes an updated channel layout after editing channels/categories.
+  /** Is this socket a member with the given permission (host always passes)? */
+  function socketPermitted(entry: ServerEntry, perm: number): boolean {
+    const userId = socket.data.userId as string | undefined
+    if (!userId) return false
+    if (userId === entry.hostUserId) return true
+    const actor = entry.members.get(userId)
+    if (!actor) return false
+    if (actor.role === 'host') return true
+    let mask = 0
+    if (actor.role === 'moderator') mask |= MODERATOR_BUNDLE
+    const roleDefs = Array.isArray(entry.roles)
+      ? (entry.roles as Array<{ id?: string; permissions?: number }>)
+      : []
+    const ids = actor.roleIds ?? []
+    for (const r of roleDefs) {
+      if (r?.id && ids.includes(r.id)) mask |= r.permissions ?? 0
+    }
+    return (mask & perm) === perm
+  }
+
+  // Channel layout changed. Anyone with Manage Channels may push — the old
+  // host-socket-only guard silently dropped changes made by permitted
+  // moderators, so their edits never reached other members.
   socket.on('server:layout-update', (payload: { serverId: string; layout: unknown }) => {
     const entry = servers.get(payload.serverId)
     if (!entry) return
-    // Only the host's live socket may update the layout.
-    if (userSockets.get(entry.hostUserId) !== socket.id) return
+    if (!socketPermitted(entry, PERM.manageChannels)) return
     entry.layout = payload.layout
     socket.to(roomName(payload.serverId)).emit('server:layout', { serverId: entry.id, layout: entry.layout })
   })
 
-  // Host renamed the role tiers (e.g. Host/Moderator/Member → CEO/Lead/Staff).
+  // Role tier names changed (e.g. Host/Moderator/Member → CEO/Lead/Staff).
   socket.on('server:role-names-update', (payload: {
     serverId: string
     roleNames: { host?: string; moderator?: string; member?: string } | null
   }) => {
     const entry = servers.get(payload.serverId)
     if (!entry) return
-    if (userSockets.get(entry.hostUserId) !== socket.id) return
+    if (!socketPermitted(entry, PERM.manageServer)) return
     entry.roleNames = payload.roleNames ?? null
     socket.to(roomName(payload.serverId)).emit('server:role-names', { serverId: entry.id, roleNames: entry.roleNames })
   })
 
-  // Host changed the custom role definitions (create/edit/delete).
+  // Custom role definitions changed (create/edit/delete).
   socket.on('server:roles-update', (payload: { serverId: string; roles: unknown }) => {
     const entry = servers.get(payload.serverId)
     if (!entry) return
-    if (userSockets.get(entry.hostUserId) !== socket.id) return
+    if (!socketPermitted(entry, PERM.manageRoles)) return
     entry.roles = payload.roles ?? null
     socket.to(roomName(payload.serverId)).emit('server:roles', { serverId: entry.id, roles: entry.roles })
   })
 
-  // Host (or a moderator via the host's authority) assigned custom roles to a member.
+  // Custom roles were assigned to / removed from a member.
   socket.on('server:member-roles-update', (payload: { serverId: string; userId: string; roleIds: string[] }) => {
     const entry = servers.get(payload.serverId)
     if (!entry) return
-    if (userSockets.get(entry.hostUserId) !== socket.id) return
+    if (!socketPermitted(entry, PERM.manageRoles)) return
     const member = entry.members.get(payload.userId)
     if (member) member.roleIds = Array.isArray(payload.roleIds) ? payload.roleIds : []
     io.to(roomName(payload.serverId)).emit('server:member-roles', {

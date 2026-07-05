@@ -60,7 +60,10 @@
       "Bash(git tag *)",
       "Bash(echo \"---web exit: $?\")",
       "Bash(echo \"---node exit: $?\")",
-      "Bash(grep -E \"main/index\\\\.ts|main\\\\\\\\\\\\\\\\index\\\\.ts\")"
+      "Bash(grep -E \"main/index\\\\.ts|main\\\\\\\\\\\\\\\\index\\\\.ts\")",
+      "Bash(head -206 src/renderer/src/components/navigation/panels/ServerSidePanel.tsx)",
+      "Bash(printf '\\\\nexport { ServerSidePanel }\\\\n')",
+      "Bash(mv /tmp/ssp.tsx src/renderer/src/components/navigation/panels/ServerSidePanel.tsx)"
     ]
   }
 }
