@@ -648,7 +648,10 @@ function MembersSection({
 
   const [search, setSearch] = useState('')
   const [rolePickerFor, setRolePickerFor] = useState<string | null>(null)
+  const [pickerSearch, setPickerSearch] = useState('')
   const pickerRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => { setPickerSearch('') }, [rolePickerFor])
 
   const canManageRoles = isHost || hasPerm(myPerms, PERM.manageRoles)
   const canKick = hasPerm(myPerms, PERM.kickMembers)
@@ -737,27 +740,45 @@ function MembersSection({
                 {rolePickerFor === m.userId && (
                   <div
                     ref={pickerRef}
-                    className="absolute top-7 left-0 z-50 min-w-[180px] rounded-lg bg-mesh-bg-elevated border border-mesh-border shadow-2xl py-1.5"
+                    className="absolute top-7 left-0 z-50 w-56 rounded-lg bg-mesh-bg-elevated border border-mesh-border shadow-2xl py-1.5"
                   >
-                    {roles.map((r) => {
-                      const has = m.roleIds.includes(r.id)
-                      return (
-                        <button
-                          key={r.id}
-                          onClick={() => {
-                            const next = has
-                              ? m.roleIds.filter((id) => id !== r.id)
-                              : [...m.roleIds, r.id]
-                            assignMemberRoles(serverId, m.userId, next)
-                          }}
-                          className="flex items-center gap-2.5 w-full px-3 py-1.5 text-left text-[13px] text-mesh-text-secondary hover:bg-mesh-bg-tertiary hover:text-mesh-text-primary transition-colors"
-                        >
-                          <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: r.color }} />
-                          <span className="truncate flex-1">{r.name}</span>
-                          {has && <Check className="h-3 w-3 text-mesh-green shrink-0" />}
-                        </button>
-                      )
-                    })}
+                    <div className="relative mx-2 mb-1.5">
+                      <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-mesh-text-muted" />
+                      <input
+                        autoFocus
+                        value={pickerSearch}
+                        onChange={(e) => setPickerSearch(e.target.value)}
+                        placeholder="Search roles"
+                        className="w-full h-7 pr-2 rounded bg-mesh-bg-secondary border border-mesh-border text-xs text-mesh-text-primary placeholder:text-mesh-text-muted focus:outline-none focus:border-mesh-green"
+                        style={{ paddingLeft: '1.6rem' }}
+                      />
+                    </div>
+                    <div className="max-h-56 overflow-y-auto">
+                      {roles
+                        .filter((r) => r.name.toLowerCase().includes(pickerSearch.toLowerCase()))
+                        .map((r) => {
+                          const has = m.roleIds.includes(r.id)
+                          return (
+                            <button
+                              key={r.id}
+                              onClick={() => {
+                                const next = has
+                                  ? m.roleIds.filter((id) => id !== r.id)
+                                  : [...m.roleIds, r.id]
+                                assignMemberRoles(serverId, m.userId, next)
+                              }}
+                              className="flex items-center gap-2.5 w-full px-3 py-1.5 text-left text-[13px] text-mesh-text-secondary hover:bg-mesh-bg-tertiary hover:text-mesh-text-primary transition-colors"
+                            >
+                              <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: r.color }} />
+                              <span className="truncate flex-1">{r.name}</span>
+                              {has && <Check className="h-3 w-3 text-mesh-green shrink-0" />}
+                            </button>
+                          )
+                        })}
+                      {roles.filter((r) => r.name.toLowerCase().includes(pickerSearch.toLowerCase())).length === 0 && (
+                        <div className="px-3 py-2 text-[11px] text-mesh-text-muted">No roles match.</div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

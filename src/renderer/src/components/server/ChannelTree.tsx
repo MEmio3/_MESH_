@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
-import { ChevronDown, Hash, Volume2, Plus, MicOff, Folder, Pencil, Trash2, Lock, Eye } from 'lucide-react'
+import { ChevronDown, ChevronRight, Hash, Volume2, Plus, MicOff, Folder, Pencil, Trash2, Lock, Eye, Search, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
@@ -95,6 +95,15 @@ export function ChannelTree({
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [menu, setMenu] = useState<MenuAnchor | null>(null)
   const [addPopover, setAddPopover] = useState<{ categoryId: string | null; rect: DOMRect } | null>(null)
+  // "Restrict to roles ▸" flyout — search + capped scroll, so the menu stays
+  // usable no matter how many roles the server has.
+  const [roleFlyout, setRoleFlyout] = useState(false)
+  const [roleSearch, setRoleSearch] = useState('')
+
+  useEffect(() => {
+    setRoleFlyout(false)
+    setRoleSearch('')
+  }, [menu])
 
   // Modal state
   const [modal, setModal] = useState<
@@ -384,34 +393,64 @@ export function ChannelTree({
                 )
               })}
               {customRoles.length > 0 && (
-                <>
-                  <div className="px-3 pt-1.5 pb-1 text-[10px] font-semibold uppercase tracking-wide text-mesh-text-muted">
-                    Or specific roles
-                  </div>
-                  {customRoles.map((role) => {
-                    const ch = (menu.state as { kind: 'channel'; channel: Channel }).channel
-                    const current = ch.allowedRoleIds ?? []
-                    const has = current.includes(role.id)
-                    return (
-                      <MenuItem
-                        key={role.id}
-                        icon={
-                          <span
-                            className="h-2.5 w-2.5 rounded-full inline-block"
-                            style={{ backgroundColor: role.color, opacity: has ? 1 : 0.35 }}
-                          />
-                        }
-                        onClick={() => {
-                          setMenu(null)
-                          const next = has ? current.filter((id) => id !== role.id) : [...current, role.id]
-                          setChannelRoles(serverId, ch.id, next.length > 0 ? next : null)
-                        }}
-                      >
-                        {role.name}{has ? ' ✓' : ''}
-                      </MenuItem>
-                    )
-                  })}
-                </>
+                <div className="relative">
+                  <button
+                    onClick={() => setRoleFlyout((v) => !v)}
+                    className={cn(
+                      'w-full flex items-center gap-2 px-3 py-1.5 text-left transition-colors',
+                      roleFlyout
+                        ? 'bg-mesh-bg-tertiary text-mesh-text-primary'
+                        : 'text-mesh-text-primary hover:bg-mesh-green hover:text-white'
+                    )}
+                  >
+                    <span className="shrink-0 opacity-80"><Eye className="h-3.5 w-3.5" /></span>
+                    <span className="truncate flex-1">Restrict to roles</span>
+                    <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                  </button>
+
+                  {roleFlyout && (
+                    <div className="absolute left-full -top-1 ml-1 w-56 rounded-md bg-mesh-bg-elevated border border-mesh-border/60 shadow-2xl py-1.5 z-[130]">
+                      <div className="relative mx-2 mb-1.5">
+                        <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-mesh-text-muted" />
+                        <input
+                          autoFocus
+                          value={roleSearch}
+                          onChange={(e) => setRoleSearch(e.target.value)}
+                          placeholder="Search roles"
+                          className="w-full h-7 pr-2 rounded bg-mesh-bg-secondary border border-mesh-border text-xs text-mesh-text-primary placeholder:text-mesh-text-muted focus:outline-none focus:border-mesh-green"
+                          style={{ paddingLeft: '1.6rem' }}
+                        />
+                      </div>
+                      <div className="max-h-56 overflow-y-auto">
+                        {customRoles
+                          .filter((r) => r.name.toLowerCase().includes(roleSearch.toLowerCase()))
+                          .map((role) => {
+                            const ch = (menu.state as { kind: 'channel'; channel: Channel }).channel
+                            const liveCh = layout.channels.find((c) => c.id === ch.id) ?? ch
+                            const current = liveCh.allowedRoleIds ?? []
+                            const has = current.includes(role.id)
+                            return (
+                              <button
+                                key={role.id}
+                                onClick={() => {
+                                  const next = has ? current.filter((id) => id !== role.id) : [...current, role.id]
+                                  setChannelRoles(serverId, liveCh.id, next.length > 0 ? next : null)
+                                }}
+                                className="flex items-center gap-2.5 w-full px-2.5 py-1.5 text-[13px] text-left transition-colors text-mesh-text-secondary hover:bg-mesh-bg-tertiary hover:text-mesh-text-primary"
+                              >
+                                <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: role.color }} />
+                                <span className="truncate flex-1">{role.name}</span>
+                                {has && <Check className="h-3 w-3 text-mesh-green shrink-0" />}
+                              </button>
+                            )
+                          })}
+                        {customRoles.filter((r) => r.name.toLowerCase().includes(roleSearch.toLowerCase())).length === 0 && (
+                          <div className="px-3 py-2 text-[11px] text-mesh-text-muted">No roles match.</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
               <MenuSeparator />
               <MenuItem danger icon={<Trash2 className="h-3.5 w-3.5" />} onClick={() => {

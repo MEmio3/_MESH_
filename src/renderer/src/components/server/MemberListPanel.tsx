@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { ChevronRight, Search, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
 import { useIdentityStore } from '@/stores/identity.store'
@@ -35,6 +36,10 @@ function MemberListPanel({ serverId, members }: MemberListPanelProps): JSX.Eleme
   const setMemberRole = useServersStore((s) => s.setMemberRole)
 
   const [menu, setMenu] = useState<MenuState | null>(null)
+  // "Roles ▸" submenu flyout — scales to any number of roles via search +
+  // a capped scrollable list instead of dumping every role into the menu.
+  const [rolesFlyout, setRolesFlyout] = useState(false)
+  const [roleSearch, setRoleSearch] = useState('')
   const menuRef = useRef<HTMLDivElement | null>(null)
   // Live presence — who actually has a socket right now. The roster rows'
   // persisted status said 'online' forever (written once at join).
@@ -68,6 +73,12 @@ function MemberListPanel({ serverId, members }: MemberListPanelProps): JSX.Eleme
     }
     if (menu) document.addEventListener('mousedown', close)
     return () => document.removeEventListener('mousedown', close)
+  }, [menu])
+
+  // Reset the flyout whenever the menu opens on a different target / closes.
+  useEffect(() => {
+    setRolesFlyout(false)
+    setRoleSearch('')
   }, [menu])
 
   const grouped = roleOrder
@@ -167,44 +178,79 @@ function MemberListPanel({ serverId, members }: MemberListPanelProps): JSX.Eleme
             </>
           )}
 
-          {/* Custom role assignment — Discord-style checklist (Manage Roles). */}
+          {/* Custom role assignment — "Roles ▸" submenu with search, so a
+              server with hundreds of roles still gets a compact menu. */}
           {canManageRoles && customRoles.length > 0 && (
             <>
               <div className="h-px bg-mesh-border/50 my-1 mx-2" />
-              <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-mesh-text-muted">
-                Roles
-              </div>
-              {customRoles.map((role) => {
-                const target = members.find((m) => m.userId === menu.target.userId) ?? menu.target
-                const has = target.roleIds.includes(role.id)
-                return (
-                  <button
-                    key={role.id}
-                    onClick={() => {
-                      const next = has
-                        ? target.roleIds.filter((id) => id !== role.id)
-                        : [...target.roleIds, role.id]
-                      assignMemberRoles(serverId, target.userId, next)
-                    }}
-                    className="flex items-center gap-2.5 w-[calc(100%-8px)] px-2.5 py-1.5 text-sm rounded-sm mx-1 text-left transition-colors text-mesh-text-secondary hover:bg-mesh-bg-tertiary hover:text-mesh-text-primary"
-                  >
-                    <span
-                      className={cn(
-                        'h-3.5 w-3.5 rounded-sm border flex items-center justify-center shrink-0',
-                        has ? 'border-transparent' : 'border-mesh-border-light'
+              <div className="relative">
+                <button
+                  onClick={() => setRolesFlyout((v) => !v)}
+                  className={cn(
+                    'flex items-center gap-2.5 w-[calc(100%-8px)] px-2.5 py-1.5 text-sm rounded-sm mx-1 text-left transition-colors',
+                    rolesFlyout
+                      ? 'bg-mesh-bg-tertiary text-mesh-text-primary'
+                      : 'text-mesh-text-secondary hover:bg-mesh-bg-tertiary hover:text-mesh-text-primary'
+                  )}
+                >
+                  <span className="flex-1">Roles</span>
+                  <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                </button>
+
+                {rolesFlyout && (
+                  <div className="absolute right-full -top-1 mr-1 w-56 rounded-lg bg-mesh-bg-elevated border border-mesh-border/60 shadow-2xl py-1.5 z-[110]">
+                    <div className="relative mx-2 mb-1.5">
+                      <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-mesh-text-muted" />
+                      <input
+                        autoFocus
+                        value={roleSearch}
+                        onChange={(e) => setRoleSearch(e.target.value)}
+                        placeholder="Search roles"
+                        className="w-full h-7 pl-6.5 pr-2 rounded bg-mesh-bg-secondary border border-mesh-border text-xs text-mesh-text-primary placeholder:text-mesh-text-muted focus:outline-none focus:border-mesh-green"
+                        style={{ paddingLeft: '1.6rem' }}
+                      />
+                    </div>
+                    <div className="max-h-56 overflow-y-auto">
+                      {customRoles
+                        .filter((r) => r.name.toLowerCase().includes(roleSearch.toLowerCase()))
+                        .map((role) => {
+                          const target = members.find((m) => m.userId === menu.target.userId) ?? menu.target
+                          const has = target.roleIds.includes(role.id)
+                          return (
+                            <button
+                              key={role.id}
+                              onClick={() => {
+                                const next = has
+                                  ? target.roleIds.filter((id) => id !== role.id)
+                                  : [...target.roleIds, role.id]
+                                assignMemberRoles(serverId, target.userId, next)
+                              }}
+                              className="flex items-center gap-2.5 w-full px-2.5 py-1.5 text-[13px] text-left transition-colors text-mesh-text-secondary hover:bg-mesh-bg-tertiary hover:text-mesh-text-primary"
+                            >
+                              <span
+                                className={cn(
+                                  'h-3.5 w-3.5 rounded-sm border flex items-center justify-center shrink-0',
+                                  has ? 'border-transparent' : 'border-mesh-border-light'
+                                )}
+                                style={has ? { backgroundColor: role.color } : undefined}
+                              >
+                                {has && <Check className="h-2.5 w-2.5 text-white" />}
+                              </span>
+                              <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: role.color }} />
+                              <span className="truncate flex-1">{role.name}</span>
+                              {(role.permissions & MODERATOR_BUNDLE) !== 0 && (
+                                <span className="text-[8px] font-bold uppercase text-mesh-text-muted shrink-0">mod</span>
+                              )}
+                            </button>
+                          )
+                        })}
+                      {customRoles.filter((r) => r.name.toLowerCase().includes(roleSearch.toLowerCase())).length === 0 && (
+                        <div className="px-3 py-2 text-[11px] text-mesh-text-muted">No roles match.</div>
                       )}
-                      style={has ? { backgroundColor: role.color } : undefined}
-                    >
-                      {has && <span className="text-[9px] leading-none text-white">✓</span>}
-                    </span>
-                    <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: role.color }} />
-                    <span className="truncate flex-1">{role.name}</span>
-                    {(role.permissions & MODERATOR_BUNDLE) !== 0 && (
-                      <span className="text-[8px] font-bold uppercase text-mesh-text-muted shrink-0">mod</span>
-                    )}
-                  </button>
-                )
-              })}
+                    </div>
+                  </div>
+                )}
+              </div>
             </>
           )}
         </div>
