@@ -348,7 +348,11 @@ const api = {
     setChannelAccess: (payload: { serverId: string; actorId: string; channelId: string; minRole: 'member' | 'moderator' | 'host' }) =>
       ipcRenderer.invoke('server:set-channel-access', payload) as Promise<{ success: boolean; error?: string }>,
     applyLayout: (payload: { serverId: string; layout: unknown }) =>
-      ipcRenderer.invoke('server:apply-layout', payload) as Promise<{ success: boolean }>
+      ipcRenderer.invoke('server:apply-layout', payload) as Promise<{ success: boolean }>,
+    setRoleNames: (payload: { serverId: string; actorId: string; roleNames: { host: string; moderator: string; member: string } | null }) =>
+      ipcRenderer.invoke('server:set-role-names', payload) as Promise<{ success: boolean; error?: string }>,
+    applyRoleNames: (payload: { serverId: string; roleNames: { host?: string; moderator?: string; member?: string } | null }) =>
+      ipcRenderer.invoke('server:apply-role-names', payload) as Promise<{ success: boolean }>
   },
 
   reaction: {

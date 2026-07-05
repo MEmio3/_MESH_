@@ -118,6 +118,8 @@ export interface ServerRow {
   hostAvatarColor: string | null
   banned: string // JSON array of userIds
   passwordHash?: string | null
+  /** JSON {host,moderator,member} display names, null = defaults. */
+  roleNames?: string | null
 }
 
 export interface ServerMemberRow {

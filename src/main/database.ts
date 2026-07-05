@@ -99,6 +99,7 @@ function migrateSchema(): void {
     if (!srvNames.has('host_avatar_color')) d.exec('ALTER TABLE servers ADD COLUMN host_avatar_color TEXT')
     if (!srvNames.has('banned')) d.exec("ALTER TABLE servers ADD COLUMN banned TEXT NOT NULL DEFAULT '[]'")
     if (!srvNames.has('password_hash')) d.exec("ALTER TABLE servers ADD COLUMN password_hash TEXT")
+    if (!srvNames.has('role_names')) d.exec('ALTER TABLE servers ADD COLUMN role_names TEXT')
   }
 
   // TURN credentials on relays — a turn: url without username/password is
@@ -201,7 +202,8 @@ function createTables(): void {
       host_username TEXT NOT NULL DEFAULT '',
       host_avatar_color TEXT,
       banned TEXT NOT NULL DEFAULT '[]',
-      password_hash TEXT
+      password_hash TEXT,
+      role_names TEXT
     );
 
     CREATE TABLE IF NOT EXISTS server_members (
@@ -495,7 +497,7 @@ export function replaceServerMessageReactions(messageId: string, reactionsJson: 
 
 // ── Servers ──
 
-const SRV_COLS = 'id, name, icon_color AS iconColor, role, text_channel_name AS textChannelName, voice_room_name AS voiceRoomName, member_count AS memberCount, online_member_count AS onlineMemberCount, host_user_id AS hostUserId, host_username AS hostUsername, host_avatar_color AS hostAvatarColor, banned, password_hash AS passwordHash'
+const SRV_COLS = 'id, name, icon_color AS iconColor, role, text_channel_name AS textChannelName, voice_room_name AS voiceRoomName, member_count AS memberCount, online_member_count AS onlineMemberCount, host_user_id AS hostUserId, host_username AS hostUsername, host_avatar_color AS hostAvatarColor, banned, password_hash AS passwordHash, role_names AS roleNames'
 
 export function getServers(): ServerRow[] {
   return getDb().prepare(`SELECT ${SRV_COLS} FROM servers`).all() as ServerRow[]
@@ -508,8 +510,12 @@ export function getServer(serverId: string): ServerRow | null {
 
 export function addServer(s: ServerRow): void {
   getDb().prepare(
-    'INSERT OR REPLACE INTO servers (id, name, icon_color, role, text_channel_name, voice_room_name, member_count, online_member_count, host_user_id, host_username, host_avatar_color, banned, password_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(s.id, s.name, s.iconColor, s.role, s.textChannelName, s.voiceRoomName, s.memberCount, s.onlineMemberCount, s.hostUserId, s.hostUsername, s.hostAvatarColor, s.banned, s.passwordHash ?? null)
+    'INSERT OR REPLACE INTO servers (id, name, icon_color, role, text_channel_name, voice_room_name, member_count, online_member_count, host_user_id, host_username, host_avatar_color, banned, password_hash, role_names) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(s.id, s.name, s.iconColor, s.role, s.textChannelName, s.voiceRoomName, s.memberCount, s.onlineMemberCount, s.hostUserId, s.hostUsername, s.hostAvatarColor, s.banned, s.passwordHash ?? null, s.roleNames ?? null)
+}
+
+export function updateServerRoleNames(serverId: string, roleNamesJson: string | null): void {
+  getDb().prepare('UPDATE servers SET role_names = ? WHERE id = ?').run(roleNamesJson, serverId)
 }
 
 export function updateServerBanned(serverId: string, bannedJson: string): void {

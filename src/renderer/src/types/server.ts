@@ -9,6 +9,8 @@ export interface Server {
   voiceRoomName: string
   memberCount: number
   onlineMemberCount: number
+  /** Custom display names for the role tiers; null = defaults. */
+  roleNames: { host: string; moderator: string; member: string } | null
 }
 
 export interface ServerMember {

@@ -5,6 +5,7 @@ import { useIdentityStore } from '@/stores/identity.store'
 import { useServersStore } from '@/stores/servers.store'
 import { useAvatarStore } from '@/stores/avatar.store'
 import { useLiveStatus } from '@/lib/useLiveStatus'
+import { resolveRoleNames } from '@/lib/roleNames'
 import type { ServerMember, ServerRole } from '@/types/server'
 
 interface MemberListPanelProps {
@@ -13,11 +14,6 @@ interface MemberListPanelProps {
 }
 
 const roleOrder: ServerRole[] = ['host', 'moderator', 'member']
-const roleLabels: Record<ServerRole, string> = {
-  host: 'Host',
-  moderator: 'Moderators',
-  member: 'Members',
-}
 const roleBadgeColors: Record<ServerRole, string> = {
   host: 'bg-mesh-green text-white',
   moderator: 'bg-mesh-info text-white',
@@ -42,6 +38,9 @@ function MemberListPanel({ serverId, members }: MemberListPanelProps): JSX.Eleme
   // Live presence — who actually has a socket right now. The roster rows'
   // persisted status said 'online' forever (written once at join).
   const onlineIds = useServersStore((s) => s.serverOnlineMembers[serverId])
+  // Custom role display names ("CEO / Team Lead / Employee"), defaults merged.
+  const server = useServersStore((s) => s.servers.find((sv) => sv.id === serverId))
+  const roleLabels = resolveRoleNames(server?.roleNames)
 
   const selfId = identity?.userId
   const selfRole: ServerRole | null =
@@ -88,6 +87,7 @@ function MemberListPanel({ serverId, members }: MemberListPanelProps): JSX.Eleme
               avatarSrc={(member.userId === selfId ? selfAvatar : avatarsByUser[member.userId]) ?? undefined}
               onContextMenu={(e) => openMenu(e, member)}
               roleBadgeColor={roleBadgeColors[member.role]}
+              roleBadgeLabel={member.role === 'host' ? roleLabels.host : roleLabels.moderator}
             />
           ))}
         </div>
@@ -125,14 +125,14 @@ function MemberListPanel({ serverId, members }: MemberListPanelProps): JSX.Eleme
                   onClick={() => { setMemberRole(serverId, menu.target.userId, 'moderator'); setMenu(null) }}
                   className="flex items-center gap-2.5 w-[calc(100%-8px)] px-2.5 py-1.5 text-sm rounded-sm mx-1 text-left transition-colors text-mesh-text-secondary hover:bg-mesh-green hover:text-white"
                 >
-                  Promote to Moderator
+                  Promote to {roleLabels.moderator}
                 </button>
               ) : (
                 <button
                   onClick={() => { setMemberRole(serverId, menu.target.userId, 'member'); setMenu(null) }}
                   className="flex items-center gap-2.5 w-[calc(100%-8px)] px-2.5 py-1.5 text-sm rounded-sm mx-1 text-left transition-colors text-mesh-text-secondary hover:bg-mesh-green hover:text-white"
                 >
-                  Demote to Member
+                  Demote to {roleLabels.member}
                 </button>
               )}
             </>
@@ -155,12 +155,14 @@ function MemberRow({
   avatarSrc,
   onContextMenu,
   roleBadgeColor,
+  roleBadgeLabel,
 }: {
   member: ServerMember
   isLiveOnline: boolean
   avatarSrc: string | undefined
   onContextMenu: (e: React.MouseEvent) => void
   roleBadgeColor: string
+  roleBadgeLabel: string
 }): JSX.Element {
   // Fallback comes from the LIVE per-server presence set, never from the
   // roster's persisted status (which is 'online' forever).
@@ -181,10 +183,10 @@ function MemberRow({
           </span>
           {member.role !== 'member' && (
             <span className={cn(
-              'text-[9px] font-bold uppercase px-1 py-0.5 rounded',
+              'text-[9px] font-bold uppercase px-1 py-0.5 rounded max-w-[80px] truncate',
               roleBadgeColor
             )}>
-              {member.role === 'host' ? 'HOST' : 'MOD'}
+              {roleBadgeLabel}
             </span>
           )}
           {member.isMuted && (

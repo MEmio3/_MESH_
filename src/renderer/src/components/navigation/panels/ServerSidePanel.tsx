@@ -4,6 +4,8 @@ import { ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
+import { resolveRoleNames, DEFAULT_ROLE_NAMES } from '@/lib/roleNames'
 import { useServersStore } from '@/stores/servers.store'
 import type { ServerMember } from '@/types/server'
 import { useIdentityStore } from '@/stores/identity.store'
@@ -34,6 +36,8 @@ function ServerSidePanel({ serverId }: ServerSidePanelProps): JSX.Element {
   const [showDropdown, setShowDropdown] = useState(false)
   const [copiedLocal, setCopiedLocal] = useState(false)
   const [showConfirmModal, setShowConfirmModal] = useState(false)
+  const [showRoleNamesModal, setShowRoleNamesModal] = useState(false)
+  const setRoleNames = useServersStore((s) => s.setRoleNames)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   // Parse active channel id out of the URL (route pattern: /channels/:id[/:channelId]).
@@ -143,6 +147,18 @@ function ServerSidePanel({ serverId }: ServerSidePanelProps): JSX.Element {
                 )}
               </>
             )}
+            {server.role === 'host' && (
+              <button
+                onClick={() => {
+                  setShowDropdown(false)
+                  setShowRoleNamesModal(true)
+                }}
+                className="w-full flex items-center px-2.5 py-1.5 mx-1 text-sm text-mesh-text-primary hover:bg-mesh-green hover:text-white rounded-sm transition-colors"
+                style={{ width: 'calc(100% - 8px)' }}
+              >
+                Edit Role Names
+              </button>
+            )}
             <div className="h-px bg-mesh-border/50 my-1 mx-2" />
             <button
               onClick={() => {
@@ -185,6 +201,23 @@ function ServerSidePanel({ serverId }: ServerSidePanelProps): JSX.Element {
         </div>
       </div>
 
+      {/* Role Names Modal — display names only; the permission ladder
+          (host > moderator > member) is fixed underneath. */}
+      {showRoleNamesModal && (
+        <RoleNamesModal
+          initial={resolveRoleNames(server.roleNames)}
+          onClose={() => setShowRoleNamesModal(false)}
+          onSave={async (names) => {
+            const isDefault =
+              names.host === DEFAULT_ROLE_NAMES.host &&
+              names.moderator === DEFAULT_ROLE_NAMES.moderator &&
+              names.member === DEFAULT_ROLE_NAMES.member
+            await setRoleNames(server.id, isDefault ? null : names)
+            setShowRoleNamesModal(false)
+          }}
+        />
+      )}
+
       {/* Confirm Modal */}
       <Modal isOpen={showConfirmModal} onClose={() => setShowConfirmModal(false)} title={server.role === 'host' ? 'Delete Server' : 'Leave Server'}>
         <div className="p-1">
@@ -211,6 +244,80 @@ function ServerSidePanel({ serverId }: ServerSidePanelProps): JSX.Element {
         </div>
       </Modal>
     </div>
+  )
+}
+
+function RoleNamesModal({
+  initial,
+  onClose,
+  onSave
+}: {
+  initial: { host: string; moderator: string; member: string }
+  onClose: () => void
+  onSave: (names: { host: string; moderator: string; member: string }) => Promise<void>
+}): JSX.Element {
+  const [host, setHost] = useState(initial.host)
+  const [moderator, setModerator] = useState(initial.moderator)
+  const [member, setMember] = useState(initial.member)
+  const [saving, setSaving] = useState(false)
+
+  const clamp = (v: string): string => v.trim().slice(0, 24)
+
+  return (
+    <Modal isOpen onClose={onClose} title="Edit Role Names">
+      <div className="flex flex-col gap-3">
+        <p className="text-xs text-mesh-text-muted">
+          Rename the three tiers to fit your server — CEO / Team Lead / Employee,
+          Chief / Officer / Crew, anything. Powers stay the same underneath.
+        </p>
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-mesh-text-secondary">
+            Top role (server owner)
+          </span>
+          <Input value={host} onChange={(e) => setHost(e.target.value)} placeholder={DEFAULT_ROLE_NAMES.host} maxLength={24} />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-mesh-text-secondary">
+            Middle role (can moderate)
+          </span>
+          <Input value={moderator} onChange={(e) => setModerator(e.target.value)} placeholder={DEFAULT_ROLE_NAMES.moderator} maxLength={24} />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-mesh-text-secondary">
+            Base role (everyone else)
+          </span>
+          <Input value={member} onChange={(e) => setMember(e.target.value)} placeholder={DEFAULT_ROLE_NAMES.member} maxLength={24} />
+        </label>
+        <div className="flex justify-between items-center mt-2">
+          <button
+            onClick={() => {
+              setHost(DEFAULT_ROLE_NAMES.host)
+              setModerator(DEFAULT_ROLE_NAMES.moderator)
+              setMember(DEFAULT_ROLE_NAMES.member)
+            }}
+            className="text-xs text-mesh-text-muted hover:text-mesh-text-primary transition-colors"
+          >
+            Reset to defaults
+          </button>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={onClose}>Cancel</Button>
+            <Button
+              disabled={saving || !clamp(host) || !clamp(moderator) || !clamp(member)}
+              onClick={async () => {
+                setSaving(true)
+                try {
+                  await onSave({ host: clamp(host), moderator: clamp(moderator), member: clamp(member) })
+                } finally {
+                  setSaving(false)
+                }
+              }}
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </Modal>
   )
 }
 

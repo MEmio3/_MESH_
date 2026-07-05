@@ -168,6 +168,8 @@ interface ServerEntry {
   passwordHash?: string | null
   /** Host's authoritative channel layout (categories + channels), opaque here. */
   layout: unknown | null
+  /** Custom display names for the role tiers ({host,moderator,member}). */
+  roleNames: { host?: string; moderator?: string; member?: string } | null
 }
 const servers = new Map<string, ServerEntry>()
 
@@ -501,6 +503,7 @@ io.on('connection', (socket) => {
     banned: string[]
     passwordHash?: string | null
     layout?: unknown | null
+    roleNames?: { host?: string; moderator?: string; member?: string } | null
   }) => {
     let entry = servers.get(payload.serverId)
     if (!entry) {
@@ -517,7 +520,8 @@ io.on('connection', (socket) => {
         members: new Map(),
         banned: new Set(payload.banned),
         passwordHash: payload.passwordHash,
-        layout: payload.layout ?? null
+        layout: payload.layout ?? null,
+        roleNames: payload.roleNames ?? null
       }
       servers.set(payload.serverId, entry)
       console.log(`[server] registered: ${payload.serverId} by ${payload.hostUserId}`)
@@ -529,6 +533,7 @@ io.on('connection', (socket) => {
       }
       entry.banned = new Set(payload.banned)
       if (payload.layout !== undefined) entry.layout = payload.layout
+      if (payload.roleNames !== undefined) entry.roleNames = payload.roleNames ?? null
     }
     // Reset member list with host authoritative snapshot
     entry.members.clear()
@@ -555,6 +560,18 @@ io.on('connection', (socket) => {
     if (userSockets.get(entry.hostUserId) !== socket.id) return
     entry.layout = payload.layout
     socket.to(roomName(payload.serverId)).emit('server:layout', { serverId: entry.id, layout: entry.layout })
+  })
+
+  // Host renamed the role tiers (e.g. Host/Moderator/Member → CEO/Lead/Staff).
+  socket.on('server:role-names-update', (payload: {
+    serverId: string
+    roleNames: { host?: string; moderator?: string; member?: string } | null
+  }) => {
+    const entry = servers.get(payload.serverId)
+    if (!entry) return
+    if (userSockets.get(entry.hostUserId) !== socket.id) return
+    entry.roleNames = payload.roleNames ?? null
+    socket.to(roomName(payload.serverId)).emit('server:role-names', { serverId: entry.id, roleNames: entry.roleNames })
   })
 
   // Member requests to join. We validate + broadcast + send state to joiner.
@@ -641,6 +658,7 @@ io.on('connection', (socket) => {
       members: serialiseMembers(entry),
       onlineUserIds: [...entry.members.keys()].filter((id) => userSockets.has(id)),
       layout: entry.layout,
+      roleNames: entry.roleNames,
       yourRole: member.role
     })
     // Broadcast to room that a new member joined.

@@ -772,10 +772,38 @@ export function registerServerHandlers(): void {
       }],
       banned: [],
       passwordHash: payload.passwordHash,
-      layout: buildServerLayout(serverId)
+      layout: buildServerLayout(serverId),
+      roleNames: null
     })
 
     return { success: true, serverId }
+  })
+
+  // Host renames the role tiers for a server (display names only).
+  ipcMain.handle('server:set-role-names', async (_e, payload: {
+    serverId: string
+    actorId: string
+    roleNames: { host: string; moderator: string; member: string } | null
+  }) => {
+    const srv = db.getServer(payload.serverId)
+    if (!srv || srv.hostUserId !== payload.actorId) return { success: false, error: 'forbidden' }
+    db.updateServerRoleNames(payload.serverId, payload.roleNames ? JSON.stringify(payload.roleNames) : null)
+    socketClient.emitSignaling('server:role-names-update', {
+      serverId: payload.serverId,
+      roleNames: payload.roleNames
+    })
+    return { success: true }
+  })
+
+  // Member side: adopt the host's role names. Never touches hosted servers.
+  ipcMain.handle('server:apply-role-names', async (_e, payload: {
+    serverId: string
+    roleNames: { host?: string; moderator?: string; member?: string } | null
+  }) => {
+    const srv = db.getServer(payload.serverId)
+    if (!srv || srv.role === 'host') return { success: false }
+    db.updateServerRoleNames(payload.serverId, payload.roleNames ? JSON.stringify(payload.roleNames) : null)
+    return { success: true }
   })
 
   ipcMain.handle('server:requires-password', async (_e, payload: { serverId: string }) => {
@@ -815,6 +843,7 @@ export function registerServerHandlers(): void {
       hostUserId: string
       hostUsername: string
       hostAvatarColor: string | null
+      roleNames?: { host?: string; moderator?: string; member?: string } | null
     }
     members: Array<{ userId: string; username: string; avatarColor: string | null; role: string; isMuted: boolean }>
     yourRole: string
@@ -839,7 +868,8 @@ export function registerServerHandlers(): void {
         hostUsername: payload.server.hostUsername,
         hostAvatarColor: payload.server.hostAvatarColor,
         banned: '[]',
-        passwordHash: pendingJoinPasswords.get(payload.server.id) ?? null
+        passwordHash: pendingJoinPasswords.get(payload.server.id) ?? null,
+        roleNames: payload.server.roleNames ? JSON.stringify(payload.server.roleNames) : null
       })
       // Replace member list: remove stale, then add current.
       const existing = db.getServerMembers(payload.server.id)
@@ -1070,7 +1100,8 @@ export function registerServerHandlers(): void {
         hostAvatarColor: s.hostAvatarColor,
         members,
         banned: JSON.parse(s.banned || '[]'),
-        layout: buildServerLayout(s.id)
+        layout: buildServerLayout(s.id),
+        roleNames: s.roleNames ? JSON.parse(s.roleNames) : null
       })
     }
     // Rejoin rooms of servers where I'm a member. Send real identity info —

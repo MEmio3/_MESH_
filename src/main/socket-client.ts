@@ -190,6 +190,7 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
     'server:you-were-banned',
     'server:host-online',
     'server:layout',
+    'server:role-names',
     'server:error'
   ]
   for (const evt of serverEvents) {

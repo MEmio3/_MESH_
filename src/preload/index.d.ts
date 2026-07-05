@@ -121,8 +121,8 @@ interface DbMessagesAPI {
 }
 
 interface DbServersAPI {
-  list: () => Promise<{ id: string; name: string; iconColor: string; role: string; textChannelName: string; voiceRoomName: string; memberCount: number; onlineMemberCount: number }[]>
-  add: (server: { id: string; name: string; iconColor: string; role: string; textChannelName: string; voiceRoomName: string; memberCount: number; onlineMemberCount: number }) => Promise<void>
+  list: () => Promise<{ id: string; name: string; iconColor: string; role: string; textChannelName: string; voiceRoomName: string; memberCount: number; onlineMemberCount: number; roleNames?: string | null }[]>
+  add: (server: { id: string; name: string; iconColor: string; role: string; textChannelName: string; voiceRoomName: string; memberCount: number; onlineMemberCount: number; roleNames?: string | null }) => Promise<void>
   remove: (serverId: string) => Promise<void>
 }
 
@@ -267,6 +267,8 @@ interface ServerAPI {
   deleteCategory: (p: { serverId: string; actorId: string; categoryId: string }) => Promise<{ success: boolean; error?: string }>
   setChannelAccess: (p: { serverId: string; actorId: string; channelId: string; minRole: 'member' | 'moderator' | 'host' }) => Promise<{ success: boolean; error?: string }>
   applyLayout: (p: { serverId: string; layout: unknown }) => Promise<{ success: boolean }>
+  setRoleNames: (p: { serverId: string; actorId: string; roleNames: { host: string; moderator: string; member: string } | null }) => Promise<{ success: boolean; error?: string }>
+  applyRoleNames: (p: { serverId: string; roleNames: { host?: string; moderator?: string; member?: string } | null }) => Promise<{ success: boolean }>
 }
 
 interface NetworkSignature {

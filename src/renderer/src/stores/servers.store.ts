@@ -40,6 +40,8 @@ interface ServersStore {
   kickMember: (serverId: string, targetId: string) => Promise<void>
   banMember: (serverId: string, targetId: string) => Promise<void>
   setMemberRole: (serverId: string, targetId: string, role: 'moderator' | 'member') => Promise<void>
+  /** Host-only: rename the role tiers for a server (display names only). */
+  setRoleNames: (serverId: string, roleNames: { host: string; moderator: string; member: string } | null) => Promise<void>
   editServerMessage: (serverId: string, messageId: string, newContent: string) => Promise<void>
   deleteServerMessage: (serverId: string, messageId: string) => Promise<void>
   toggleServerReaction: (serverId: string, messageId: string, emojiId: string) => Promise<void>
@@ -52,8 +54,21 @@ interface ServersStore {
 
 function toServer(r: {
   id: string; name: string; iconColor: string; role: string; textChannelName: string;
-  voiceRoomName: string; memberCount: number; onlineMemberCount: number
+  voiceRoomName: string; memberCount: number; onlineMemberCount: number; roleNames?: string | null
 }): Server {
+  let roleNames: Server['roleNames'] = null
+  if (r.roleNames) {
+    try {
+      const parsed = JSON.parse(r.roleNames)
+      if (parsed && typeof parsed === 'object') {
+        roleNames = {
+          host: typeof parsed.host === 'string' ? parsed.host : 'Host',
+          moderator: typeof parsed.moderator === 'string' ? parsed.moderator : 'Moderator',
+          member: typeof parsed.member === 'string' ? parsed.member : 'Member'
+        }
+      }
+    } catch { /* corrupted JSON → defaults */ }
+  }
   return {
     id: r.id,
     name: r.name,
@@ -62,7 +77,8 @@ function toServer(r: {
     textChannelName: r.textChannelName,
     voiceRoomName: r.voiceRoomName,
     memberCount: r.memberCount,
-    onlineMemberCount: r.onlineMemberCount
+    onlineMemberCount: r.onlineMemberCount,
+    roleNames
   }
 }
 
@@ -299,6 +315,14 @@ export const useServersStore = create<ServersStore>((set, get) => ({
     await window.api.server.setRole({ serverId, actorId: identity.userId, targetId, role })
   },
 
+  setRoleNames: async (serverId, roleNames) => {
+    const identity = useIdentityStore.getState().identity
+    if (!identity) return
+    const res = await window.api.server.setRoleNames({ serverId, actorId: identity.userId, roleNames })
+    if (res.success) await get().reloadFromDb()
+    else set({ lastError: res.error ?? 'Failed to update role names' })
+  },
+
   editServerMessage: async (serverId, messageId, newContent) => {
     const identity = useIdentityStore.getState().identity
     if (!identity) return
@@ -455,6 +479,7 @@ export const useServersStore = create<ServersStore>((set, get) => ({
         members: Array<{ userId: string; username: string; avatarColor: string | null; role: string; isMuted: boolean }>
         onlineUserIds?: string[]
         layout?: unknown | null
+        roleNames?: { host?: string; moderator?: string; member?: string } | null
         yourRole: string
       }
       type NestedJoinAck = {
@@ -467,6 +492,7 @@ export const useServersStore = create<ServersStore>((set, get) => ({
           hostUserId: string
           hostUsername: string
           hostAvatarColor: string | null
+          roleNames?: { host?: string; moderator?: string; member?: string } | null
         }
         members: Array<{ userId: string; username: string; avatarColor: string | null; role: string; isMuted: boolean }>
         yourRole: string
@@ -484,7 +510,8 @@ export const useServersStore = create<ServersStore>((set, get) => ({
                 voiceRoomName: raw.voiceRoomName!,
                 hostUserId: raw.hostUserId!,
                 hostUsername: raw.hostUsername!,
-                hostAvatarColor: raw.hostAvatarColor ?? null
+                hostAvatarColor: raw.hostAvatarColor ?? null,
+                roleNames: raw.roleNames ?? null
               },
               members: raw.members ?? [],
               yourRole: raw.yourRole ?? 'member'
@@ -581,6 +608,14 @@ export const useServersStore = create<ServersStore>((set, get) => ({
       if (res.success) {
         await useChannelsStore.getState().reload(p.serverId).catch(() => {})
       }
+    }))
+
+    // The host renamed the role tiers — adopt and refresh.
+    unsubs.push(window.api.signaling.onServerEvent('role-names', async (payload) => {
+      const p = payload as { serverId?: string; roleNames?: { host?: string; moderator?: string; member?: string } | null }
+      if (!p?.serverId) return
+      const res = await window.api.server.applyRoleNames({ serverId: p.serverId, roleNames: p.roleNames ?? null }).catch(() => ({ success: false }))
+      if (res.success) await get().reloadFromDb()
     }))
 
     // Our own socket dropped — we can't see anyone's presence anymore.

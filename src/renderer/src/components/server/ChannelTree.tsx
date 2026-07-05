@@ -17,6 +17,8 @@ import {
 import { useVoiceStore } from '@/stores/voice.store'
 import { useIdentityStore } from '@/stores/identity.store'
 import { useAvatarStore } from '@/stores/avatar.store'
+import { useServersStore } from '@/stores/servers.store'
+import { resolveRoleNames } from '@/lib/roleNames'
 
 interface ChannelTreeProps {
   serverId: string
@@ -77,6 +79,8 @@ export function ChannelTree({
   const selfId = useIdentityStore((s) => s.identity?.userId)
   const selfAvatar = useAvatarStore((s) => s.self)
   const avatarsByUser = useAvatarStore((s) => s.byUser)
+  const server = useServersStore((s) => s.servers.find((sv) => sv.id === serverId))
+  const roleLabels = resolveRoleNames(server?.roleNames)
 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [menu, setMenu] = useState<MenuAnchor | null>(null)
@@ -342,8 +346,8 @@ export function ChannelTree({
               </div>
               {([
                 ['member', 'Everyone'],
-                ['moderator', 'Moderators & Host'],
-                ['host', 'Host only']
+                ['moderator', `${roleLabels.moderator} & ${roleLabels.host}`],
+                ['host', `${roleLabels.host} only`]
               ] as Array<[ChannelMinRole, string]>).map(([role, label]) => {
                 const ch = (menu.state as { kind: 'channel'; channel: Channel }).channel
                 const active = (ch.minRole ?? 'member') === role
