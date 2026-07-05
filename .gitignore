@@ -1,8 +1,65 @@
+# Dependencies
 node_modules/
+.pnp/
+.pnp.cjs
+
+# Build output
 out/
 dist/
-*.log
-.DS_Store
-Thumbs.db
+dist-*/
 release/
 dist_linux/
+*.tsbuildinfo
+
+# Electron / native build cache
+.electron/
+.electron-builder/
+build/
+*.node
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+.npmrc
+*.local
+*.pem
+*.key
+*.crt
+*.cer
+*.cert
+*.p12
+*.pfx
+
+# Runtime data
+*.db
+*.sqlite
+*.sqlite3
+*.log
+logs/
+tmp/
+temp/
+
+# Coverage and test output
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Local assistant/tool settings
+.claude/
+.codex/
+.agents/
+
+# Local/private GitHub automation
+.github/workflows/
