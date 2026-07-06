@@ -7,6 +7,7 @@ import { useFriendsStore } from '@/stores/friends.store'
 import { ChatHeader } from '@/components/chat/ChatHeader'
 import { MessageFeed } from '@/components/chat/MessageFeed'
 import { MessageInput } from '@/components/chat/MessageInput'
+import { UserProfileCard } from '@/components/profile/UserProfileCard'
 import { Avatar } from '@/components/ui/Avatar'
 import { webrtcManager } from '@/lib/webrtc'
 import type { Message } from '@/types/messages'
@@ -36,6 +37,10 @@ function DmConversationPage(): JSX.Element {
   const setActiveConversation = useMessagesStore((s) => s.setActiveConversation)
   const ensureConversationForFriend = useMessagesStore((s) => s.ensureConversationForFriend)
   const selfId = useIdentityStore((s) => s.identity?.userId)
+  // Docked profile panel visibility, remembered across sessions.
+  const [showProfile, setShowProfile] = useState(() => {
+    try { return localStorage.getItem('mesh.dm.profileOpen') !== '0' } catch { return true }
+  })
 
   const messageRequests = useFriendsStore((s) => s.messageRequests)
   const loadMessageRequestThread = useFriendsStore((s) => s.loadMessageRequestThread)
@@ -297,8 +302,18 @@ function DmConversationPage(): JSX.Element {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      <ChatHeader conversation={conversation} />
+    <div className="flex h-full">
+      <div className="flex flex-col h-full flex-1 min-w-0">
+      <ChatHeader
+        conversation={conversation}
+        profileOpen={showProfile}
+        onToggleProfile={() => {
+          setShowProfile((v) => {
+            try { localStorage.setItem('mesh.dm.profileOpen', v ? '0' : '1') } catch { /* ignore */ }
+            return !v
+          })
+        }}
+      />
       <MessageFeed
         messages={mergedMessages}
         recipientName={conversation.recipientName}
@@ -359,6 +374,16 @@ function DmConversationPage(): JSX.Element {
         onTypingStop={handleTypingStop}
         replyTo={replyTarget ? { messageId: replyTarget.id, senderName: replyTarget.senderName, content: replyTarget.content } : undefined}
       />
+      </div>
+
+      {/* Docked profile panel — Discord-style, toggled from the header. */}
+      {showProfile && (
+        <UserProfileCard
+          userId={conversation.recipientId}
+          username={conversation.recipientName}
+          className="w-72 shrink-0 border-l border-mesh-border/50 h-full"
+        />
+      )}
     </div>
   )
 }

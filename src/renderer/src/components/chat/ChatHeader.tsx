@@ -1,4 +1,5 @@
-import { Phone, Video, Search } from 'lucide-react'
+import { Phone, Video, Search, UserRound } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { UserAvatar } from '@/components/ui/UserAvatar'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { useCallStore } from '@/stores/call.store'
@@ -7,11 +8,13 @@ import type { Conversation } from '@/types/messages'
 
 interface ChatHeaderProps {
   conversation: Conversation
+  profileOpen?: boolean
+  onToggleProfile?: () => void
 }
 
-function ChatHeader({ conversation }: ChatHeaderProps): JSX.Element {
+function ChatHeader({ conversation, profileOpen, onToggleProfile }: ChatHeaderProps): JSX.Element {
   const startOutgoing = useCallStore((s) => s.startOutgoing)
-  const status = useLiveStatus(conversation.recipientId, conversation.recipientStatus)
+  const status = useLiveStatus(conversation.recipientId, 'offline')
   return (
     <div className="flex items-center justify-between h-12 px-4 border-b border-mesh-border/50 shrink-0">
       {/* Left: user info */}
@@ -52,6 +55,21 @@ function ChatHeader({ conversation }: ChatHeaderProps): JSX.Element {
             <Search className="h-4.5 w-4.5" />
           </button>
         </Tooltip>
+        {onToggleProfile && (
+          <Tooltip content={profileOpen ? 'Hide Profile' : 'Show Profile'} side="bottom">
+            <button
+              onClick={onToggleProfile}
+              className={cn(
+                'h-8 w-8 rounded-md flex items-center justify-center transition-colors',
+                profileOpen
+                  ? 'text-mesh-text-primary bg-mesh-bg-tertiary'
+                  : 'text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary'
+              )}
+            >
+              <UserRound className="h-4.5 w-4.5" />
+            </button>
+          </Tooltip>
+        )}
       </div>
     </div>
   )

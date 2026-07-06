@@ -7,6 +7,7 @@ import { useServersStore } from '@/stores/servers.store'
 import { useAvatarStore } from '@/stores/avatar.store'
 import { useLiveStatus } from '@/lib/useLiveStatus'
 import { resolveRoleNames } from '@/lib/roleNames'
+import { UserProfileCard } from '@/components/profile/UserProfileCard'
 import { PERM, MODERATOR_BUNDLE, effectivePermissions, hasPerm } from '../../../../shared/permissions'
 import type { ServerMember, ServerRole } from '@/types/server'
 
@@ -41,6 +42,18 @@ function MemberListPanel({ serverId, members }: MemberListPanelProps): JSX.Eleme
   const [rolesFlyout, setRolesFlyout] = useState(false)
   const [roleSearch, setRoleSearch] = useState('')
   const menuRef = useRef<HTMLDivElement | null>(null)
+  // Left-click profile popout (Discord-style card next to the member list).
+  const [profilePop, setProfilePop] = useState<{ userId: string; username: string; y: number } | null>(null)
+  const profileRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!profilePop) return
+    const close = (e: MouseEvent): void => {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) setProfilePop(null)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [profilePop])
   // Live presence — who actually has a socket right now. The roster rows'
   // persisted status said 'online' forever (written once at join).
   const onlineIds = useServersStore((s) => s.serverOnlineMembers[serverId])
@@ -94,7 +107,23 @@ function MemberListPanel({ serverId, members }: MemberListPanelProps): JSX.Eleme
   }
 
   return (
-    <div className="w-56 h-full border-l border-mesh-border/50 bg-mesh-bg-secondary overflow-y-auto py-3">
+    <div className="relative w-56 h-full border-l border-mesh-border/50 bg-mesh-bg-secondary overflow-y-auto py-3">
+      {/* Profile popout — opens to the left of the member list. */}
+      {profilePop && (
+        <div
+          ref={profileRef}
+          className="fixed z-[105] w-72 max-h-[440px] rounded-xl border border-mesh-border shadow-2xl overflow-hidden"
+          style={{ right: 236, top: Math.max(52, profilePop.y) }}
+        >
+          <UserProfileCard
+            userId={profilePop.userId}
+            username={profilePop.username}
+            serverId={serverId}
+            className="max-h-[440px]"
+            onAction={() => setProfilePop(null)}
+          />
+        </div>
+      )}
       {grouped.map((group) => (
         <div key={group.role} className="mb-4">
           <div className="px-4 pb-1.5">
@@ -109,6 +138,14 @@ function MemberListPanel({ serverId, members }: MemberListPanelProps): JSX.Eleme
               isLiveOnline={member.userId === selfId || (onlineIds?.includes(member.userId) ?? false)}
               avatarSrc={(member.userId === selfId ? selfAvatar : avatarsByUser[member.userId]) ?? undefined}
               onContextMenu={(e) => openMenu(e, member)}
+              onClick={(e) => {
+                setMenu(null)
+                setProfilePop({
+                  userId: member.userId,
+                  username: member.username,
+                  y: Math.min(e.clientY - 40, window.innerHeight - 460)
+                })
+              }}
               roleBadgeColor={roleBadgeColors[member.role]}
               roleBadgeLabel={member.role === 'host' ? roleLabels.host : roleLabels.moderator}
               customRoles={customRoles.filter((r) => member.roleIds.includes(r.id))}
@@ -270,6 +307,7 @@ function MemberRow({
   isLiveOnline,
   avatarSrc,
   onContextMenu,
+  onClick,
   roleBadgeColor,
   roleBadgeLabel,
   customRoles,
@@ -278,6 +316,7 @@ function MemberRow({
   isLiveOnline: boolean
   avatarSrc: string | undefined
   onContextMenu: (e: React.MouseEvent) => void
+  onClick: (e: React.MouseEvent) => void
   roleBadgeColor: string
   roleBadgeLabel: string
   customRoles: Array<{ id: string; name: string; color: string }>
@@ -290,6 +329,7 @@ function MemberRow({
   return (
     <div
       onContextMenu={onContextMenu}
+      onClick={onClick}
       className="flex items-center gap-2.5 px-4 py-1.5 hover:bg-mesh-bg-tertiary/50 transition-colors cursor-pointer"
     >
       <Avatar fallback={member.username} size="sm" status={status} src={avatarSrc} />
