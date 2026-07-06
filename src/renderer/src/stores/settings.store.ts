@@ -175,7 +175,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     })
 
     // Skin the app before first paint settles — no animation on startup.
-    applyTheme(appearance.theme)
+    applyTheme(appearance.theme, false, appearance.animationsEnabled)
 
     // Apply ICE config to WebRTC manager on load
     applyIceConfig(network)
@@ -185,9 +185,11 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     set((s) => {
       const updated = { ...s.appearance, ...partial }
       window.api.db.settings.set('appearance', JSON.stringify(updated))
-      // Live theme switch with a colour cross-fade.
-      if (partial.theme && partial.theme !== s.appearance.theme) {
-        applyTheme(updated.theme, updated.animationsEnabled)
+      // Live theme/motion switch with a colour cross-fade.
+      const themeChanged = partial.theme && partial.theme !== s.appearance.theme
+      const motionChanged = typeof partial.animationsEnabled === 'boolean' && partial.animationsEnabled !== s.appearance.animationsEnabled
+      if (themeChanged || motionChanged) {
+        applyTheme(updated.theme, Boolean(themeChanged), updated.animationsEnabled)
       }
       return { appearance: updated }
     })

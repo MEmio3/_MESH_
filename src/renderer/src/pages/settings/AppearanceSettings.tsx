@@ -39,18 +39,24 @@ function AppearanceSettings(): JSX.Element {
                     ? 'border-mesh-green ring-1 ring-mesh-green/40'
                     : 'border-mesh-border hover:border-mesh-border-light hover:-translate-y-0.5'
                 )}
-                style={{ backgroundColor: t.swatch[0] }}
+                style={{
+                  background: `linear-gradient(145deg, ${t.swatch[0]} 0%, ${t.swatch[1]} 68%, color-mix(in srgb, ${t.swatch[2]} 18%, ${t.swatch[0]}) 100%)`,
+                  boxShadow: active ? `0 0 22px -12px ${t.swatch[2]}` : undefined
+                }}
               >
                 {/* Mini mockup: surface bar + accent dot rows */}
                 <div className="rounded-md overflow-hidden mb-2.5 border border-white/5">
-                  <div className="h-2" style={{ backgroundColor: t.swatch[1] }} />
+                  <div className="h-2" style={{ background: `linear-gradient(90deg, ${t.swatch[1]}, ${t.swatch[2]})` }} />
                   <div className="p-1.5 flex flex-col gap-1" style={{ backgroundColor: t.swatch[0] }}>
                     <div className="flex items-center gap-1">
                       <span className="h-2 w-2 rounded-full" style={{ backgroundColor: t.swatch[2] }} />
                       <span className="h-1 flex-1 rounded-full" style={{ backgroundColor: t.swatch[1] }} />
                     </div>
                     <span className="h-1 w-2/3 rounded-full" style={{ backgroundColor: t.swatch[1] }} />
-                    <span className="h-1 w-1/2 rounded-full" style={{ backgroundColor: t.swatch[2], opacity: 0.7 }} />
+                    <span
+                      className="h-1 w-1/2 rounded-full"
+                      style={{ background: `linear-gradient(90deg, ${t.swatch[2]}, ${t.swatch[1]})`, opacity: 0.85 }}
+                    />
                   </div>
                 </div>
                 <span className="block text-[13px] font-semibold text-white">{t.name}</span>

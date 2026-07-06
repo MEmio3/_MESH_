@@ -20,6 +20,7 @@ export type ThemeId =
   | 'glacier'
   | 'solar'
   | 'orchid'
+  | 'premium'
 
 export interface ThemeMeta {
   id: ThemeId
@@ -30,6 +31,7 @@ export interface ThemeMeta {
 }
 
 export const THEMES: ThemeMeta[] = [
+  { id: 'premium', name: 'Premium', tagline: 'Animated neon glass, luxe motion', swatch: ['#080713', '#17122a', '#f472ff'] },
   { id: 'crimson', name: 'Crimson', tagline: 'Warm black, red accent', swatch: ['#0d0a0b', '#1a1517', '#d64550'] },
   { id: 'obsidian', name: 'Obsidian', tagline: 'Near-black, emerald accent', swatch: ['#0a0a0b', '#17171b', '#2f9e6e'] },
   { id: 'midnight', name: 'Midnight', tagline: 'Deep blue, soft indigo accent', swatch: ['#0d1017', '#181e30', '#7aa2f7'] },
@@ -55,9 +57,10 @@ let transitionTimer: ReturnType<typeof setTimeout> | null = null
  * Apply a theme. `animate` cross-fades colors (used for user-initiated
  * switches; startup applies instantly).
  */
-export function applyTheme(id: ThemeId, animate = false): void {
+export function applyTheme(id: ThemeId, animate = false, motionEnabled = true): void {
   const root = document.documentElement
-  if (animate) {
+  root.dataset.motion = motionEnabled ? 'on' : 'off'
+  if (animate && motionEnabled) {
     root.classList.add('theme-transition')
     if (transitionTimer) clearTimeout(transitionTimer)
     transitionTimer = setTimeout(() => root.classList.remove('theme-transition'), 300)

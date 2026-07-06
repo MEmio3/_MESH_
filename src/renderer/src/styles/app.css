@@ -35,6 +35,13 @@
   --color-mesh-warning: #e0af68;
   --color-mesh-info: #7aa2f7;
 
+  /* Animated motion gradients. Every theme can override these while
+     the shared animation rules below keep the behavior consistent. */
+  --mesh-theme-bg-gradient: linear-gradient(125deg, #060708 0%, #0a0a0b 28%, #101013 54%, #0d1714 78%, #060708 100%);
+  --mesh-theme-surface-gradient: linear-gradient(135deg, rgba(47, 158, 110, 0.05), transparent 38%, rgba(122, 162, 247, 0.035));
+  --mesh-theme-accent-gradient: linear-gradient(120deg, #2f9e6e, #7aa2f7, #3cb27e, #2f9e6e);
+  --mesh-theme-glint: rgba(255, 255, 255, 0.14);
+
   /* Typography — Segoe UI Variable renders noticeably crisper on Win11 */
   --font-sans: 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: 'Cascadia Mono', 'Cascadia Code', Consolas, 'SF Mono', monospace;
@@ -52,6 +59,31 @@
    reference, so switching `data-theme` on <html> reskins the whole app.
    Obsidian (the defaults above) needs no block. */
 
+[data-theme='premium'] {
+  --color-mesh-bg-primary: #080713;
+  --color-mesh-bg-secondary: #0d0a1a;
+  --color-mesh-bg-tertiary: #17122a;
+  --color-mesh-bg-elevated: #211a38;
+  --color-mesh-bg-hover: #2b2348;
+  --color-mesh-green: #f472ff;
+  --color-mesh-green-light: #22d3ee;
+  --color-mesh-green-dark: #c084fc;
+  --color-mesh-green-glow: oklch(0.72 0.2 315 / 0.28);
+  --color-mesh-text-primary: #faf5ff;
+  --color-mesh-text-secondary: #c7b8df;
+  --color-mesh-text-muted: #7f6d9d;
+  --color-mesh-border: #2b2340;
+  --color-mesh-border-light: #443560;
+  --color-mesh-danger: #fb7185;
+  --color-mesh-danger-hover: #fda4af;
+  --color-mesh-warning: #facc15;
+  --color-mesh-info: #67e8f9;
+  --mesh-theme-bg-gradient: linear-gradient(125deg, #070612 0%, #0b0718 30%, #16102a 54%, #071722 78%, #070612 100%);
+  --mesh-theme-surface-gradient: linear-gradient(135deg, rgba(244, 114, 255, 0.055), transparent 36%, rgba(34, 211, 238, 0.04));
+  --mesh-theme-accent-gradient: linear-gradient(120deg, #f472ff, #22d3ee, #c084fc, #f472ff);
+  --mesh-theme-glint: rgba(255, 255, 255, 0.18);
+}
+
 [data-theme='midnight'] {
   --color-mesh-bg-primary: #0d1017;
   --color-mesh-bg-secondary: #121724;
@@ -68,6 +100,10 @@
   --color-mesh-border: #1e2537;
   --color-mesh-border-light: #2a3350;
   --color-mesh-info: #2f9e6e;
+  --mesh-theme-bg-gradient: linear-gradient(125deg, #080b13 0%, #0d1017 28%, #18213b 58%, #111d34 80%, #080b13 100%);
+  --mesh-theme-surface-gradient: linear-gradient(135deg, rgba(122, 162, 247, 0.055), transparent 38%, rgba(47, 158, 110, 0.035));
+  --mesh-theme-accent-gradient: linear-gradient(120deg, #7aa2f7, #a78bfa, #2f9e6e, #7aa2f7);
+  --mesh-theme-glint: rgba(232, 235, 245, 0.16);
 }
 
 [data-theme='carbon'] {
@@ -85,6 +121,10 @@
   --color-mesh-text-muted: #616161;
   --color-mesh-border: #222222;
   --color-mesh-border-light: #2d2d2d;
+  --mesh-theme-bg-gradient: linear-gradient(125deg, #050505 0%, #0a0a0a 28%, #191919 54%, #101418 78%, #050505 100%);
+  --mesh-theme-surface-gradient: linear-gradient(135deg, rgba(125, 133, 144, 0.055), transparent 40%, rgba(236, 236, 236, 0.025));
+  --mesh-theme-accent-gradient: linear-gradient(120deg, #6b7280, #ececec, #8f97a3, #6b7280);
+  --mesh-theme-glint: rgba(255, 255, 255, 0.16);
 }
 
 [data-theme='xbox'] {
@@ -102,6 +142,10 @@
   --color-mesh-text-muted: #737373;
   --color-mesh-border: #3d3d3d;
   --color-mesh-border-light: #4a4a4a;
+  --mesh-theme-bg-gradient: linear-gradient(125deg, #080b08 0%, #0f0f0f 28%, #142414 54%, #0b2b12 76%, #080b08 100%);
+  --mesh-theme-surface-gradient: linear-gradient(135deg, rgba(16, 124, 16, 0.07), transparent 38%, rgba(26, 156, 26, 0.04));
+  --mesh-theme-accent-gradient: linear-gradient(120deg, #107C10, #7ed957, #1a9c1a, #107C10);
+  --mesh-theme-glint: rgba(255, 255, 255, 0.13);
 }
 
 [data-theme='crimson'] {
@@ -121,6 +165,10 @@
   --color-mesh-border-light: #322a2e;
   --color-mesh-danger: #f5a623;
   --color-mesh-danger-hover: #ffb840;
+  --mesh-theme-bg-gradient: linear-gradient(125deg, #0b0708 0%, #0d0a0b 28%, #241319 55%, #321416 78%, #0b0708 100%);
+  --mesh-theme-surface-gradient: linear-gradient(135deg, rgba(214, 69, 80, 0.06), transparent 38%, rgba(245, 166, 35, 0.035));
+  --mesh-theme-accent-gradient: linear-gradient(120deg, #d64550, #f5a623, #e35863, #d64550);
+  --mesh-theme-glint: rgba(255, 238, 238, 0.15);
 }
 
 [data-theme='aurora'] {
@@ -138,6 +186,10 @@
   --color-mesh-text-muted: #56706e;
   --color-mesh-border: #16232a;
   --color-mesh-border-light: #21323b;
+  --mesh-theme-bg-gradient: linear-gradient(125deg, #050b0c 0%, #081011 28%, #12302e 56%, #16263a 78%, #050b0c 100%);
+  --mesh-theme-surface-gradient: linear-gradient(135deg, rgba(45, 212, 191, 0.06), transparent 38%, rgba(122, 162, 247, 0.035));
+  --mesh-theme-accent-gradient: linear-gradient(120deg, #2dd4bf, #7aa2f7, #45e0cd, #2dd4bf);
+  --mesh-theme-glint: rgba(233, 244, 243, 0.15);
 }
 
 [data-theme='violet'] {
@@ -155,6 +207,10 @@
   --color-mesh-text-muted: #675f82;
   --color-mesh-border: #201a30;
   --color-mesh-border-light: #2c2542;
+  --mesh-theme-bg-gradient: linear-gradient(125deg, #09070e 0%, #0d0a14 28%, #22183a 55%, #2f1d46 78%, #09070e 100%);
+  --mesh-theme-surface-gradient: linear-gradient(135deg, rgba(167, 139, 250, 0.06), transparent 38%, rgba(244, 114, 255, 0.035));
+  --mesh-theme-accent-gradient: linear-gradient(120deg, #a78bfa, #e879f9, #7aa2f7, #a78bfa);
+  --mesh-theme-glint: rgba(239, 236, 247, 0.16);
 }
 
 [data-theme='ember'] {
@@ -173,6 +229,10 @@
   --color-mesh-border: #241c12;
   --color-mesh-border-light: #32271a;
   --color-mesh-warning: #7aa2f7;
+  --mesh-theme-bg-gradient: linear-gradient(125deg, #0b0704 0%, #100c08 28%, #2a1708 54%, #351c0d 78%, #0b0704 100%);
+  --mesh-theme-surface-gradient: linear-gradient(135deg, rgba(245, 158, 11, 0.065), transparent 38%, rgba(214, 69, 80, 0.035));
+  --mesh-theme-accent-gradient: linear-gradient(120deg, #f59e0b, #d64550, #fbb32e, #f59e0b);
+  --mesh-theme-glint: rgba(255, 244, 225, 0.15);
 }
 
 [data-theme='ocean'] {
@@ -190,6 +250,10 @@
   --color-mesh-text-muted: #526a7e;
   --color-mesh-border: #12212f;
   --color-mesh-border-light: #1c3245;
+  --mesh-theme-bg-gradient: linear-gradient(125deg, #040b12 0%, #071019 28%, #0f2c48 54%, #07384c 78%, #040b12 100%);
+  --mesh-theme-surface-gradient: linear-gradient(135deg, rgba(56, 189, 248, 0.06), transparent 38%, rgba(45, 212, 191, 0.035));
+  --mesh-theme-accent-gradient: linear-gradient(120deg, #38bdf8, #2dd4bf, #55c9fa, #38bdf8);
+  --mesh-theme-glint: rgba(232, 241, 248, 0.15);
 }
 
 [data-theme='sakura'] {
@@ -209,6 +273,10 @@
   --color-mesh-border-light: #3a2430;
   --color-mesh-danger: #fb7185;
   --color-mesh-danger-hover: #fda4af;
+  --mesh-theme-bg-gradient: linear-gradient(125deg, #0d060a 0%, #10080d 28%, #2b1524 54%, #371628 78%, #0d060a 100%);
+  --mesh-theme-surface-gradient: linear-gradient(135deg, rgba(244, 114, 182, 0.06), transparent 38%, rgba(251, 113, 133, 0.035));
+  --mesh-theme-accent-gradient: linear-gradient(120deg, #f472b6, #fb7185, #fb8ac5, #f472b6);
+  --mesh-theme-glint: rgba(255, 240, 248, 0.16);
 }
 
 [data-theme='cyber'] {
@@ -227,6 +295,10 @@
   --color-mesh-border: #102532;
   --color-mesh-border-light: #1a3848;
   --color-mesh-info: #a78bfa;
+  --mesh-theme-bg-gradient: linear-gradient(125deg, #03090c 0%, #050c10 28%, #0b2c38 54%, #112149 78%, #03090c 100%);
+  --mesh-theme-surface-gradient: linear-gradient(135deg, rgba(34, 211, 238, 0.065), transparent 38%, rgba(167, 139, 250, 0.04));
+  --mesh-theme-accent-gradient: linear-gradient(120deg, #22d3ee, #a78bfa, #67e8f9, #22d3ee);
+  --mesh-theme-glint: rgba(230, 247, 251, 0.16);
 }
 
 [data-theme='forest'] {
@@ -245,6 +317,10 @@
   --color-mesh-border: #18251d;
   --color-mesh-border-light: #24362b;
   --color-mesh-warning: #eab308;
+  --mesh-theme-bg-gradient: linear-gradient(125deg, #040b06 0%, #07100b 28%, #193117 54%, #263918 78%, #040b06 100%);
+  --mesh-theme-surface-gradient: linear-gradient(135deg, rgba(132, 204, 22, 0.06), transparent 38%, rgba(234, 179, 8, 0.035));
+  --mesh-theme-accent-gradient: linear-gradient(120deg, #84cc16, #eab308, #a3e635, #84cc16);
+  --mesh-theme-glint: rgba(238, 246, 234, 0.14);
 }
 
 [data-theme='glacier'] {
@@ -263,6 +339,10 @@
   --color-mesh-border: #182a35;
   --color-mesh-border-light: #25404f;
   --color-mesh-info: #818cf8;
+  --mesh-theme-bg-gradient: linear-gradient(125deg, #050c10 0%, #081015 28%, #143243 54%, #22385f 78%, #050c10 100%);
+  --mesh-theme-surface-gradient: linear-gradient(135deg, rgba(103, 232, 249, 0.055), transparent 38%, rgba(129, 140, 248, 0.035));
+  --mesh-theme-accent-gradient: linear-gradient(120deg, #67e8f9, #818cf8, #a5f3fc, #67e8f9);
+  --mesh-theme-glint: rgba(237, 248, 251, 0.16);
 }
 
 [data-theme='solar'] {
@@ -281,6 +361,10 @@
   --color-mesh-border: #292511;
   --color-mesh-border-light: #3a341a;
   --color-mesh-warning: #fb923c;
+  --mesh-theme-bg-gradient: linear-gradient(125deg, #0b0a04 0%, #100f07 28%, #2f2608 54%, #3a2d0c 78%, #0b0a04 100%);
+  --mesh-theme-surface-gradient: linear-gradient(135deg, rgba(250, 204, 21, 0.06), transparent 38%, rgba(251, 146, 60, 0.04));
+  --mesh-theme-accent-gradient: linear-gradient(120deg, #facc15, #fb923c, #fde047, #facc15);
+  --mesh-theme-glint: rgba(255, 251, 230, 0.15);
 }
 
 [data-theme='orchid'] {
@@ -300,6 +384,10 @@
   --color-mesh-border-light: #3b2548;
   --color-mesh-danger: #fb7185;
   --color-mesh-danger-hover: #fda4af;
+  --mesh-theme-bg-gradient: linear-gradient(125deg, #0b060f 0%, #0f0913 28%, #2d153b 54%, #401d4e 78%, #0b060f 100%);
+  --mesh-theme-surface-gradient: linear-gradient(135deg, rgba(232, 121, 249, 0.06), transparent 38%, rgba(251, 113, 133, 0.035));
+  --mesh-theme-accent-gradient: linear-gradient(120deg, #e879f9, #fb7185, #f0abfc, #e879f9);
+  --mesh-theme-glint: rgba(248, 235, 251, 0.16);
 }
 
 /* Applied briefly during a theme switch so colors cross-fade instead of
@@ -307,6 +395,87 @@
 .theme-transition,
 .theme-transition * {
   transition: background-color 220ms ease, border-color 220ms ease, color 220ms ease !important;
+}
+
+/* Animated theme motion layer. Tied to the app's Animations toggle through
+   data-motion so every palette can feel alive without trapping users in motion. */
+[data-motion='on'] body {
+  background: var(--mesh-theme-bg-gradient);
+  background-size: 220% 220%;
+  animation: theme-bg-drift 18s ease-in-out infinite;
+}
+
+[data-motion='on'] .bg-mesh-bg-primary,
+[data-motion='on'] .bg-mesh-bg-secondary,
+[data-motion='on'] .bg-mesh-bg-tertiary,
+[data-motion='on'] .bg-mesh-bg-elevated {
+  background-image: var(--mesh-theme-surface-gradient);
+  background-size: 240% 240%;
+  animation: theme-surface-drift 20s ease-in-out infinite;
+}
+
+[data-motion='on'] button,
+[data-motion='on'] [role='button'] {
+  position: relative;
+  transition:
+    transform 160ms ease,
+    box-shadow 220ms ease,
+    border-color 220ms ease,
+    background-color 220ms ease,
+    color 220ms ease;
+}
+
+[data-motion='on'] button:not(:disabled):hover,
+[data-motion='on'] [role='button']:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 12px 34px -28px color-mix(in srgb, var(--color-mesh-green) 80%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--color-mesh-green) 18%, transparent);
+}
+
+[data-motion='on'] button::after,
+[data-motion='on'] [role='button']::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(110deg, transparent 0%, var(--mesh-theme-glint) 46%, transparent 64%);
+  background-size: 240% 100%;
+  background-position: 180% 0;
+}
+
+[data-motion='on'] button:not(:disabled):hover::after,
+[data-motion='on'] [role='button']:hover::after {
+  opacity: 1;
+  animation: theme-glint 950ms ease;
+}
+
+[data-motion='on'] .bg-mesh-green,
+[data-motion='on'] button[class*='from-mesh-green'] {
+  background-image: var(--mesh-theme-accent-gradient);
+  background-size: 260% 100%;
+  animation:
+    theme-accent-flow 4.8s ease-in-out infinite,
+    theme-soft-pulse 3.2s ease-in-out infinite;
+}
+
+[data-motion='on'] [class*='text-mesh-green'] {
+  text-shadow: 0 0 14px color-mix(in srgb, var(--color-mesh-green) 34%, transparent);
+}
+
+[data-motion='on'] [class*='border-mesh-green'],
+[data-motion='on'] [class*='ring-mesh-green'] {
+  animation: theme-border-breathe 3.8s ease-in-out infinite;
+}
+
+[data-motion='on'] .mesh-slider::-webkit-slider-thumb {
+  animation: theme-thumb-glow 2.8s ease-in-out infinite;
+}
+
+[data-motion='on'] ::selection {
+  background-color: color-mix(in srgb, var(--color-mesh-green) 42%, var(--color-mesh-info) 22%);
 }
 
 /* Global base styles */
@@ -407,6 +576,61 @@ html, body {
 @keyframes fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+
+@keyframes theme-bg-drift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+@keyframes theme-surface-drift {
+  0%, 100% { background-position: 0% 0%; }
+  50% { background-position: 100% 100%; }
+}
+
+@keyframes theme-accent-flow {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+@keyframes theme-soft-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 0 0 color-mix(in srgb, var(--color-mesh-green) 0%, transparent),
+      0 0 18px -10px color-mix(in srgb, var(--color-mesh-info) 55%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--color-mesh-green) 22%, transparent),
+      0 0 26px -8px color-mix(in srgb, var(--color-mesh-green) 70%, transparent);
+  }
+}
+
+@keyframes theme-border-breathe {
+  0%, 100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-mesh-green) 0%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 18px -10px color-mix(in srgb, var(--color-mesh-green) 70%, transparent);
+  }
+}
+
+@keyframes theme-thumb-glow {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45), 0 0 0 rgba(244, 114, 255, 0); }
+  50% { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45), 0 0 14px color-mix(in srgb, var(--color-mesh-green) 70%, transparent); }
+}
+
+@keyframes theme-glint {
+  from { background-position: 180% 0; }
+  to { background-position: -80% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-motion='on'] *,
+  [data-motion='on'] body {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 .animate-in {
