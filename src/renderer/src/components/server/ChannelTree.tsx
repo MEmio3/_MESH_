@@ -19,6 +19,7 @@ import { useIdentityStore } from '@/stores/identity.store'
 import { useAvatarStore } from '@/stores/avatar.store'
 import { useServersStore } from '@/stores/servers.store'
 import { resolveRoleNames } from '@/lib/roleNames'
+import { ChannelSettingsModal } from '@/components/server/ChannelSettingsModal'
 import { PERM, effectivePermissions, hasPerm } from '../../../../shared/permissions'
 
 interface ChannelTreeProps {
@@ -113,6 +114,7 @@ export function ChannelTree({
     | { kind: 'rename-category'; category: ChannelCategory }
     | { kind: 'delete-channel'; channel: Channel }
     | { kind: 'delete-category'; category: ChannelCategory }
+    | { kind: 'channel-settings'; channelId: string }
     | null
   >(null)
 
@@ -359,6 +361,12 @@ export function ChannelTree({
           )}
           {menu.state.kind === 'channel' && (
             <>
+              <MenuItem icon={<Lock className="h-3.5 w-3.5" />} onClick={() => {
+                const ch = (menu.state as { kind: 'channel'; channel: Channel }).channel
+                setMenu(null); setModal({ kind: 'channel-settings', channelId: ch.id })
+              }}>
+                Channel Settings
+              </MenuItem>
               <MenuItem icon={<Pencil className="h-3.5 w-3.5" />} onClick={() => {
                 const ch = (menu.state as { kind: 'channel'; channel: Channel }).channel
                 setMenu(null); setModal({ kind: 'rename-channel', channel: ch })
@@ -555,6 +563,13 @@ export function ChannelTree({
               navigate(`/channels/${serverId}`)
             }
           }}
+        />
+      )}
+      {modal?.kind === 'channel-settings' && (
+        <ChannelSettingsModal
+          serverId={serverId}
+          channelId={modal.channelId}
+          onClose={() => setModal(null)}
         />
       )}
       {modal?.kind === 'delete-category' && (

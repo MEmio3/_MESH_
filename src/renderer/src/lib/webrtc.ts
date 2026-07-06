@@ -227,8 +227,36 @@ class WebRTCManager {
       }
     }
 
+    this.applyAudioBitrate(pc)
     this.ensureStatsLoop()
     return pc
+  }
+
+  // ── Per-channel audio bitrate ──
+
+  private audioMaxBitrateBps: number | null = null
+
+  /** Cap outbound Opus bitrate (kbps); null restores the codec default. */
+  setAudioMaxBitrate(kbps: number | null): void {
+    this.audioMaxBitrateBps = kbps && kbps > 0 ? kbps * 1000 : null
+    for (const peer of this.peers.values()) {
+      this.applyAudioBitrate(peer.pc)
+    }
+  }
+
+  private applyAudioBitrate(pc: RTCPeerConnection): void {
+    for (const sender of pc.getSenders()) {
+      if (sender.track?.kind !== 'audio') continue
+      const params = sender.getParameters()
+      if (!params.encodings || params.encodings.length === 0) {
+        params.encodings = [{}]
+      }
+      for (const enc of params.encodings) {
+        if (this.audioMaxBitrateBps) enc.maxBitrate = this.audioMaxBitrateBps
+        else delete enc.maxBitrate
+      }
+      sender.setParameters(params).catch(() => { /* renegotiation races — retried on next apply */ })
+    }
   }
 
   // ── Network telemetry ──
@@ -558,6 +586,7 @@ class WebRTCManager {
       for (const track of this.localAudioStream.getTracks()) {
         peer.pc.addTrack(track, this.localAudioStream)
       }
+      this.applyAudioBitrate(peer.pc)
     }
     return this.localAudioStream
   }

@@ -31,6 +31,12 @@ export interface Channel {
   /** Custom role ids allowed to see this channel; null = everyone.
    *  Takes precedence over minRole when set. Host always sees everything. */
   allowedRoleIds: string[] | null
+  /** Voice: target audio bitrate in kbps; null = codec default. */
+  bitrateKbps: number | null
+  /** Voice: max simultaneous members; 0 = unlimited. Host bypasses. */
+  userLimit: number
+  /** Text: role ids allowed to send; null = everyone with the global perm. */
+  sendRoleIds: string[] | null
 }
 
 interface ServerLayout {
@@ -52,6 +58,8 @@ interface ChannelsStore {
   deleteCategory: (serverId: string, categoryId: string) => Promise<{ success: boolean; error?: string }>
   setChannelAccess: (serverId: string, channelId: string, minRole: ChannelMinRole) => Promise<{ success: boolean; error?: string }>
   setChannelRoles: (serverId: string, channelId: string, allowedRoleIds: string[] | null) => Promise<{ success: boolean; error?: string }>
+  setChannelSendRoles: (serverId: string, channelId: string, sendRoleIds: string[] | null) => Promise<{ success: boolean; error?: string }>
+  updateChannelSettings: (serverId: string, channelId: string, bitrateKbps: number | null, userLimit: number) => Promise<{ success: boolean; error?: string }>
 }
 
 const EMPTY_LAYOUT: ServerLayout = { categories: [], channels: [] }
@@ -70,18 +78,24 @@ export const useChannelsStore = create<ChannelsStore>((set, get) => ({
 
   reload: async (serverId) => {
     const res = await window.api.server.listChannels(serverId)
+    const parseIds = (raw: string | null): string[] | null => {
+      if (!raw) return null
+      try {
+        const parsed = JSON.parse(raw)
+        return Array.isArray(parsed) && parsed.length > 0 ? parsed : null
+      } catch {
+        return null
+      }
+    }
     const channels: Channel[] = [...res.channels]
       .sort((a, b) => a.position - b.position)
-      .map((c) => {
-        let allowedRoleIds: string[] | null = null
-        if (c.allowedRoleIds) {
-          try {
-            const parsed = JSON.parse(c.allowedRoleIds)
-            if (Array.isArray(parsed) && parsed.length > 0) allowedRoleIds = parsed
-          } catch { /* corrupted JSON → everyone */ }
-        }
-        return { ...c, allowedRoleIds }
-      })
+      .map((c) => ({
+        ...c,
+        allowedRoleIds: parseIds(c.allowedRoleIds),
+        sendRoleIds: parseIds(c.sendRoleIds),
+        bitrateKbps: c.bitrateKbps ?? null,
+        userLimit: c.userLimit ?? 0
+      }))
     set((s) => ({
       byServer: {
         ...s.byServer,
@@ -137,6 +151,18 @@ export const useChannelsStore = create<ChannelsStore>((set, get) => ({
 
   setChannelRoles: async (serverId, channelId, allowedRoleIds) => {
     const res = await window.api.server.setChannelRoles({ serverId, actorId: selfId(), channelId, allowedRoleIds })
+    if (res.success) await get().reload(serverId)
+    return res
+  },
+
+  setChannelSendRoles: async (serverId, channelId, sendRoleIds) => {
+    const res = await window.api.server.setChannelSendRoles({ serverId, actorId: selfId(), channelId, sendRoleIds })
+    if (res.success) await get().reload(serverId)
+    return res
+  },
+
+  updateChannelSettings: async (serverId, channelId, bitrateKbps, userLimit) => {
+    const res = await window.api.server.updateChannelSettings({ serverId, actorId: selfId(), channelId, bitrateKbps, userLimit })
     if (res.success) await get().reload(serverId)
     return res
   }

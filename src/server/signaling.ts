@@ -804,6 +804,31 @@ io.on('connection', (socket) => {
   })
 
   socket.on('join-room', (roomId: string) => {
+    // Voice user-limit gate (channel settings). Checked BEFORE joining so a
+    // full room never even sees the newcomer. The host always gets in, and a
+    // socket re-claiming its own seat is allowed through.
+    const voiceCheck = parseVoiceRoom(roomId)
+    if (voiceCheck && socket.data.userId) {
+      const entry = servers.get(voiceCheck.serverId)
+      if (entry && socket.data.userId !== entry.hostUserId) {
+        const chans = (entry.layout as { channels?: Array<{ id?: string; userLimit?: number }> } | null)?.channels
+        const ch = Array.isArray(chans) ? chans.find((c) => c?.id === voiceCheck.channelId) : undefined
+        const limit = typeof ch?.userLimit === 'number' ? ch.userLimit : 0
+        if (limit > 0) {
+          const seats = voiceRoomMembers.get(roomId)
+          const alreadyIn = seats?.has(socket.data.userId) ?? false
+          if (!alreadyIn && (seats?.size ?? 0) >= limit) {
+            socket.emit('server:voice-join-denied', {
+              serverId: voiceCheck.serverId,
+              channelId: voiceCheck.channelId,
+              reason: `Voice channel is full (${limit} max).`
+            })
+            return
+          }
+        }
+      }
+    }
+
     socket.join(roomId)
     socket.data.roomId = roomId
     // Notify others in the room

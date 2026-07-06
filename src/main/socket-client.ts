@@ -193,6 +193,7 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
     'server:role-names',
     'server:roles',
     'server:member-roles',
+    'server:voice-join-denied',
     'server:error'
   ]
   for (const evt of serverEvents) {

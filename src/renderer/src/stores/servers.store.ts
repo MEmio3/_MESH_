@@ -721,6 +721,23 @@ export const useServersStore = create<ServersStore>((set, get) => ({
       }))
     }))
 
+    // The signaling server refused our voice join (channel full). Roll back
+    // the optimistic local join and tell the user why.
+    unsubs.push(window.api.signaling.onServerEvent('voice-join-denied', async (payload) => {
+      const p = payload as { serverId?: string; reason?: string }
+      const { useVoiceStore } = await import('./voice.store')
+      const vs = useVoiceStore.getState()
+      if (vs.isConnected && vs.currentServerId === p.serverId) vs.leaveRoom()
+      set({ lastError: p.reason ?? 'Voice channel is full.' })
+      notify({
+        type: 'server-kick',
+        title: 'Could not join voice',
+        body: p.reason ?? 'The voice channel is full.',
+        route: p.serverId ? `/channels/${p.serverId}` : '/channels/@me',
+        force: true
+      })
+    }))
+
     // Our own socket dropped — we can't see anyone's presence anymore.
     unsubs.push(window.api.signaling.onDisconnected(() => {
       set({ serverOnlineMembers: {} })

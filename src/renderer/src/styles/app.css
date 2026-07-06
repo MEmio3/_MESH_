@@ -123,6 +123,75 @@
   --color-mesh-danger-hover: #ffb840;
 }
 
+[data-theme='aurora'] {
+  --color-mesh-bg-primary: #081011;
+  --color-mesh-bg-secondary: #0d1618;
+  --color-mesh-bg-tertiary: #131d20;
+  --color-mesh-bg-elevated: #1a262a;
+  --color-mesh-bg-hover: #213035;
+  --color-mesh-green: #2dd4bf;
+  --color-mesh-green-light: #45e0cd;
+  --color-mesh-green-dark: #22b3a1;
+  --color-mesh-green-glow: oklch(0.75 0.12 185 / 0.18);
+  --color-mesh-text-primary: #e9f4f3;
+  --color-mesh-text-secondary: #93aeac;
+  --color-mesh-text-muted: #56706e;
+  --color-mesh-border: #16232a;
+  --color-mesh-border-light: #21323b;
+}
+
+[data-theme='violet'] {
+  --color-mesh-bg-primary: #0d0a14;
+  --color-mesh-bg-secondary: #130f1d;
+  --color-mesh-bg-tertiary: #1a1527;
+  --color-mesh-bg-elevated: #221c33;
+  --color-mesh-bg-hover: #2a2340;
+  --color-mesh-green: #a78bfa;
+  --color-mesh-green-light: #b8a1fb;
+  --color-mesh-green-dark: #9373ef;
+  --color-mesh-green-glow: oklch(0.65 0.13 295 / 0.18);
+  --color-mesh-text-primary: #efecf7;
+  --color-mesh-text-secondary: #a89fc4;
+  --color-mesh-text-muted: #675f82;
+  --color-mesh-border: #201a30;
+  --color-mesh-border-light: #2c2542;
+}
+
+[data-theme='ember'] {
+  --color-mesh-bg-primary: #100c08;
+  --color-mesh-bg-secondary: #16110c;
+  --color-mesh-bg-tertiary: #1e1710;
+  --color-mesh-bg-elevated: #271e15;
+  --color-mesh-bg-hover: #30251a;
+  --color-mesh-green: #f59e0b;
+  --color-mesh-green-light: #fbb32e;
+  --color-mesh-green-dark: #d68806;
+  --color-mesh-green-glow: oklch(0.72 0.15 70 / 0.18);
+  --color-mesh-text-primary: #f5f0e8;
+  --color-mesh-text-secondary: #b3a895;
+  --color-mesh-text-muted: #6f6555;
+  --color-mesh-border: #241c12;
+  --color-mesh-border-light: #32271a;
+  --color-mesh-warning: #7aa2f7;
+}
+
+[data-theme='ocean'] {
+  --color-mesh-bg-primary: #071019;
+  --color-mesh-bg-secondary: #0b1622;
+  --color-mesh-bg-tertiary: #101e2e;
+  --color-mesh-bg-elevated: #16283c;
+  --color-mesh-bg-hover: #1c324b;
+  --color-mesh-green: #38bdf8;
+  --color-mesh-green-light: #55c9fa;
+  --color-mesh-green-dark: #26a6e0;
+  --color-mesh-green-glow: oklch(0.72 0.13 230 / 0.18);
+  --color-mesh-text-primary: #e8f1f8;
+  --color-mesh-text-secondary: #8fa8bd;
+  --color-mesh-text-muted: #526a7e;
+  --color-mesh-border: #12212f;
+  --color-mesh-border-light: #1c3245;
+}
+
 /* Applied briefly during a theme switch so colors cross-fade instead of
    snapping. Removed after the transition so lists stay cheap to paint. */
 .theme-transition,

@@ -1099,6 +1099,21 @@ export function registerServerHandlers(): void {
     if (payload.file && !actorHasPerm(payload.serverId, payload.senderId, PERM.attachFiles)) {
       return { success: false, error: 'You do not have permission to attach files here.' }
     }
+    // Per-channel send restriction (channel settings → who can send).
+    if (payload.channelId) {
+      const ch = db.getServerChannel(payload.channelId)
+      const srv = db.getServer(payload.serverId)
+      if (ch?.sendRoleIds && srv?.hostUserId !== payload.senderId) {
+        const me = db.getServerMembers(payload.serverId).find((m) => m.userId === payload.senderId)
+        let mine: string[] = []
+        let allowed: string[] = []
+        try { mine = JSON.parse(me?.roleIds || '[]') } catch { /* default */ }
+        try { allowed = JSON.parse(ch.sendRoleIds) } catch { /* default */ }
+        if (!allowed.some((id) => mine.includes(id))) {
+          return { success: false, error: 'Only specific roles can send messages in this channel.' }
+        }
+      }
+    }
     // Renderer only passes content + sender info — we mint the id/timestamp here
     // so every message has non-null primary key + timestamp columns.
     const id = `smsg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -1428,7 +1443,10 @@ export function registerServerHandlers(): void {
       type: payload.type,
       position,
       minRole: 'member',
-      allowedRoleIds: null
+      allowedRoleIds: null,
+      bitrateKbps: null,
+      userLimit: 0,
+      sendRoleIds: null
     })
     emitLayoutUpdate(payload.serverId)
     return { success: true, channelId: id }
@@ -1443,6 +1461,36 @@ export function registerServerHandlers(): void {
   }) => {
     if (!canManageServer(payload.serverId, payload.actorId)) return { success: false, error: 'forbidden' }
     db.updateServerChannelAccess(payload.channelId, payload.minRole)
+    emitLayoutUpdate(payload.serverId)
+    return { success: true }
+  })
+
+  // Voice channel knobs: bitrate + user limit (Manage Channels).
+  ipcMain.handle('server:update-channel-settings', async (_e, payload: {
+    serverId: string
+    actorId: string
+    channelId: string
+    bitrateKbps: number | null
+    userLimit: number
+  }) => {
+    if (!canManageServer(payload.serverId, payload.actorId)) return { success: false, error: 'forbidden' }
+    const bitrate = payload.bitrateKbps === null ? null : Math.max(8, Math.min(320, Math.round(payload.bitrateKbps)))
+    const limit = Math.max(0, Math.min(99, Math.round(payload.userLimit)))
+    db.updateServerChannelSettings(payload.channelId, bitrate, limit)
+    emitLayoutUpdate(payload.serverId)
+    return { success: true }
+  })
+
+  // Text channel: restrict who can send (null = everyone with the global perm).
+  ipcMain.handle('server:set-channel-send-roles', async (_e, payload: {
+    serverId: string
+    actorId: string
+    channelId: string
+    sendRoleIds: string[] | null
+  }) => {
+    if (!canManageServer(payload.serverId, payload.actorId)) return { success: false, error: 'forbidden' }
+    const ids = Array.isArray(payload.sendRoleIds) ? payload.sendRoleIds : null
+    db.updateServerChannelSendRoles(payload.channelId, ids && ids.length > 0 ? JSON.stringify(ids) : null)
     emitLayoutUpdate(payload.serverId)
     return { success: true }
   })

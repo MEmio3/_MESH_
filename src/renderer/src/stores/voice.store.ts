@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { VoiceParticipant } from '@/types/server'
 import { useIdentityStore } from './identity.store'
 import { useAudioPrefsStore } from './audioPrefs.store'
+import { useChannelsStore } from './channels.store'
 import { webrtcManager } from '@/lib/webrtc'
 import {
   playVoiceSelfJoin,
@@ -158,6 +159,12 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
         console.error('Failed to start audio:', err)
       }
     }
+    // Per-channel audio bitrate (channel settings) — applied to all senders.
+    const channelDef = nextChannelId
+      ? useChannelsStore.getState().byServer[serverId]?.channels.find((c) => c.id === nextChannelId)
+      : undefined
+    webrtcManager.setAudioMaxBitrate(channelDef?.bitrateKbps ?? null)
+
     // Scope the room to server + channel so different voice channels are
     // separate rooms (users in #gaming don't hear users in #voice-lounge).
     // `legacy` bucket keeps pre-channels callers (ServerVoiceRoom without a
@@ -171,6 +178,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
 
   leaveRoom: () => {
     const wasConnected = get().isConnected
+    webrtcManager.setAudioMaxBitrate(null)
     webrtcManager.stopAudio()
     webrtcManager.stopVideo()
     webrtcManager.stopScreenShare()

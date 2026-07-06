@@ -166,6 +166,13 @@ export interface ServerChannelRow {
   /** JSON array of custom role ids allowed to see this channel; null = everyone.
    *  When set, it takes precedence over minRole. Host always sees everything. */
   allowedRoleIds: string | null
+  /** Voice: target audio bitrate in kbps; null = codec default. */
+  bitrateKbps: number | null
+  /** Voice: max simultaneous members; 0 = unlimited. Host bypasses. */
+  userLimit: number
+  /** Text: JSON array of role ids allowed to send; null = everyone with the
+   *  global Send Messages permission. Host always may send. */
+  sendRoleIds: string | null
 }
 
 export interface ServerMessageRow {
