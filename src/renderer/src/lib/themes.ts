@@ -14,6 +14,12 @@ export type ThemeId =
   | 'violet'
   | 'ember'
   | 'ocean'
+  | 'sakura'
+  | 'cyber'
+  | 'forest'
+  | 'glacier'
+  | 'solar'
+  | 'orchid'
 
 export interface ThemeMeta {
   id: ThemeId
@@ -32,7 +38,13 @@ export const THEMES: ThemeMeta[] = [
   { id: 'violet', name: 'Violet', tagline: 'Dusky purple, lavender accent', swatch: ['#0d0a14', '#1a1527', '#a78bfa'] },
   { id: 'ember', name: 'Ember', tagline: 'Charcoal, molten amber accent', swatch: ['#100c08', '#1e1710', '#f59e0b'] },
   { id: 'carbon', name: 'Carbon', tagline: 'Pure monochrome, zero color', swatch: ['#0a0a0a', '#171717', '#7d8590'] },
-  { id: 'xbox', name: 'Xbox', tagline: 'The classic console green', swatch: ['#0f0f0f', '#2d2d2d', '#107C10'] }
+  { id: 'xbox', name: 'Xbox', tagline: 'The classic console green', swatch: ['#0f0f0f', '#2d2d2d', '#107C10'] },
+  { id: 'sakura', name: 'Sakura', tagline: 'Ink black, blossom accent', swatch: ['#10080d', '#21131b', '#f472b6'] },
+  { id: 'cyber', name: 'Cyber', tagline: 'Blue-black glass, neon cyan', swatch: ['#050c10', '#0d2028', '#22d3ee'] },
+  { id: 'forest', name: 'Forest', tagline: 'Pine shadows, moss accent', swatch: ['#07100b', '#132019', '#84cc16'] },
+  { id: 'glacier', name: 'Glacier', tagline: 'Cold slate, ice-cyan accent', swatch: ['#081015', '#14222c', '#67e8f9'] },
+  { id: 'solar', name: 'Solar', tagline: 'Eclipse black, golden accent', swatch: ['#100f07', '#211f10', '#facc15'] },
+  { id: 'orchid', name: 'Orchid', tagline: 'Smoked plum, bright orchid', swatch: ['#0f0913', '#22152b', '#e879f9'] }
 ]
 
 export const DEFAULT_THEME: ThemeId = 'crimson'

@@ -192,6 +192,116 @@
   --color-mesh-border-light: #1c3245;
 }
 
+[data-theme='sakura'] {
+  --color-mesh-bg-primary: #10080d;
+  --color-mesh-bg-secondary: #170d13;
+  --color-mesh-bg-tertiary: #21131b;
+  --color-mesh-bg-elevated: #2b1923;
+  --color-mesh-bg-hover: #35202b;
+  --color-mesh-green: #f472b6;
+  --color-mesh-green-light: #fb8ac5;
+  --color-mesh-green-dark: #d95b9d;
+  --color-mesh-green-glow: oklch(0.7 0.16 340 / 0.18);
+  --color-mesh-text-primary: #f7edf3;
+  --color-mesh-text-secondary: #b99cac;
+  --color-mesh-text-muted: #755d69;
+  --color-mesh-border: #2a1822;
+  --color-mesh-border-light: #3a2430;
+  --color-mesh-danger: #fb7185;
+  --color-mesh-danger-hover: #fda4af;
+}
+
+[data-theme='cyber'] {
+  --color-mesh-bg-primary: #050c10;
+  --color-mesh-bg-secondary: #08141a;
+  --color-mesh-bg-tertiary: #0d2028;
+  --color-mesh-bg-elevated: #12303b;
+  --color-mesh-bg-hover: #174050;
+  --color-mesh-green: #22d3ee;
+  --color-mesh-green-light: #67e8f9;
+  --color-mesh-green-dark: #06a9c5;
+  --color-mesh-green-glow: oklch(0.78 0.14 220 / 0.22);
+  --color-mesh-text-primary: #e6f7fb;
+  --color-mesh-text-secondary: #8db6c0;
+  --color-mesh-text-muted: #557681;
+  --color-mesh-border: #102532;
+  --color-mesh-border-light: #1a3848;
+  --color-mesh-info: #a78bfa;
+}
+
+[data-theme='forest'] {
+  --color-mesh-bg-primary: #07100b;
+  --color-mesh-bg-secondary: #0c1710;
+  --color-mesh-bg-tertiary: #132019;
+  --color-mesh-bg-elevated: #192a21;
+  --color-mesh-bg-hover: #21362a;
+  --color-mesh-green: #84cc16;
+  --color-mesh-green-light: #a3e635;
+  --color-mesh-green-dark: #65a30d;
+  --color-mesh-green-glow: oklch(0.72 0.16 135 / 0.18);
+  --color-mesh-text-primary: #eef6ea;
+  --color-mesh-text-secondary: #a7b69e;
+  --color-mesh-text-muted: #63745e;
+  --color-mesh-border: #18251d;
+  --color-mesh-border-light: #24362b;
+  --color-mesh-warning: #eab308;
+}
+
+[data-theme='glacier'] {
+  --color-mesh-bg-primary: #081015;
+  --color-mesh-bg-secondary: #0d171e;
+  --color-mesh-bg-tertiary: #14222c;
+  --color-mesh-bg-elevated: #1b2e3a;
+  --color-mesh-bg-hover: #233a49;
+  --color-mesh-green: #67e8f9;
+  --color-mesh-green-light: #a5f3fc;
+  --color-mesh-green-dark: #22d3ee;
+  --color-mesh-green-glow: oklch(0.82 0.09 210 / 0.2);
+  --color-mesh-text-primary: #edf8fb;
+  --color-mesh-text-secondary: #9eb8c2;
+  --color-mesh-text-muted: #5d7884;
+  --color-mesh-border: #182a35;
+  --color-mesh-border-light: #25404f;
+  --color-mesh-info: #818cf8;
+}
+
+[data-theme='solar'] {
+  --color-mesh-bg-primary: #100f07;
+  --color-mesh-bg-secondary: #17150b;
+  --color-mesh-bg-tertiary: #211f10;
+  --color-mesh-bg-elevated: #2c2816;
+  --color-mesh-bg-hover: #37321d;
+  --color-mesh-green: #facc15;
+  --color-mesh-green-light: #fde047;
+  --color-mesh-green-dark: #d4a908;
+  --color-mesh-green-glow: oklch(0.82 0.14 95 / 0.18);
+  --color-mesh-text-primary: #f7f4e4;
+  --color-mesh-text-secondary: #b9af8c;
+  --color-mesh-text-muted: #746b4a;
+  --color-mesh-border: #292511;
+  --color-mesh-border-light: #3a341a;
+  --color-mesh-warning: #fb923c;
+}
+
+[data-theme='orchid'] {
+  --color-mesh-bg-primary: #0f0913;
+  --color-mesh-bg-secondary: #170e1d;
+  --color-mesh-bg-tertiary: #22152b;
+  --color-mesh-bg-elevated: #2e1c3a;
+  --color-mesh-bg-hover: #3a2449;
+  --color-mesh-green: #e879f9;
+  --color-mesh-green-light: #f0abfc;
+  --color-mesh-green-dark: #c026d3;
+  --color-mesh-green-glow: oklch(0.72 0.16 315 / 0.18);
+  --color-mesh-text-primary: #f8ebfb;
+  --color-mesh-text-secondary: #bea1c8;
+  --color-mesh-text-muted: #755f81;
+  --color-mesh-border: #2a1833;
+  --color-mesh-border-light: #3b2548;
+  --color-mesh-danger: #fb7185;
+  --color-mesh-danger-hover: #fda4af;
+}
+
 /* Applied briefly during a theme switch so colors cross-fade instead of
    snapping. Removed after the transition so lists stay cheap to paint. */
 .theme-transition,
