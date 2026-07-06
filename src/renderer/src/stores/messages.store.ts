@@ -357,8 +357,10 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
         )
         get().updateMessageStatus(msg.id, 'sent')
       } else {
-        // Fallback: send file as base64 in JSON via signaling (for smaller files)
-        if (fileData.fileSize <= 2 * 1024 * 1024) {
+        // Host relay path (data channels are gone with WebRTC): base64 over
+        // the signaling socket. The server accepts 8MB frames; 5MB raw keeps
+        // headroom after base64 inflation.
+        if (fileData.fileSize <= 5 * 1024 * 1024) {
           const fallbackPayload = JSON.stringify({
             type: 'dm-file',
             id: msg.id,
@@ -377,8 +379,7 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
           window.api.signaling.emit('dm-message', conv.recipientId, fallbackPayload)
           get().updateMessageStatus(msg.id, 'sent')
         } else {
-          // Too large for signaling relay — need P2P
-          console.warn('[file] File too large for signaling relay, need P2P connection')
+          console.warn('[file] Files over 5MB are not supported yet')
         }
       }
     }

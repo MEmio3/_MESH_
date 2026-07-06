@@ -139,6 +139,17 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
     sendToRenderer('signaling:call-end', fromUserId)
   })
 
+  // Host-relayed media frames (voice/video) — hot path, forwarded verbatim.
+  socket.on('media:audio', (fromUserId: string, meta: unknown, payload: unknown) => {
+    sendToRenderer('signaling:media:audio', fromUserId, meta, payload)
+  })
+  socket.on('media:video', (fromUserId: string, meta: unknown, payload: unknown) => {
+    sendToRenderer('signaling:media:video', fromUserId, meta, payload)
+  })
+  socket.on('media:pong', (sentAt: unknown) => {
+    sendToRenderer('signaling:media:pong', sentAt)
+  })
+
   // Friend-request events (server → us)
   socket.on('friend-request:incoming', (payload: unknown) => {
     sendToRenderer('signaling:friend-request:incoming', payload)

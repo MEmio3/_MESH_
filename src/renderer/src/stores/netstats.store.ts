@@ -1,34 +1,30 @@
 import { create } from 'zustand'
-import { webrtcManager, type PeerNetStats } from '@/lib/webrtc'
+import { mediaEngine } from '@/lib/media-engine'
 
 /**
- * Live connection telemetry: per-peer RTT and bitrates plus aggregated
- * totals, fed by webrtcManager's 2-second stats loop. Drives the ping badge
- * and the up/down bandwidth readout in the voice bar and call overlay.
+ * Live connection telemetry fed by the media engine's 2-second loop:
+ * socket round-trip to the host plus media throughput. Drives the ping
+ * badge and the up/down bandwidth readout in the voice bar and calls.
  */
 interface NetStatsStore {
-  perPeer: Record<string, PeerNetStats>
-  /** Total outbound bitrate across all peers (kbps). */
+  /** Total outbound media bitrate (kbps). */
   upKbps: number
-  /** Total inbound bitrate across all peers (kbps). */
+  /** Total inbound media bitrate (kbps). */
   downKbps: number
-  /** Average RTT across connected peers, ms. Null when nothing is connected. */
+  /** Round-trip to the host, ms. Null when no media session is active. */
   rttMs: number | null
 }
 
 export const useNetStatsStore = create<NetStatsStore>(() => ({
-  perPeer: {},
   upKbps: 0,
   downKbps: 0,
   rttMs: null
 }))
 
-// Compose with any previously-registered handler (defensive, same pattern
-// as the other webrtcManager callback consumers).
-const prevNetStats = webrtcManager.onNetStats
-webrtcManager.onNetStats = (perPeer, totals) => {
-  try { prevNetStats?.(perPeer, totals) } catch { /* ignore */ }
-  useNetStatsStore.setState({ perPeer, ...totals })
+const prevStats = mediaEngine.onStats
+mediaEngine.onStats = (stats) => {
+  try { prevStats?.(stats) } catch { /* ignore */ }
+  useNetStatsStore.setState(stats)
 }
 
 /** Format kbps for display: "512 kbps" / "1.4 Mbps". */

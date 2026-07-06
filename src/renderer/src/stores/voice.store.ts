@@ -4,7 +4,7 @@ import { useIdentityStore } from './identity.store'
 import { useAudioPrefsStore } from './audioPrefs.store'
 import { useChannelsStore } from './channels.store'
 import { useServersStore } from './servers.store'
-import { webrtcManager } from '@/lib/webrtc'
+import { mediaEngine } from '@/lib/media-engine'
 import { resolveChannelPerm } from '../../../shared/permissions'
 import {
   playVoiceSelfJoin,
@@ -113,11 +113,9 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     }
 
     // Switching within the same server? Hop rooms without tearing down audio.
-    // We still need to drop remote peers (they're in the other room and will
-    // not hear us) so `onPeerDisconnected` can clean them out of the list.
     const isSwitching = state.isConnected && state.currentServerId === serverId
     if (isSwitching) {
-      webrtcManager.closeAll()
+      mediaEngine.resetPeers()
       window.api.signaling.emit('leave-room')
       // Give the signaling server time to fan out `server:voice-left` to
       // remote peers BEFORE we emit the new join. Without this delay the
@@ -127,10 +125,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       await new Promise((r) => setTimeout(r, 500))
     } else if (state.isConnected) {
       // Joining a different server — do a full leave first.
-      webrtcManager.stopAudio()
-      webrtcManager.stopVideo()
-      webrtcManager.stopScreenShare()
-      webrtcManager.closeAll()
+      mediaEngine.leaveRoom()
       window.api.signaling.emit('leave-room')
       await new Promise((r) => setTimeout(r, 500))
     }
@@ -161,17 +156,17 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       try {
         // Respect the user's globally-selected mic + input volume.
         const prefs = useAudioPrefsStore.getState()
-        webrtcManager.setInputGain(prefs.inputVolume / 100)
-        await webrtcManager.startAudio(prefs.inputDeviceId || undefined)
+        mediaEngine.setInputGain(prefs.inputVolume / 100)
+        await mediaEngine.startMic(prefs.inputDeviceId || undefined)
       } catch (err) {
         console.error('Failed to start audio:', err)
       }
     }
-    // Per-channel audio bitrate (channel settings) — applied to all senders.
+    // Per-channel audio bitrate (channel settings).
     const channelDef = nextChannelId
       ? useChannelsStore.getState().byServer[serverId]?.channels.find((c) => c.id === nextChannelId)
       : undefined
-    webrtcManager.setAudioMaxBitrate(channelDef?.bitrateKbps ?? null)
+    mediaEngine.setAudioBitrate(channelDef?.bitrateKbps ?? null)
 
     // Per-channel Speak/Stream permissions — enforced, not decorative.
     const meMember = useServersStore.getState().serverMembers[serverId]?.find(
@@ -194,7 +189,9 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     const streamLocked = !chanPerm('stream')
     if (speakLocked) {
       // Denied Speak: join muted, and the mute toggle is locked shut.
-      webrtcManager.setAudioEnabled(false)
+      mediaEngine.setMicEnabled(false)
+    } else {
+      mediaEngine.setMicEnabled(!get().isMuted)
     }
     set({ speakLocked, streamLocked, isMuted: speakLocked ? true : get().isMuted })
 
@@ -203,6 +200,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     // `legacy` bucket keeps pre-channels callers (ServerVoiceRoom without a
     // channelId) on a shared room so existing behavior is unchanged.
     const roomId = `voice:${serverId}:${nextChannelId ?? 'legacy'}`
+    mediaEngine.joinRoom(roomId)
     window.api.signaling.emit('join-room', roomId)
     // Only play the self-join chime on a fresh join; room-hopping within the
     // same server shouldn't ding twice.
@@ -211,11 +209,9 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
 
   leaveRoom: () => {
     const wasConnected = get().isConnected
-    webrtcManager.setAudioMaxBitrate(null)
-    webrtcManager.stopAudio()
-    webrtcManager.stopVideo()
-    webrtcManager.stopScreenShare()
-    webrtcManager.closeAll()
+    mediaEngine.setAudioBitrate(null)
+    get().localMediaStream?.getTracks().forEach((t) => t.stop())
+    mediaEngine.leaveRoom()
     window.api.signaling.emit('leave-room')
     if (wasConnected) playVoiceSelfLeave()
     set({
@@ -292,7 +288,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     // Speak denied by the channel — the mic stays shut.
     if (get().speakLocked && get().isConnected) return
     const next = !get().isMuted
-    webrtcManager.setAudioEnabled(!next)
+    mediaEngine.setMicEnabled(!next)
     set({ isMuted: next })
     if (next) playMute(); else playUnmute()
   },
@@ -300,13 +296,13 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   toggleDeafen: () => {
     const next = !get().isDeafened
     if (next) {
-      webrtcManager.setAudioEnabled(false)
+      mediaEngine.setMicEnabled(false)
       set({ isDeafened: true, isMuted: true })
       playDeafen()
     } else {
       // Undeafen restores the mic only if the channel lets this member speak.
       const locked = get().speakLocked && get().isConnected
-      webrtcManager.setAudioEnabled(!locked)
+      mediaEngine.setMicEnabled(!locked)
       set({ isDeafened: false, isMuted: locked })
       playUndeafen()
     }
@@ -348,9 +344,11 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     if (prev) {
       for (const t of prev.getTracks()) t.stop()
     }
-    webrtcManager.stopScreenShare()
-    webrtcManager.stopVideo()
+    mediaEngine.stopVideo()
     set({ localMediaStream: null, isScreenSharing: false, isCameraOn: false })
+
+    // Encoder bitrate scales with the chosen quality.
+    const videoBitrate = quality === 'HD' ? 6_000_000 : 2_500_000
 
     if (source.kind === 'camera') {
       // Camera path — use enumerated deviceId + quality constraints
@@ -363,7 +361,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
           frameRate: { ideal: frameRate }
         }
       })
-      await webrtcManager.attachVideoStream(stream)
+      await mediaEngine.attachVideoStream(stream, 'camera', videoBitrate)
       stream.getVideoTracks()[0]?.addEventListener('ended', () => {
         get().stopStream()
       })
@@ -393,7 +391,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
           }
         }
       })
-      await webrtcManager.attachScreenStream(stream)
+      await mediaEngine.attachVideoStream(stream, 'screen', videoBitrate)
       stream.getVideoTracks()[0]?.addEventListener('ended', () => {
         get().stopStream()
       })
@@ -419,8 +417,8 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   stopStream: () => {
     const selfId = useIdentityStore.getState().identity?.userId
     const wasStreaming = get().isScreenSharing || get().isCameraOn
-    webrtcManager.stopScreenShare()
-    webrtcManager.stopVideo()
+    mediaEngine.stopVideo()
+    get().localMediaStream?.getTracks().forEach((t) => t.stop())
     set({
       isScreenSharing: false,
       isCameraOn: false,
@@ -449,37 +447,44 @@ function resolveQuality(q: StreamQuality): { width: number; height: number; fram
     : { width: 1280, height: 720, frameRate: 30 }
 }
 
-// Wire WebRTC callbacks to the store defensively to avoid overwriting call.store.ts
-const prevVoiceRemoteStream = webrtcManager.onRemoteStream
-webrtcManager.onRemoteStream = (userId, stream) => {
+/** Add a room participant, resolving their real username from the server
+ *  roster when we have it. Exported for useSignaling's user-joined hook. */
+export function addVoiceParticipant(userId: string): void {
+  const vs = useVoiceStore.getState()
+  if (vs.participants.find((p) => p.userId === userId)) return
+  const serverId = vs.currentServerId
+  const member = serverId
+    ? useServersStore.getState().serverMembers[serverId]?.find((m) => m.userId === userId)
+    : undefined
+  vs.addParticipant({
+    userId,
+    username: member?.username ?? `Peer ${userId.slice(0, 6)}`,
+    avatarColor: member?.avatarColor ?? null,
+    isMuted: false,
+    isDeafened: false,
+    isSpeaking: false,
+    isScreenSharing: false,
+    isCameraOn: false
+  })
+  if (vs.isConnected) playPeerJoinVoice()
+}
+
+// Wire media-engine callbacks defensively (call.store composes after us).
+const prevVoiceRemoteStream = mediaEngine.onRemoteStream
+mediaEngine.onRemoteStream = (userId, stream) => {
   try { prevVoiceRemoteStream?.(userId, stream) } catch { /* ignore */ }
   useVoiceStore.getState().setRemoteStream(userId, stream)
 }
 
-const prevVoicePeerConnected = webrtcManager.onPeerConnected
-webrtcManager.onPeerConnected = (userId) => {
-  try { prevVoicePeerConnected?.(userId) } catch { /* ignore */ }
-  const existing = useVoiceStore.getState().participants.find((p) => p.userId === userId)
-  if (!existing) {
-    useVoiceStore.getState().addParticipant({
-      userId,
-      username: `Peer ${userId.slice(0, 6)}`,
-      avatarColor: null,
-      isMuted: false,
-      isDeafened: false,
-      isSpeaking: false,
-      isScreenSharing: false,
-      isCameraOn: false
-    })
-    // Only ding for peers who join our voice channel — not for DM call peers
-    // (call.store handles those through call-connect).
-    if (useVoiceStore.getState().isConnected) playPeerJoinVoice()
-  }
+const prevVoiceActive = mediaEngine.onParticipantVoice
+mediaEngine.onParticipantVoice = (userId) => {
+  try { prevVoiceActive?.(userId) } catch { /* ignore */ }
+  addVoiceParticipant(userId)
 }
 
-const prevVoicePeerDisconnected = webrtcManager.onPeerDisconnected
-webrtcManager.onPeerDisconnected = (userId) => {
-  try { prevVoicePeerDisconnected?.(userId) } catch { /* ignore */ }
+const prevVoiceLeft = mediaEngine.onParticipantLeft
+mediaEngine.onParticipantLeft = (userId) => {
+  try { prevVoiceLeft?.(userId) } catch { /* ignore */ }
   const wasInVoice = useVoiceStore.getState().isConnected
     && useVoiceStore.getState().participants.some((p) => p.userId === userId)
   useVoiceStore.getState().removeParticipant(userId)

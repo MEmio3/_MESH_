@@ -1,15 +1,14 @@
 /**
- * useSignaling — Wires IPC signaling events from main process to the WebRTC manager.
- *
- * Listens for signaling events forwarded from main process socket-client,
- * drives the webrtcManager to create peer connections, handle offers/answers/ICE.
- * Also exposes connect/disconnect/emit helpers for the renderer.
+ * useSignaling — Wires IPC signaling events from the main process into the
+ * renderer stores. Media is host-relayed (see lib/media-engine.ts); this hook
+ * only tracks room membership and forwards call/DM events.
  */
 
 import { useEffect, useRef, useCallback } from 'react'
-import { webrtcManager } from '@/lib/webrtc'
+import { mediaEngine } from '@/lib/media-engine'
 import { useIdentityStore } from '@/stores/identity.store'
 import { useFriendsStore } from '@/stores/friends.store'
+import { useVoiceStore, addVoiceParticipant } from '@/stores/voice.store'
 import { notify } from '@/lib/notify'
 
 export interface SignalingState {
@@ -65,40 +64,19 @@ export function useSignaling(callbacks?: {
       callbacksRef.current?.onError?.(message)
     }))
 
-    // User join/leave in rooms
+    // User join/leave in rooms. No peer connections anymore — media flows
+    // through the host relay — so joining just means "show them and expect
+    // their packets".
     cleanups.push(window.api.signaling.onUserJoined(async (userId: string, socketId: string) => {
       callbacksRef.current?.onUserJoined?.(userId, socketId)
-
-      // Create the peer connection only. The manual createOffer call was
-      // removed because addTrack inside createPeerConnection already fires
-      // onnegotiationneeded, which creates and sends the offer exactly once.
-      // Firing a second manual offer in parallel produced the voice-channel
-      // double-offer bug: two offers hit the remote peer simultaneously,
-      // setRemoteDescription collided, the PC aborted, no audio/video.
-      await webrtcManager.createPeerConnection(userId, socketId, true)
+      if (useVoiceStore.getState().isConnected) {
+        addVoiceParticipant(userId)
+      }
     }))
 
     cleanups.push(window.api.signaling.onUserLeft((userId: string, _socketId: string) => {
       callbacksRef.current?.onUserLeft?.(userId, _socketId)
-      webrtcManager.closePeer(userId)
-    }))
-
-    // WebRTC signaling: offer
-    cleanups.push(window.api.signaling.onOffer(async (fromSocketId: string, offer: RTCSessionDescriptionInit, fromUserId: string) => {
-      const answer = await webrtcManager.handleOffer(fromSocketId, offer, fromUserId)
-      if (answer) {
-        window.api.signaling.emit('answer', fromSocketId, answer)
-      }
-    }))
-
-    // WebRTC signaling: answer
-    cleanups.push(window.api.signaling.onAnswer(async (fromSocketId: string, answer: RTCSessionDescriptionInit) => {
-      await webrtcManager.handleAnswer(fromSocketId, answer)
-    }))
-
-    // WebRTC signaling: ICE candidate
-    cleanups.push(window.api.signaling.onIceCandidate(async (fromSocketId: string, candidate: RTCIceCandidateInit) => {
-      await webrtcManager.handleIceCandidate(fromSocketId, candidate)
+      mediaEngine.handleUserLeft(userId)
     }))
 
     // DM message via signaling relay (fallback when no data channel)
@@ -134,37 +112,20 @@ export function useSignaling(callbacks?: {
       callbacksRef.current?.onCallEnd?.(fromUserId)
     }))
 
-    // Wire webrtcManager ICE candidate callback to emit via signaling
-    webrtcManager.onIceCandidate = (socketId, candidate) => {
-      window.api.signaling.emit('ice-candidate', socketId, candidate)
-    }
-
-    // Mid-call renegotiation — when tracks are added/removed, the PC fires
-    // onnegotiationneeded; the manager creates a fresh offer and asks us
-    // to forward it to the remote peer.
-    webrtcManager.onRenegotiate = (socketId, offer) => {
-      window.api.signaling.emit('offer', socketId, offer)
-    }
-
     return () => {
       cleanups.forEach((fn) => fn())
-      webrtcManager.onIceCandidate = null
-      webrtcManager.onRenegotiate = null
     }
   }, [])
 
   const connect = useCallback(async (serverUrl: string) => {
     const identity = useIdentityStore.getState().identity
     if (!identity) return
-    // Give Perfect Negotiation our userId so it can compute politeness
-    // against remote peers on new connections.
-    webrtcManager.setSelfUserId(identity.userId)
     await window.api.signaling.connect(serverUrl, identity.userId)
   }, [])
 
   const disconnect = useCallback(async () => {
     await window.api.signaling.disconnect()
-    webrtcManager.closeAll()
+    mediaEngine.leaveRoom()
   }, [])
 
   const joinRoom = useCallback((roomId: string) => {
@@ -173,7 +134,7 @@ export function useSignaling(callbacks?: {
 
   const leaveRoom = useCallback(() => {
     window.api.signaling.emit('leave-room')
-    webrtcManager.closeAll()
+    mediaEngine.leaveRoom()
   }, [])
 
   const sendOffer = useCallback((targetSocketId: string, offer: RTCSessionDescriptionInit) => {

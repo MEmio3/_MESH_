@@ -15,7 +15,7 @@
  */
 
 import { create } from 'zustand'
-import { webrtcManager } from '@/lib/webrtc'
+import { mediaEngine } from '@/lib/media-engine'
 
 const LS_INPUT = 'mesh.audio.input'
 const LS_OUTPUT = 'mesh.audio.output'
@@ -59,10 +59,10 @@ export const useAudioPrefsStore = create<AudioPrefsState>((set, get) => ({
   setInputDevice: async (deviceId) => {
     writeLS(LS_INPUT, deviceId)
     set({ inputDeviceId: deviceId })
-    // If a mic stream is already live, swap it mid-call without renegotiating.
+    // If a mic stream is already live, swap it mid-call.
     try {
-      if (webrtcManager.hasLocalAudio?.()) {
-        await webrtcManager.replaceAudioDevice(deviceId || undefined)
+      if (mediaEngine.hasMic()) {
+        await mediaEngine.replaceMicDevice(deviceId || undefined)
       }
     } catch (err) {
       console.error('Failed to switch microphone:', err)
@@ -79,7 +79,7 @@ export const useAudioPrefsStore = create<AudioPrefsState>((set, get) => ({
     const clamped = Math.max(0, Math.min(100, Math.round(value)))
     writeLS(LS_IN_VOL, String(clamped))
     set({ inputVolume: clamped })
-    try { webrtcManager.setInputGain?.(clamped / 100) } catch { /* ignore */ }
+    try { mediaEngine.setInputGain(clamped / 100) } catch { /* ignore */ }
   },
 
   setOutputVolume: (value) => {

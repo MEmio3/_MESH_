@@ -871,6 +871,24 @@ io.on('connection', (socket) => {
     }
   })
 
+  // ── Media relay (host-routed voice/video — no WebRTC, no peer-to-peer) ──
+  // Audio uses volatile emits: under congestion it drops packets instead of
+  // queueing them, which is exactly what realtime voice wants.
+  socket.on('media:audio', (roomId: string, meta: unknown, payload: unknown) => {
+    if (typeof roomId !== 'string' || !socket.rooms.has(roomId)) return
+    socket.to(roomId).volatile.emit('media:audio', socket.data.userId, meta, payload)
+  })
+
+  socket.on('media:video', (roomId: string, meta: unknown, payload: unknown) => {
+    if (typeof roomId !== 'string' || !socket.rooms.has(roomId)) return
+    socket.to(roomId).emit('media:video', socket.data.userId, meta, payload)
+  })
+
+  // RTT probe for the voice bar's ping display.
+  socket.on('media:ping', (sentAt: unknown) => {
+    socket.emit('media:pong', sentAt)
+  })
+
   socket.on('offer', (targetSocketId: string, offer: unknown) => {
     io.to(targetSocketId).emit('offer', socket.id, offer, socket.data.userId)
   })

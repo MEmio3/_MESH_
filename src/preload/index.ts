@@ -120,6 +120,34 @@ const api = {
       ipcRenderer.on('signaling:error', h)
       return () => ipcRenderer.removeListener('signaling:error', h)
     },
+    // Host-relayed media frames. socket.io delivers binary as Buffer
+    // (a Uint8Array subclass) — normalize to a standalone ArrayBuffer so
+    // WebCodecs can consume it directly.
+    onMediaAudio: (cb: (userId: string, meta: unknown, payload: ArrayBuffer) => void): (() => void) => {
+      const h = (_e: Electron.IpcRendererEvent, userId: string, meta: unknown, payload: Uint8Array | ArrayBuffer): void => {
+        const buf = payload instanceof Uint8Array
+          ? payload.buffer.slice(payload.byteOffset, payload.byteOffset + payload.byteLength)
+          : payload
+        cb(userId, meta, buf as ArrayBuffer)
+      }
+      ipcRenderer.on('signaling:media:audio', h)
+      return () => ipcRenderer.removeListener('signaling:media:audio', h)
+    },
+    onMediaVideo: (cb: (userId: string, meta: unknown, payload: ArrayBuffer) => void): (() => void) => {
+      const h = (_e: Electron.IpcRendererEvent, userId: string, meta: unknown, payload: Uint8Array | ArrayBuffer): void => {
+        const buf = payload instanceof Uint8Array
+          ? payload.buffer.slice(payload.byteOffset, payload.byteOffset + payload.byteLength)
+          : payload
+        cb(userId, meta, buf as ArrayBuffer)
+      }
+      ipcRenderer.on('signaling:media:video', h)
+      return () => ipcRenderer.removeListener('signaling:media:video', h)
+    },
+    onMediaPong: (cb: (sentAt: number) => void): (() => void) => {
+      const h = (_e: Electron.IpcRendererEvent, sentAt: number): void => cb(sentAt)
+      ipcRenderer.on('signaling:media:pong', h)
+      return () => ipcRenderer.removeListener('signaling:media:pong', h)
+    },
     onUserJoined: (cb: (userId: string, socketId: string) => void): (() => void) => {
       const h = (_e: Electron.IpcRendererEvent, userId: string, socketId: string): void => cb(userId, socketId)
       ipcRenderer.on('signaling:user-joined', h)

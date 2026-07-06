@@ -84,7 +84,7 @@ function CallOverlay(): JSX.Element | null {
 
   const [showSettings, setShowSettings] = useState(false)
   const devices = useMediaDevices(showSettings)
-  const peerRtt = useNetStatsStore((s) => (peerId ? s.perPeer[peerId]?.rttMs ?? null : null))
+  const peerRtt = useNetStatsStore((s) => s.rttMs)
 
   const audioRef = useRef<HTMLAudioElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)

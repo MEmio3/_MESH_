@@ -177,6 +177,9 @@ interface SignalingAPI {
   emit: (event: string, ...args: unknown[]) => void
 
   onConnected: (cb: () => void) => () => void
+  onMediaAudio: (cb: (userId: string, meta: unknown, payload: ArrayBuffer) => void) => () => void
+  onMediaVideo: (cb: (userId: string, meta: unknown, payload: ArrayBuffer) => void) => () => void
+  onMediaPong: (cb: (sentAt: number) => void) => () => void
   onReconnectStatus: (cb: (payload: { state: 'reconnecting' | 'connected' | 'failed'; attempt?: number; max?: number | null }) => void) => () => void
   onDisconnected: (cb: (reason: string) => void) => () => void
   onError: (cb: (message: string) => void) => () => void
