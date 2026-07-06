@@ -16,8 +16,10 @@ function Toggle({ checked, onChange, disabled, className }: ToggleProps): JSX.El
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cn(
-        'relative inline-flex h-5 w-9 shrink-0 rounded-full border transition-colors duration-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mesh-green/60 disabled:opacity-50 disabled:cursor-not-allowed',
-        checked ? 'bg-mesh-green border-mesh-green' : 'bg-mesh-bg-elevated border-mesh-border-light',
+        'relative inline-flex h-5 w-9 shrink-0 rounded-full border transition-all duration-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mesh-green/60 disabled:opacity-50 disabled:cursor-not-allowed',
+        checked
+          ? 'bg-mesh-green border-mesh-green shadow-[inset_0_1px_2px_rgba(0,0,0,0.2),0_0_10px_-2px_var(--color-mesh-green)]'
+          : 'bg-mesh-bg-elevated border-mesh-border-light shadow-[inset_0_1px_2px_rgba(0,0,0,0.3)]',
         className
       )}
     >

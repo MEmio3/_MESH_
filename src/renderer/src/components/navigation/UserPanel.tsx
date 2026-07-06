@@ -45,7 +45,7 @@ function VoiceConnectionBar(): JSX.Element | null {
   const serverLabel = server?.name ?? 'Voice'
 
   return (
-    <div className="relative shrink-0 border-b border-[#1e1f22] bg-[#111214] flex flex-col pt-2 pb-2.5 px-2 gap-1.5">
+    <div className="relative shrink-0 border-b border-mesh-border bg-mesh-bg-primary flex flex-col pt-2 pb-2.5 px-2 gap-1.5">
       {/* Top row — status label + disconnect */}
       <div className="flex items-center justify-between px-1">
         <button
@@ -57,7 +57,7 @@ function VoiceConnectionBar(): JSX.Element | null {
             <Wifi className="h-[18px] w-[18px]" />
           </div>
           <div className="flex flex-col min-w-0">
-            <span className="text-[13px] font-semibold text-[#23a559] leading-tight flex items-center gap-1.5">
+            <span className="text-[13px] font-semibold text-mesh-green leading-tight flex items-center gap-1.5">
               Voice Connected
               {rttMs !== null && (
                 <span className={cn('text-[10px] font-mono font-medium leading-none', pingTone(rttMs))}>
@@ -65,12 +65,12 @@ function VoiceConnectionBar(): JSX.Element | null {
                 </span>
               )}
             </span>
-            <span className="text-[11px] text-[#949ba4] truncate leading-tight mt-0.5">
+            <span className="text-[11px] text-mesh-text-secondary truncate leading-tight mt-0.5">
               {roomLabel} / {serverLabel}
             </span>
             {/* Live throughput on the local line — most useful while streaming */}
             {(upKbps > 0 || downKbps > 0) && (
-              <span className="text-[10px] font-mono text-[#7a828c] truncate leading-tight mt-0.5">
+              <span className="text-[10px] font-mono text-mesh-text-muted truncate leading-tight mt-0.5">
                 ↑ {formatKbps(upKbps)} · ↓ {formatKbps(downKbps)}
               </span>
             )}
@@ -80,7 +80,7 @@ function VoiceConnectionBar(): JSX.Element | null {
         <Tooltip content="Disconnect" side="top">
           <button
             onClick={leaveRoom}
-            className="flex items-center justify-center h-8 w-8 rounded text-[#b5bac1] hover:text-[#dbdee1] hover:bg-white/[0.06] transition-colors shrink-0 ml-1"
+            className="flex items-center justify-center h-8 w-8 rounded text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-white/[0.06] transition-colors shrink-0 ml-1"
           >
             <PhoneOff className="h-5 w-5" />
           </button>
@@ -148,7 +148,7 @@ function VoiceBarControl({ tooltip, active, onClick, children }: {
           'flex items-center justify-center h-[32px] w-full rounded-md transition-colors',
           active
             ? 'bg-white/20 text-white hover:bg-white/30'
-            : 'bg-[#2b2d31] text-[#b5bac1] hover:bg-[#313338] hover:text-[#dbdee1]'
+            : 'bg-mesh-bg-tertiary text-mesh-text-secondary hover:bg-mesh-bg-hover hover:text-mesh-text-primary'
         )}
       >
         {children}
@@ -228,7 +228,7 @@ function UserPanel(): JSX.Element {
   }
 
   return (
-    <div className="flex items-center gap-1 h-[54px] px-2 bg-[#232428] shrink-0 border-t border-black/20">
+    <div className="flex items-center gap-1 h-[54px] px-2 bg-mesh-bg-secondary shrink-0 border-t border-mesh-border shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
       {/* User Info — clickable area */}
       <div className="flex items-center gap-2 flex-1 min-w-0 rounded-md px-1.5 py-1 hover:bg-white/[0.06] transition-colors cursor-pointer group">
         {/* Avatar with status indicator — click to upload */}
@@ -258,7 +258,7 @@ function UserPanel(): JSX.Element {
             </div>
             {/* Status dot — reflects the actual chosen presence */}
             <span className={cn(
-              'absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-[3px] border-[#232428] group-hover:border-[#2b2d31] transition-colors box-content',
+              'absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-[3px] border-mesh-bg-secondary group-hover:border-mesh-bg-tertiary transition-colors box-content',
               statusDotClass
             )} />
           </button>
@@ -271,10 +271,10 @@ function UserPanel(): JSX.Element {
             className="flex flex-col min-w-0 text-left focus:outline-none"
             title="Set status"
           >
-            <span className="text-[13px] font-semibold text-[#f2f3f5] truncate leading-tight mt-0.5">
+            <span className="text-[13px] font-semibold text-mesh-text-primary truncate leading-tight mt-0.5">
               {username}
             </span>
-            <span className="text-[11px] text-[#b5bac1] truncate leading-tight">
+            <span className="text-[11px] text-mesh-text-secondary truncate leading-tight">
               {statusLabel}
             </span>
           </button>
@@ -325,7 +325,7 @@ function UserPanel(): JSX.Element {
                 'flex items-center justify-center h-8 w-4 rounded-md transition-colors -ml-0.5',
                 popover === 'input'
                   ? 'text-white bg-white/[0.06]'
-                  : 'text-[#b5bac1] hover:text-[#dbdee1] hover:bg-white/[0.06]'
+                  : 'text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-white/[0.06]'
               )}
             >
               <ChevronUp className="h-3 w-3" />
@@ -349,7 +349,7 @@ function UserPanel(): JSX.Element {
                 'flex items-center justify-center h-8 w-4 rounded-md transition-colors -ml-0.5',
                 popover === 'output'
                   ? 'text-white bg-white/[0.06]'
-                  : 'text-[#b5bac1] hover:text-[#dbdee1] hover:bg-white/[0.06]'
+                  : 'text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-white/[0.06]'
               )}
             >
               <ChevronUp className="h-3 w-3" />
@@ -396,8 +396,8 @@ function UserPanelButton({ tooltip, active, onClick, children }: UserPanelButton
         className={cn(
           'flex items-center justify-center h-8 w-8 rounded-md transition-colors',
           active
-            ? 'text-[#da373c] hover:bg-white/[0.06]'
-            : 'text-[#b5bac1] hover:bg-white/[0.06] hover:text-[#dbdee1]'
+            ? 'text-mesh-danger hover:bg-white/[0.06]'
+            : 'text-mesh-text-secondary hover:bg-white/[0.06] hover:text-mesh-text-primary'
         )}
       >
         {children}

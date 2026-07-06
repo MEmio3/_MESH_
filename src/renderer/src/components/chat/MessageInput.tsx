@@ -145,7 +145,7 @@ function MessageInput({ recipientName, onSend, onSendFile, onTypingStart, onTypi
         </div>
       )}
 
-      <div className="flex items-end gap-2 rounded-lg bg-mesh-bg-tertiary focus-within:ring-1 focus-within:ring-mesh-border px-4 py-2.5">
+      <div className="flex items-end gap-2 rounded-xl bg-mesh-bg-tertiary border border-mesh-border/60 shadow-[inset_0_1px_2px_rgba(0,0,0,0.25)] focus-within:border-mesh-green/50 focus-within:ring-1 focus-within:ring-mesh-green/25 transition-colors px-4 py-2.5">
         {/* Attachment button */}
         {onSendFile && (
           <button

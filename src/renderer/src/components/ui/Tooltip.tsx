@@ -38,7 +38,7 @@ function Tooltip({ content, side = 'right', children, className }: TooltipProps)
       {visible && (
         <div
           className={cn(
-            'absolute z-[250] whitespace-nowrap rounded-md bg-mesh-bg-elevated border border-mesh-border/50 px-2.5 py-1.5 text-xs font-medium text-mesh-text-primary shadow-lg pointer-events-none animate-in fade-in-0 zoom-in-95 duration-100',
+            'absolute z-[250] whitespace-nowrap rounded-md bg-mesh-bg-elevated/95 backdrop-blur-sm border border-mesh-border-light/60 px-2.5 py-1.5 text-xs font-medium text-mesh-text-primary shadow-[0_8px_24px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.06)] pointer-events-none animate-in fade-in-0 zoom-in-95 duration-100',
             positionClasses[side]
           )}
         >

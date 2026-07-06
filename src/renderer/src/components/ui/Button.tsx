@@ -15,11 +15,11 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         className={cn(
           'inline-flex items-center justify-center font-medium transition-colors duration-150 rounded-md focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mesh-green/60 focus-visible:ring-offset-1 focus-visible:ring-offset-mesh-bg-primary disabled:opacity-50 disabled:pointer-events-none',
           {
-            // Filled accent with a tonal border edge — reads intentional, not loud.
-            'bg-mesh-green hover:bg-mesh-green-light text-white border border-white/10': variant === 'primary',
-            // Surface + hairline border, the workhorse of a pro tool.
-            'bg-mesh-bg-tertiary hover:bg-mesh-bg-hover text-mesh-text-primary border border-mesh-border': variant === 'secondary',
-            'bg-mesh-danger/90 hover:bg-mesh-danger text-white border border-white/10': variant === 'danger',
+            // Glossy accent: vertical gradient + inner top highlight + press-down.
+            'text-white border border-white/10 bg-gradient-to-b from-mesh-green-light to-mesh-green hover:from-mesh-green hover:to-mesh-green-dark shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_3px_rgba(0,0,0,0.4)] active:translate-y-px active:shadow-[inset_0_1px_2px_rgba(0,0,0,0.3)]': variant === 'primary',
+            // Surface + hairline border with a whisper of top light.
+            'bg-mesh-bg-tertiary hover:bg-mesh-bg-hover text-mesh-text-primary border border-mesh-border shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] active:translate-y-px': variant === 'secondary',
+            'text-white border border-white/10 bg-gradient-to-b from-mesh-danger-hover to-mesh-danger hover:to-mesh-danger shadow-[inset_0_1px_0_rgba(255,255,255,0.15),0_1px_3px_rgba(0,0,0,0.4)] active:translate-y-px': variant === 'danger',
             'bg-transparent hover:bg-mesh-bg-tertiary text-mesh-text-secondary hover:text-mesh-text-primary': variant === 'ghost',
           },
           {

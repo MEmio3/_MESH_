@@ -30,7 +30,7 @@ function Modal({ isOpen, onClose, title, children }: ModalProps): JSX.Element | 
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
-            className="absolute inset-0 bg-black/60"
+            className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
             onClick={onClose}
           />
 
@@ -40,7 +40,7 @@ function Modal({ isOpen, onClose, title, children }: ModalProps): JSX.Element | 
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 10 }}
             transition={{ duration: 0.2, ease: 'easeOut' }}
-            className="relative w-full max-w-md mx-4 rounded-xl bg-mesh-bg-secondary border border-mesh-border shadow-2xl"
+            className="relative w-full max-w-md mx-4 rounded-xl bg-mesh-bg-secondary border border-mesh-border-light/60 shadow-[0_24px_64px_-16px_rgba(0,0,0,0.75),inset_0_1px_0_rgba(255,255,255,0.05)]"
           >
             {/* Header */}
             <div className="flex items-center justify-between px-5 pt-5 pb-2">
