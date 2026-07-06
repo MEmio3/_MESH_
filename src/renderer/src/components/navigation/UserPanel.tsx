@@ -9,6 +9,7 @@ import { useIdentityStore } from '@/stores/identity.store'
 import { useAvatarStore } from '@/stores/avatar.store'
 import { useStatusStore } from '@/stores/status.store'
 import { useSettingsStore } from '@/stores/settings.store'
+import { useNetStatsStore, formatKbps, pingTone } from '@/stores/netstats.store'
 import { AudioDevicePopover } from '@/components/audio/AudioDevicePopover'
 
 /**
@@ -34,6 +35,9 @@ function VoiceConnectionBar(): JSX.Element | null {
   const server = useServersStore((s) =>
     currentServerId ? s.servers.find((sv) => sv.id === currentServerId) : undefined
   )
+  const rttMs = useNetStatsStore((s) => s.rttMs)
+  const upKbps = useNetStatsStore((s) => s.upKbps)
+  const downKbps = useNetStatsStore((s) => s.downKbps)
 
   if (!isConnected) return null
 
@@ -49,16 +53,27 @@ function VoiceConnectionBar(): JSX.Element | null {
           className="flex items-center gap-2 flex-1 min-w-0 text-left rounded hover:bg-white/[0.06] px-1 py-0.5 transition-colors"
           title="Return to voice channel"
         >
-          <div className="text-[#23a559] shrink-0">
+          <div className={cn('shrink-0', pingTone(rttMs))}>
             <Wifi className="h-[18px] w-[18px]" />
           </div>
           <div className="flex flex-col min-w-0">
-            <span className="text-[13px] font-semibold text-[#23a559] leading-tight">
+            <span className="text-[13px] font-semibold text-[#23a559] leading-tight flex items-center gap-1.5">
               Voice Connected
+              {rttMs !== null && (
+                <span className={cn('text-[10px] font-mono font-medium leading-none', pingTone(rttMs))}>
+                  {rttMs} ms
+                </span>
+              )}
             </span>
             <span className="text-[11px] text-[#949ba4] truncate leading-tight mt-0.5">
               {roomLabel} / {serverLabel}
             </span>
+            {/* Live throughput on the local line — most useful while streaming */}
+            {(upKbps > 0 || downKbps > 0) && (
+              <span className="text-[10px] font-mono text-[#7a828c] truncate leading-tight mt-0.5">
+                ↑ {formatKbps(upKbps)} · ↓ {formatKbps(downKbps)}
+              </span>
+            )}
           </div>
         </button>
 

@@ -32,6 +32,13 @@ export interface PeerConnection {
 
 export type IceStrategy = 'p2p-first' | 'relay-fallback' | 'relay-only'
 
+/** Per-peer connection quality snapshot (2s polling window). */
+export interface PeerNetStats {
+  rttMs: number | null
+  upKbps: number
+  downKbps: number
+}
+
 class WebRTCManager {
   private peers: Map<string, PeerConnection> = new Map()
   private localAudioStream: MediaStream | null = null
@@ -54,6 +61,14 @@ class WebRTCManager {
 
   // File transfer state: accumulates chunks per fileId
   private fileChunks: Map<string, { meta: FileTransferMeta; chunks: ArrayBuffer[]; received: number }> = new Map()
+
+  // Live network telemetry — polled from getStats while any peer exists.
+  // Consumers (voice bar, call overlay) subscribe via onNetStats.
+  private statsTimer: ReturnType<typeof setInterval> | null = null
+  private prevTransport: Map<string, { bytesSent: number; bytesReceived: number; ts: number }> = new Map()
+  onNetStats:
+    | ((perPeer: Record<string, PeerNetStats>, totals: { upKbps: number; downKbps: number; rttMs: number | null }) => void)
+    | null = null
 
   // ICE candidates that arrived before their peer existed or before its
   // remoteDescription was set, keyed by socketId. addIceCandidate throws in
@@ -212,7 +227,80 @@ class WebRTCManager {
       }
     }
 
+    this.ensureStatsLoop()
     return pc
+  }
+
+  // ── Network telemetry ──
+
+  private ensureStatsLoop(): void {
+    if (this.statsTimer) return
+    this.statsTimer = setInterval(() => { this.collectNetStats() }, 2000)
+  }
+
+  private stopStatsLoopIfIdle(): void {
+    if (this.peers.size > 0 || !this.statsTimer) return
+    clearInterval(this.statsTimer)
+    this.statsTimer = null
+    this.prevTransport.clear()
+    this.onNetStats?.({}, { upKbps: 0, downKbps: 0, rttMs: null })
+  }
+
+  private async collectNetStats(): Promise<void> {
+    const perPeer: Record<string, PeerNetStats> = {}
+    let upSum = 0
+    let downSum = 0
+    const rtts: number[] = []
+
+    for (const [userId, peer] of this.peers) {
+      if (peer.pc.connectionState !== 'connected') continue
+      try {
+        const stats = await peer.pc.getStats()
+        let bytesSent = 0
+        let bytesReceived = 0
+        let rttMs: number | null = null
+        stats.forEach((report) => {
+          const r = report as unknown as {
+            type?: string
+            bytesSent?: number
+            bytesReceived?: number
+            selectedCandidatePairId?: string
+          }
+          if (r.type === 'transport') {
+            bytesSent += r.bytesSent ?? 0
+            bytesReceived += r.bytesReceived ?? 0
+            if (r.selectedCandidatePairId) {
+              const pair = stats.get(r.selectedCandidatePairId) as { currentRoundTripTime?: number } | undefined
+              if (pair?.currentRoundTripTime !== undefined) {
+                rttMs = Math.round(pair.currentRoundTripTime * 1000)
+              }
+            }
+          }
+        })
+        const now = Date.now()
+        const prev = this.prevTransport.get(userId)
+        let upKbps = 0
+        let downKbps = 0
+        if (prev && now > prev.ts) {
+          const dt = (now - prev.ts) / 1000
+          upKbps = Math.max(0, Math.round(((bytesSent - prev.bytesSent) * 8) / 1000 / dt))
+          downKbps = Math.max(0, Math.round(((bytesReceived - prev.bytesReceived) * 8) / 1000 / dt))
+        }
+        this.prevTransport.set(userId, { bytesSent, bytesReceived, ts: now })
+        perPeer[userId] = { rttMs, upKbps, downKbps }
+        upSum += upKbps
+        downSum += downKbps
+        if (rttMs !== null) rtts.push(rttMs)
+      } catch {
+        /* stats are diagnostics — never fatal */
+      }
+    }
+
+    this.onNetStats?.(perPeer, {
+      upKbps: upSum,
+      downKbps: downSum,
+      rttMs: rtts.length > 0 ? Math.round(rtts.reduce((a, b) => a + b, 0) / rtts.length) : null
+    })
   }
 
   private setupDataChannel(dc: RTCDataChannel, userId: string): void {
@@ -785,7 +873,9 @@ class WebRTCManager {
       this.peers.delete(userId)
       this.offerQueues.delete(userId)
       this.pendingCandidates.delete(peer.socketId)
+      this.prevTransport.delete(userId)
       this.onRemoteStreamRemoved?.(userId)
+      this.stopStatsLoopIfIdle()
     }
   }
 

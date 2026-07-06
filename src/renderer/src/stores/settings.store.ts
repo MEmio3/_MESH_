@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { webrtcManager } from '@/lib/webrtc'
+import { applyTheme, isThemeId, DEFAULT_THEME, type ThemeId } from '@/lib/themes'
 
 /**
  * Apply ICE configuration to the WebRTC manager based on user settings.
@@ -61,6 +62,7 @@ async function applyIceConfig(network: NetworkSettings): Promise<void> {
 }
 
 interface AppearanceSettings {
+  theme: ThemeId
   fontSize: number
   chatDensity: 'compact' | 'cozy' | 'default'
   messageGroupingMinutes: number
@@ -109,6 +111,7 @@ interface SettingsStore {
 }
 
 const DEFAULT_APPEARANCE: AppearanceSettings = {
+  theme: DEFAULT_THEME,
   fontSize: 14,
   chatDensity: 'default',
   messageGroupingMinutes: 5,
@@ -159,12 +162,20 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     const network = networkRaw ? { ...DEFAULT_NETWORK, ...JSON.parse(networkRaw) } : { ...DEFAULT_NETWORK }
     const privacy = privacyRaw ? { ...DEFAULT_PRIVACY, ...JSON.parse(privacyRaw) } : { ...DEFAULT_PRIVACY }
 
+    const appearance: AppearanceSettings = appearanceRaw
+      ? { ...DEFAULT_APPEARANCE, ...JSON.parse(appearanceRaw) }
+      : { ...DEFAULT_APPEARANCE }
+    if (!isThemeId(appearance.theme)) appearance.theme = DEFAULT_THEME
+
     set({
-      appearance: appearanceRaw ? { ...DEFAULT_APPEARANCE, ...JSON.parse(appearanceRaw) } : { ...DEFAULT_APPEARANCE },
+      appearance,
       notifications: notificationsRaw ? { ...DEFAULT_NOTIFICATIONS, ...JSON.parse(notificationsRaw) } : { ...DEFAULT_NOTIFICATIONS },
       network,
       privacy
     })
+
+    // Skin the app before first paint settles — no animation on startup.
+    applyTheme(appearance.theme)
 
     // Apply ICE config to WebRTC manager on load
     applyIceConfig(network)
@@ -174,6 +185,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     set((s) => {
       const updated = { ...s.appearance, ...partial }
       window.api.db.settings.set('appearance', JSON.stringify(updated))
+      // Live theme switch with a colour cross-fade.
+      if (partial.theme && partial.theme !== s.appearance.theme) {
+        applyTheme(updated.theme, updated.animationsEnabled)
+      }
       return { appearance: updated }
     })
   },

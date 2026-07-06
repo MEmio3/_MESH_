@@ -47,6 +47,89 @@
   --radius-xl: 10px;
 }
 
+/* ── Themes ──────────────────────────────────────────────────────────────
+   Each theme overrides the same custom properties the Tailwind utilities
+   reference, so switching `data-theme` on <html> reskins the whole app.
+   Obsidian (the defaults above) needs no block. */
+
+[data-theme='midnight'] {
+  --color-mesh-bg-primary: #0d1017;
+  --color-mesh-bg-secondary: #121724;
+  --color-mesh-bg-tertiary: #181e30;
+  --color-mesh-bg-elevated: #1f2740;
+  --color-mesh-bg-hover: #26304e;
+  --color-mesh-green: #7aa2f7;
+  --color-mesh-green-light: #8fb0fa;
+  --color-mesh-green-dark: #6690ec;
+  --color-mesh-green-glow: oklch(0.65 0.12 265 / 0.18);
+  --color-mesh-text-primary: #e8ebf5;
+  --color-mesh-text-secondary: #9aa3c0;
+  --color-mesh-text-muted: #5d6580;
+  --color-mesh-border: #1e2537;
+  --color-mesh-border-light: #2a3350;
+  --color-mesh-info: #2f9e6e;
+}
+
+[data-theme='carbon'] {
+  --color-mesh-bg-primary: #0a0a0a;
+  --color-mesh-bg-secondary: #101010;
+  --color-mesh-bg-tertiary: #171717;
+  --color-mesh-bg-elevated: #1e1e1e;
+  --color-mesh-bg-hover: #252525;
+  --color-mesh-green: #7d8590;
+  --color-mesh-green-light: #8f97a3;
+  --color-mesh-green-dark: #6b7280;
+  --color-mesh-green-glow: oklch(0.6 0.01 260 / 0.15);
+  --color-mesh-text-primary: #ececec;
+  --color-mesh-text-secondary: #9a9a9a;
+  --color-mesh-text-muted: #616161;
+  --color-mesh-border: #222222;
+  --color-mesh-border-light: #2d2d2d;
+}
+
+[data-theme='xbox'] {
+  --color-mesh-bg-primary: #0f0f0f;
+  --color-mesh-bg-secondary: #1a1a1a;
+  --color-mesh-bg-tertiary: #2d2d2d;
+  --color-mesh-bg-elevated: #3d3d3d;
+  --color-mesh-bg-hover: #4a4a4a;
+  --color-mesh-green: #107C10;
+  --color-mesh-green-light: #1a9c1a;
+  --color-mesh-green-dark: #0e6b0e;
+  --color-mesh-green-glow: oklch(0.5 0.15 145 / 0.3);
+  --color-mesh-text-primary: #ffffff;
+  --color-mesh-text-secondary: #b3b3b3;
+  --color-mesh-text-muted: #737373;
+  --color-mesh-border: #3d3d3d;
+  --color-mesh-border-light: #4a4a4a;
+}
+
+[data-theme='crimson'] {
+  --color-mesh-bg-primary: #0d0a0b;
+  --color-mesh-bg-secondary: #131011;
+  --color-mesh-bg-tertiary: #1a1517;
+  --color-mesh-bg-elevated: #221b1e;
+  --color-mesh-bg-hover: #2a2226;
+  --color-mesh-green: #d64550;
+  --color-mesh-green-light: #e35863;
+  --color-mesh-green-dark: #ba3a44;
+  --color-mesh-green-glow: oklch(0.55 0.15 20 / 0.18);
+  --color-mesh-text-primary: #f0eced;
+  --color-mesh-text-secondary: #a89ba0;
+  --color-mesh-text-muted: #6b5f64;
+  --color-mesh-border: #251e21;
+  --color-mesh-border-light: #322a2e;
+  --color-mesh-danger: #f5a623;
+  --color-mesh-danger-hover: #ffb840;
+}
+
+/* Applied briefly during a theme switch so colors cross-fade instead of
+   snapping. Removed after the transition so lists stay cheap to paint. */
+.theme-transition,
+.theme-transition * {
+  transition: background-color 220ms ease, border-color 220ms ease, color 220ms ease !important;
+}
+
 /* Global base styles */
 * {
   box-sizing: border-box;
@@ -91,9 +174,9 @@ html, body {
   background-color: #34343c;
 }
 
-/* Selection color */
+/* Selection color follows the active theme's accent */
 ::selection {
-  background-color: rgba(47, 158, 110, 0.28);
+  background-color: color-mix(in srgb, var(--color-mesh-green) 30%, transparent);
   color: #ffffff;
 }
 

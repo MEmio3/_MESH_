@@ -3,6 +3,7 @@ import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff, PhoneIncoming, PhoneOutg
 import { useCallStore } from '@/stores/call.store'
 import { useAudioPrefsStore } from '@/stores/audioPrefs.store'
 import { registerAudioSink } from '@/stores/audioPrefs.store'
+import { useNetStatsStore, pingTone } from '@/stores/netstats.store'
 import { UserAvatar } from '@/components/ui/UserAvatar'
 
 interface DeviceLists {
@@ -83,6 +84,7 @@ function CallOverlay(): JSX.Element | null {
 
   const [showSettings, setShowSettings] = useState(false)
   const devices = useMediaDevices(showSettings)
+  const peerRtt = useNetStatsStore((s) => (peerId ? s.perPeer[peerId]?.rttMs ?? null : null))
 
   const audioRef = useRef<HTMLAudioElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -189,6 +191,9 @@ function CallOverlay(): JSX.Element | null {
             <div className="text-sm font-semibold text-mesh-text-primary">{peerName || peerId}</div>
             <div className="text-[11px] text-mesh-text-muted font-mono">
               {formatDuration(duration)} · {kind === 'video' ? 'Video call' : 'Voice call'}
+              {peerRtt !== null && (
+                <span className={pingTone(peerRtt)}> · {peerRtt} ms</span>
+              )}
             </div>
           </div>
         </div>

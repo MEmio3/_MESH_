@@ -1,4 +1,6 @@
 import { Outlet, useLocation } from 'react-router-dom'
+import { motion } from 'framer-motion'
+import { useSettingsStore } from '@/stores/settings.store'
 import { TitleBar } from '@/components/titlebar/TitleBar'
 import { ActivityBar } from '@/components/navigation/ActivityBar'
 import { SidePanel } from '@/components/navigation/SidePanel'
@@ -16,6 +18,7 @@ function AppShell(): JSX.Element {
   const pickerOpen = useVoiceStore((s) => s.pickerOpen)
   const pickerInitialTab = useVoiceStore((s) => s.pickerInitialTab)
   const closePicker = useVoiceStore((s) => s.closePicker)
+  const animationsEnabled = useSettingsStore((s) => s.appearance.animationsEnabled)
 
   return (
     <div className="flex flex-col h-screen w-screen bg-mesh-bg-primary overflow-hidden">
@@ -41,10 +44,22 @@ function AppShell(): JSX.Element {
           )}
         </div>
 
-        {/* Main Content Area */}
+        {/* Main Content Area — subtle fade+rise on navigation */}
         <main className="flex-1 min-w-0 bg-mesh-bg-primary">
           <ErrorBoundary key={location.pathname}>
-            <Outlet />
+            {animationsEnabled ? (
+              <motion.div
+                key={location.pathname}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.16, ease: 'easeOut' }}
+                className="h-full"
+              >
+                <Outlet />
+              </motion.div>
+            ) : (
+              <Outlet />
+            )}
           </ErrorBoundary>
         </main>
       </div>
