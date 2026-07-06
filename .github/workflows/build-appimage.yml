@@ -1,4 +1,4 @@
-name: Build Linux AppImage
+name: Build Release Artifacts
 
 on:
   push:
@@ -12,7 +12,8 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  linux:
+    name: Build Linux packages
     runs-on: ubuntu-latest
 
     steps:
@@ -54,6 +55,52 @@ jobs:
           path: release/*.deb
           if-no-files-found: error
 
+  windows:
+    name: Build Windows installer
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Node dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Rebuild native modules
+        run: npx electron-rebuild --force
+
+      - name: Build Windows installer
+        run: npm run dist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Windows Installer Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MESH-Windows-Installer
+          path: release/*.exe
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs:
+      - linux
+      - windows
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
       - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
@@ -61,5 +108,4 @@ jobs:
           name: MESH ${{ github.ref_name }}
           generate_release_notes: true
           files: |
-            release/*.AppImage
-            release/*.deb
+            release-artifacts/*
