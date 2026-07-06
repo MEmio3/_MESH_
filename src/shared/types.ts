@@ -173,6 +173,8 @@ export interface ServerChannelRow {
   /** Text: JSON array of role ids allowed to send; null = everyone with the
    *  global Send Messages permission. Host always may send. */
   sendRoleIds: string | null
+  /** JSON ChannelOverrides (see shared/permissions.ts); null = no overrides. */
+  permissionOverrides: string | null
 }
 
 export interface ServerMessageRow {

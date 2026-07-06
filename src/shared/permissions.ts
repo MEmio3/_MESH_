@@ -29,14 +29,15 @@ export const PERM = {
   manageMessages: 1 << 9, // delete other members' messages
   // Voice
   connectVoice: 1 << 10,
-  stream: 1 << 11         // screen share / camera in voice channels
+  stream: 1 << 11,        // screen share / camera in voice channels
+  speak: 1 << 12          // transmit microphone audio in voice channels
 } as const
 
 export type PermissionKey = keyof typeof PERM
 
 /** What a plain member can do with no roles at all. */
 export const DEFAULT_MEMBER_PERMS =
-  PERM.sendMessages | PERM.attachFiles | PERM.addReactions | PERM.connectVoice | PERM.stream
+  PERM.sendMessages | PERM.attachFiles | PERM.addReactions | PERM.connectVoice | PERM.stream | PERM.speak
 
 /** What the legacy 'moderator' tier grants on top of the defaults. */
 export const MODERATOR_BUNDLE =
@@ -100,7 +101,109 @@ export const PERMISSION_GROUPS: Array<{
     group: 'Voice Channels',
     items: [
       { key: 'connectVoice', label: 'Connect', description: 'Join voice channels.' },
+      { key: 'speak', label: 'Speak', description: 'Transmit microphone audio in voice channels.' },
       { key: 'stream', label: 'Stream', description: 'Share screen or camera in voice channels.' }
     ]
   }
 ]
+
+/* ── Per-channel permission overrides (Discord-style) ─────────────────────
+   Each channel can override specific permissions per role (or for
+   '@everyone') with an explicit allow or deny; unset = inherit from the
+   member's server-level roles. Resolution:
+     host → always allowed
+     base = server-level roles (viewChannel has no bit; base = true)
+     @everyone override replaces base, then role overrides — any explicit
+     allow among the member's roles wins over denies.
+   When a channel has NO overrides, the legacy gates (minRole tier,
+   allowedRoleIds, sendRoleIds) still apply so old channels keep working. */
+
+export type ChannelPermKey =
+  | 'viewChannel'
+  | 'connectVoice'
+  | 'speak'
+  | 'stream'
+  | 'sendMessages'
+  | 'attachFiles'
+  | 'addReactions'
+  | 'manageMessages'
+
+export type OverrideState = 'allow' | 'deny'
+
+/** roleId (or 'everyone') → partial map of channel perms to allow/deny. */
+export type ChannelOverrides = Record<string, Partial<Record<ChannelPermKey, OverrideState>>>
+
+export const VOICE_CHANNEL_PERMS: Array<{ key: ChannelPermKey; label: string; description: string }> = [
+  { key: 'viewChannel', label: 'View Channel', description: 'See this channel in the list. Hidden channels do not exist for denied members.' },
+  { key: 'connectVoice', label: 'Connect', description: 'Join this voice channel and hear others.' },
+  { key: 'speak', label: 'Speak', description: 'Talk in this voice channel. Denied members join muted and cannot unmute.' },
+  { key: 'stream', label: 'Stream', description: 'Share screen or camera in this voice channel.' }
+]
+
+export const TEXT_CHANNEL_PERMS: Array<{ key: ChannelPermKey; label: string; description: string }> = [
+  { key: 'viewChannel', label: 'View Channel', description: 'See this channel in the list. Hidden channels do not exist for denied members.' },
+  { key: 'sendMessages', label: 'Send Messages', description: 'Send messages in this channel.' },
+  { key: 'attachFiles', label: 'Attach Files', description: 'Upload files and images in this channel.' },
+  { key: 'addReactions', label: 'Add Reactions', description: 'Add emoji reactions in this channel.' },
+  { key: 'manageMessages', label: 'Manage Messages', description: "Delete other members' messages in this channel." }
+]
+
+const TIER_RANK: Record<string, number> = { member: 0, moderator: 1, host: 2 }
+
+/** Does an overrides map contain any entry for the given key? */
+function overridesTouch(overrides: ChannelOverrides | null | undefined, key: ChannelPermKey): boolean {
+  if (!overrides) return false
+  for (const entry of Object.values(overrides)) {
+    if (entry && entry[key] !== undefined) return true
+  }
+  return false
+}
+
+/**
+ * Resolve whether a member holds a channel-level permission.
+ * Shared by the renderer (UI gating) and the main process (enforcement).
+ */
+export function resolveChannelPerm(opts: {
+  tier: string
+  roleIds: string[]
+  roles: Array<{ id: string; permissions: number }>
+  overrides: ChannelOverrides | null
+  /** Legacy gates — honored only when no override touches the key. */
+  minRole?: string | null
+  allowedRoleIds?: string[] | null
+  sendRoleIds?: string[] | null
+  key: ChannelPermKey
+}): boolean {
+  const { tier, roleIds, roles, overrides, key } = opts
+  if (tier === 'host') return true
+
+  // Server-level base. viewChannel has no global bit — visible by default.
+  let base = key === 'viewChannel'
+    ? true
+    : hasPerm(effectivePermissions(tier, roleIds, roles), PERM[key])
+
+  if (overridesTouch(overrides, key)) {
+    const ev = overrides?.['everyone']?.[key]
+    if (ev !== undefined) base = ev === 'allow'
+    const states: OverrideState[] = []
+    for (const id of roleIds) {
+      const st = overrides?.[id]?.[key]
+      if (st !== undefined) states.push(st)
+    }
+    if (states.length > 0) base = states.includes('allow')
+    return base
+  }
+
+  // Legacy gates (channels configured before overrides existed).
+  if (key === 'viewChannel' || key === 'connectVoice') {
+    if (opts.allowedRoleIds && opts.allowedRoleIds.length > 0) {
+      base = base && opts.allowedRoleIds.some((id) => roleIds.includes(id))
+    } else if (opts.minRole && opts.minRole !== 'member') {
+      base = base && (TIER_RANK[tier] ?? 0) >= (TIER_RANK[opts.minRole] ?? 0)
+    }
+  }
+  if (key === 'sendMessages' && opts.sendRoleIds && opts.sendRoleIds.length > 0) {
+    base = base && opts.sendRoleIds.some((id) => roleIds.includes(id))
+  }
+  return base
+}

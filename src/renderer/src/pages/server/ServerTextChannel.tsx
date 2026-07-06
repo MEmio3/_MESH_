@@ -8,7 +8,7 @@ import { MessageInput } from '@/components/chat/MessageInput'
 import { MemberListPanel } from '@/components/server/MemberListPanel'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { useServerLayout } from '@/stores/channels.store'
-import { PERM, effectivePermissions, hasPerm } from '../../../../shared/permissions'
+import { PERM, effectivePermissions, hasPerm, resolveChannelPerm, type ChannelPermKey } from '../../../../shared/permissions'
 import type { Server } from '@/types/server'
 
 interface ServerTextChannelProps {
@@ -51,17 +51,30 @@ function ServerTextChannel({ server, channelName, channelId, isDefaultChannel }:
   const myPerms = selfMember
     ? effectivePermissions(selfMember.role, selfMember.roleIds, customRoles)
     : 0
-  const isModerator =
-    selfMember?.role === 'host' || selfMember?.role === 'moderator' || hasPerm(myPerms, PERM.manageMessages)
-  // Per-channel send restriction (channel settings) on top of the global perm.
+  // Per-channel permission resolution — role overrides first, legacy gates
+  // as fallback, host always allowed (see shared/permissions.ts).
   const layout = useServerLayout(server.id)
   const channelDef = channelId ? layout.channels.find((c) => c.id === channelId) : undefined
-  const channelSendAllowed =
+  const chanPerm = (key: ChannelPermKey): boolean =>
+    channelDef
+      ? resolveChannelPerm({
+          tier: selfMember?.role ?? 'member',
+          roleIds: selfMember?.roleIds ?? [],
+          roles: customRoles,
+          overrides: channelDef.overrides,
+          minRole: channelDef.minRole,
+          allowedRoleIds: channelDef.allowedRoleIds,
+          sendRoleIds: channelDef.sendRoleIds,
+          key
+        })
+      : hasPerm(myPerms, PERM[key as keyof typeof PERM] ?? 0)
+  const isModerator =
     selfMember?.role === 'host' ||
-    !channelDef?.sendRoleIds ||
-    channelDef.sendRoleIds.some((id) => (selfMember?.roleIds ?? []).includes(id))
-  const canSend = hasPerm(myPerms, PERM.sendMessages) && channelSendAllowed
-  const canAttach = hasPerm(myPerms, PERM.attachFiles)
+    selfMember?.role === 'moderator' ||
+    hasPerm(myPerms, PERM.manageMessages) ||
+    chanPerm('manageMessages')
+  const canSend = chanPerm('sendMessages')
+  const canAttach = chanPerm('attachFiles')
 
   return (
     <div className="flex h-full">
@@ -129,9 +142,7 @@ function ServerTextChannel({ server, channelName, channelId, isDefaultChannel }:
         ) : (
           <div className="shrink-0 px-4 pb-4 pt-1">
             <div className="flex items-center justify-center h-11 rounded-lg bg-mesh-bg-tertiary/60 border border-mesh-border/50 text-sm text-mesh-text-muted select-none">
-              {channelSendAllowed
-                ? "You don't have permission to send messages in this channel."
-                : 'Only specific roles can send messages in this channel.'}
+              You don&apos;t have permission to send messages in this channel.
             </div>
           </div>
         )}

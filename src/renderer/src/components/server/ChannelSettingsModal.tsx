@@ -1,20 +1,26 @@
 import { useState } from 'react'
-import { Hash, Volume2, Search, Check } from 'lucide-react'
+import { Hash, Volume2, X, Slash, Check, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Slider } from '@/components/ui/Slider'
-import { useChannelsStore, type Channel, type ChannelMinRole } from '@/stores/channels.store'
+import { useChannelsStore, type Channel } from '@/stores/channels.store'
 import { useServersStore } from '@/stores/servers.store'
 import { resolveRoleNames } from '@/lib/roleNames'
+import {
+  VOICE_CHANNEL_PERMS,
+  TEXT_CHANNEL_PERMS,
+  type ChannelOverrides,
+  type ChannelPermKey,
+  type OverrideState
+} from '../../../../shared/permissions'
 
 /**
- * Per-channel settings, Discord-style. Every control is functional:
- *   - Overview: rename; voice channels get bitrate (applied to live audio
- *     senders) and a user limit (enforced by the signaling server at join).
- *   - Permissions: who can see/join (tier gate or role allow-list) and, for
- *     text channels, who can send messages.
+ * Per-channel settings. Overview holds the practical knobs (name, bitrate,
+ * user limit); Permissions is a Discord-style override matrix — pick a role
+ * (or @everyone) on the left, set each permission to deny / inherit / allow.
+ * Roles decide everything; the owner always bypasses.
  */
 function ChannelSettingsModal({
   serverId,
@@ -25,15 +31,13 @@ function ChannelSettingsModal({
   channelId: string
   onClose: () => void
 }): JSX.Element | null {
-  // Always read the LIVE channel from the store so toggles accumulate.
+  // Always read the LIVE channel from the store so edits accumulate.
   const channel = useChannelsStore((s) =>
     s.byServer[serverId]?.channels.find((c) => c.id === channelId)
   )
   const renameChannel = useChannelsStore((s) => s.renameChannel)
   const updateChannelSettings = useChannelsStore((s) => s.updateChannelSettings)
-  const setChannelAccess = useChannelsStore((s) => s.setChannelAccess)
-  const setChannelRoles = useChannelsStore((s) => s.setChannelRoles)
-  const setChannelSendRoles = useChannelsStore((s) => s.setChannelSendRoles)
+  const setChannelOverrides = useChannelsStore((s) => s.setChannelOverrides)
   const roles = useServersStore((s) => s.serverRoles[serverId]) ?? []
   const server = useServersStore((s) => s.servers.find((sv) => sv.id === serverId))
   const labels = resolveRoleNames(server?.roleNames)
@@ -44,11 +48,13 @@ function ChannelSettingsModal({
   const [bitrate, setBitrate] = useState(channel?.bitrateKbps ?? 64)
   const [userLimit, setUserLimit] = useState(channel?.userLimit ?? 0)
   const [saving, setSaving] = useState(false)
-  const [roleSearch, setRoleSearch] = useState('')
+  // Which role's overrides are being edited; 'everyone' is the base row.
+  const [target, setTarget] = useState<string>('everyone')
 
   if (!channel) return null
   const isVoice = channel.type === 'voice'
   const Icon = isVoice ? Volume2 : Hash
+  const permList = isVoice ? VOICE_CHANNEL_PERMS : TEXT_CHANNEL_PERMS
 
   const overviewDirty =
     name.trim() !== channel.name ||
@@ -69,12 +75,26 @@ function ChannelSettingsModal({
     }
   }
 
-  const searched = roles.filter((r) => r.name.toLowerCase().includes(roleSearch.toLowerCase()))
-  const restrictedByRoles = !!channel.allowedRoleIds && channel.allowedRoleIds.length > 0
+  const stateFor = (key: ChannelPermKey): OverrideState | undefined =>
+    channel.overrides?.[target]?.[key]
+
+  const setState = (key: ChannelPermKey, next: OverrideState | undefined): void => {
+    // Deep-copy, mutate, prune empties, persist. null clears the column.
+    const draft: ChannelOverrides = JSON.parse(JSON.stringify(channel.overrides ?? {}))
+    if (!draft[target]) draft[target] = {}
+    if (next === undefined) delete draft[target][key]
+    else draft[target][key] = next
+    if (Object.keys(draft[target]).length === 0) delete draft[target]
+    setChannelOverrides(serverId, channel.id, Object.keys(draft).length > 0 ? draft : null)
+  }
+
+  /** Count of overrides a role target carries (for the dot in the list). */
+  const touchCount = (id: string): number =>
+    Object.keys(channel.overrides?.[id] ?? {}).length
 
   return (
     <Modal isOpen onClose={onClose} title={`${isVoice ? 'Voice' : 'Text'} Channel — ${channel.name}`}>
-      <div className="flex flex-col gap-4 max-h-[65vh] overflow-y-auto pr-1">
+      <div className="flex flex-col gap-4 max-h-[68vh]">
         {/* Tabs */}
         <div className="flex items-center gap-5 border-b border-mesh-border text-sm shrink-0">
           {([['overview', 'Overview'], ['permissions', 'Permissions']] as Array<['overview' | 'permissions', string]>).map(([key, label]) => (
@@ -94,7 +114,7 @@ function ChannelSettingsModal({
         </div>
 
         {tab === 'overview' && (
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4 overflow-y-auto pr-1">
             <div>
               <span className="block text-[11px] font-semibold uppercase tracking-wide text-mesh-text-secondary mb-1">
                 Channel name
@@ -124,14 +144,7 @@ function ChannelSettingsModal({
                   </div>
                   {customBitrate ? (
                     <>
-                      <Slider
-                        value={bitrate}
-                        min={8}
-                        max={128}
-                        onChange={setBitrate}
-                        label={`${bitrate} kbps`}
-                        className="w-full"
-                      />
+                      <Slider value={bitrate} min={8} max={128} onChange={setBitrate} label={`${bitrate} kbps`} className="w-full" />
                       <p className="text-[11px] text-mesh-text-muted mt-1">
                         Caps each speaker&apos;s audio. 64 kbps is transparent for voice;
                         lower saves bandwidth on weak links, higher helps music.
@@ -148,14 +161,7 @@ function ChannelSettingsModal({
                   <span className="block text-[11px] font-semibold uppercase tracking-wide text-mesh-text-secondary mb-1">
                     User limit
                   </span>
-                  <Slider
-                    value={userLimit}
-                    min={0}
-                    max={99}
-                    onChange={setUserLimit}
-                    label={userLimit === 0 ? '∞' : `${userLimit}`}
-                    className="w-full"
-                  />
+                  <Slider value={userLimit} min={0} max={99} onChange={setUserLimit} label={userLimit === 0 ? '∞' : `${userLimit}`} className="w-full" />
                   <p className="text-[11px] text-mesh-text-muted mt-1">
                     Maximum members in this voice channel — enforced when joining.
                     The {labels.host} always gets in. 0 = unlimited.
@@ -173,82 +179,102 @@ function ChannelSettingsModal({
         )}
 
         {tab === 'permissions' && (
-          <div className="flex flex-col gap-4">
-            {/* Who can see / join */}
-            <div>
-              <span className="block text-[11px] font-semibold uppercase tracking-wide text-mesh-text-secondary mb-1">
-                {isVoice ? 'Who can see & join' : 'Who can see this channel'}
+          <div className="flex gap-3 min-h-0">
+            {/* Role targets */}
+            <div className="w-40 shrink-0 flex flex-col gap-1 overflow-y-auto border-r border-mesh-border pr-2">
+              <span className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-mesh-text-muted">
+                Roles
               </span>
-              <div className="flex flex-col rounded-lg border border-mesh-border divide-y divide-mesh-border/60 mb-2">
-                {([
-                  ['member', 'Everyone'],
-                  ['moderator', `${labels.moderator} & ${labels.host}`],
-                  ['host', `${labels.host} only`]
-                ] as Array<[ChannelMinRole, string]>).map(([tier, label]) => {
-                  const active = !restrictedByRoles && (channel.minRole ?? 'member') === tier
+              <button
+                onClick={() => setTarget('everyone')}
+                className={cn(
+                  'flex items-center gap-2 px-2 py-1.5 rounded-md text-[13px] text-left transition-colors min-w-0',
+                  target === 'everyone'
+                    ? 'bg-mesh-bg-tertiary text-mesh-text-primary'
+                    : 'text-mesh-text-secondary hover:bg-mesh-bg-tertiary/60'
+                )}
+              >
+                <Users className="h-3.5 w-3.5 shrink-0 text-mesh-text-muted" />
+                <span className="truncate flex-1">@everyone</span>
+                {touchCount('everyone') > 0 && <span className="h-1.5 w-1.5 rounded-full bg-mesh-green shrink-0" />}
+              </button>
+              {roles.map((r) => (
+                <button
+                  key={r.id}
+                  onClick={() => setTarget(r.id)}
+                  className={cn(
+                    'flex items-center gap-2 px-2 py-1.5 rounded-md text-[13px] text-left transition-colors min-w-0',
+                    target === r.id
+                      ? 'bg-mesh-bg-tertiary text-mesh-text-primary'
+                      : 'text-mesh-text-secondary hover:bg-mesh-bg-tertiary/60'
+                  )}
+                >
+                  <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: r.color }} />
+                  <span className="truncate flex-1">{r.name}</span>
+                  {touchCount(r.id) > 0 && <span className="h-1.5 w-1.5 rounded-full bg-mesh-green shrink-0" />}
+                </button>
+              ))}
+              {roles.length === 0 && (
+                <p className="px-1 text-[10px] text-mesh-text-muted leading-snug">
+                  Create roles in Server Settings → Roles to grant per-role
+                  overrides here.
+                </p>
+              )}
+            </div>
+
+            {/* Override matrix */}
+            <div className="flex-1 min-w-0 overflow-y-auto pr-1">
+              <p className="text-[11px] text-mesh-text-muted mb-2 leading-snug">
+                <X className="inline h-3 w-3 text-mesh-danger -mt-0.5" /> deny ·{' '}
+                <Slash className="inline h-3 w-3 -mt-0.5" /> inherit from roles ·{' '}
+                <Check className="inline h-3 w-3 text-mesh-green -mt-0.5" /> allow.
+                The {labels.host} always has every permission.
+              </p>
+              <div className="flex flex-col rounded-lg border border-mesh-border divide-y divide-mesh-border/60">
+                {permList.map((perm) => {
+                  const state = stateFor(perm.key)
                   return (
-                    <button
-                      key={tier}
-                      onClick={() => {
-                        setChannelRoles(serverId, channel.id, null)
-                        setChannelAccess(serverId, channel.id, tier)
-                      }}
-                      className="flex items-center gap-2.5 px-3 py-2 text-left text-[13px] text-mesh-text-secondary hover:bg-mesh-bg-secondary hover:text-mesh-text-primary transition-colors"
-                    >
-                      <span className={cn(
-                        'h-3.5 w-3.5 rounded-full border flex items-center justify-center shrink-0',
-                        active ? 'border-mesh-green' : 'border-mesh-border-light'
-                      )}>
-                        {active && <span className="h-1.5 w-1.5 rounded-full bg-mesh-green" />}
-                      </span>
-                      {label}
-                    </button>
+                    <div key={perm.key} className="flex items-start justify-between gap-3 px-3.5 py-2.5">
+                      <div className="min-w-0">
+                        <span className="block text-[13px] text-mesh-text-primary">{perm.label}</span>
+                        <span className="block text-[11px] text-mesh-text-muted leading-snug">{perm.description}</span>
+                      </div>
+                      <div className="flex rounded-md overflow-hidden border border-mesh-border shrink-0 mt-0.5">
+                        <TriButton
+                          active={state === 'deny'}
+                          activeClass="bg-mesh-danger text-white"
+                          title="Deny"
+                          onClick={() => setState(perm.key, state === 'deny' ? undefined : 'deny')}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </TriButton>
+                        <TriButton
+                          active={state === undefined}
+                          activeClass="bg-mesh-bg-hover text-mesh-text-primary"
+                          title="Inherit (use server-level roles)"
+                          onClick={() => setState(perm.key, undefined)}
+                        >
+                          <Slash className="h-3.5 w-3.5" />
+                        </TriButton>
+                        <TriButton
+                          active={state === 'allow'}
+                          activeClass="bg-mesh-green text-white"
+                          title="Allow"
+                          onClick={() => setState(perm.key, state === 'allow' ? undefined : 'allow')}
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                        </TriButton>
+                      </div>
+                    </div>
                   )
                 })}
               </div>
-              <p className="text-[11px] text-mesh-text-muted mb-2">
-                Or restrict to specific roles — this overrides the tiers above.
-                Hidden channels don&apos;t exist for anyone outside the list.
+              <p className="text-[10px] text-mesh-text-muted mt-2 leading-snug">
+                Changes apply instantly and sync to every member. Denying View
+                Channel for @everyone and allowing it for specific roles makes
+                this channel private to those roles.
               </p>
-              <RoleChecklist
-                roles={searched}
-                search={roleSearch}
-                onSearch={setRoleSearch}
-                isChecked={(id) => (channel.allowedRoleIds ?? []).includes(id)}
-                onToggle={(id) => {
-                  const current = channel.allowedRoleIds ?? []
-                  const next = current.includes(id) ? current.filter((x) => x !== id) : [...current, id]
-                  setChannelRoles(serverId, channel.id, next.length > 0 ? next : null)
-                }}
-                emptyHint="No custom roles yet — create some in Server Settings → Roles."
-              />
             </div>
-
-            {/* Text: who can send */}
-            {!isVoice && (
-              <div>
-                <span className="block text-[11px] font-semibold uppercase tracking-wide text-mesh-text-secondary mb-1">
-                  Who can send messages
-                </span>
-                <p className="text-[11px] text-mesh-text-muted mb-2">
-                  No roles selected = anyone with the Send Messages permission.
-                  Selecting roles makes this read-only for everyone else —
-                  perfect for an announcements channel.
-                </p>
-                <RoleChecklist
-                  roles={searched}
-                  search={roleSearch}
-                  onSearch={setRoleSearch}
-                  isChecked={(id) => (channel.sendRoleIds ?? []).includes(id)}
-                  onToggle={(id) => {
-                    const current = channel.sendRoleIds ?? []
-                    const next = current.includes(id) ? current.filter((x) => x !== id) : [...current, id]
-                    setChannelSendRoles(serverId, channel.id, next.length > 0 ? next : null)
-                  }}
-                  emptyHint="No custom roles yet — create some in Server Settings → Roles."
-                />
-              </div>
-            )}
           </div>
         )}
       </div>
@@ -256,61 +282,30 @@ function ChannelSettingsModal({
   )
 }
 
-function RoleChecklist({
-  roles,
-  search,
-  onSearch,
-  isChecked,
-  onToggle,
-  emptyHint
+function TriButton({
+  active,
+  activeClass,
+  title,
+  onClick,
+  children
 }: {
-  roles: Array<{ id: string; name: string; color: string }>
-  search: string
-  onSearch: (v: string) => void
-  isChecked: (roleId: string) => boolean
-  onToggle: (roleId: string) => void
-  emptyHint: string
+  active: boolean
+  activeClass: string
+  title: string
+  onClick: () => void
+  children: React.ReactNode
 }): JSX.Element {
   return (
-    <div className="rounded-lg border border-mesh-border">
-      <div className="relative m-2">
-        <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-mesh-text-muted" />
-        <input
-          value={search}
-          onChange={(e) => onSearch(e.target.value)}
-          placeholder="Search roles"
-          className="w-full h-7 pr-2 rounded bg-mesh-bg-secondary border border-mesh-border text-xs text-mesh-text-primary placeholder:text-mesh-text-muted focus:outline-none focus:border-mesh-green"
-          style={{ paddingLeft: '1.6rem' }}
-        />
-      </div>
-      <div className="max-h-40 overflow-y-auto pb-1">
-        {roles.map((r) => {
-          const has = isChecked(r.id)
-          return (
-            <button
-              key={r.id}
-              onClick={() => onToggle(r.id)}
-              className="flex items-center gap-2.5 w-full px-3 py-1.5 text-left text-[13px] text-mesh-text-secondary hover:bg-mesh-bg-secondary hover:text-mesh-text-primary transition-colors"
-            >
-              <span
-                className={cn(
-                  'h-3.5 w-3.5 rounded-sm border flex items-center justify-center shrink-0',
-                  has ? 'border-transparent' : 'border-mesh-border-light'
-                )}
-                style={has ? { backgroundColor: r.color } : undefined}
-              >
-                {has && <Check className="h-2.5 w-2.5 text-white" />}
-              </span>
-              <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: r.color }} />
-              <span className="truncate flex-1">{r.name}</span>
-            </button>
-          )
-        })}
-        {roles.length === 0 && (
-          <div className="px-3 py-2 text-[11px] text-mesh-text-muted">{emptyHint}</div>
-        )}
-      </div>
-    </div>
+    <button
+      onClick={onClick}
+      title={title}
+      className={cn(
+        'h-7 w-8 flex items-center justify-center transition-colors',
+        active ? activeClass : 'bg-mesh-bg-secondary text-mesh-text-muted hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary'
+      )}
+    >
+      {children}
+    </button>
   )
 }
 

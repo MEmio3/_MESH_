@@ -257,7 +257,7 @@ interface ServerAPI {
   // Channels / Categories
   listChannels: (serverId: string) => Promise<{
     categories: Array<{ id: string; serverId: string; name: string; position: number }>
-    channels: Array<{ id: string; serverId: string; categoryId: string | null; name: string; type: 'text' | 'voice'; position: number; minRole: 'member' | 'moderator' | 'host'; allowedRoleIds: string | null; bitrateKbps: number | null; userLimit: number; sendRoleIds: string | null }>
+    channels: Array<{ id: string; serverId: string; categoryId: string | null; name: string; type: 'text' | 'voice'; position: number; minRole: 'member' | 'moderator' | 'host'; allowedRoleIds: string | null; bitrateKbps: number | null; userLimit: number; sendRoleIds: string | null; permissionOverrides: string | null }>
   }>
   createCategory: (p: { serverId: string; actorId: string; name: string }) => Promise<{ success: boolean; error?: string; categoryId?: string }>
   createChannel: (p: { serverId: string; actorId: string; name: string; type: 'text' | 'voice'; categoryId?: string | null }) => Promise<{ success: boolean; error?: string; channelId?: string }>
@@ -279,6 +279,7 @@ interface ServerAPI {
   setChannelRoles: (p: { serverId: string; actorId: string; channelId: string; allowedRoleIds: string[] | null }) => Promise<{ success: boolean; error?: string }>
   setChannelSendRoles: (p: { serverId: string; actorId: string; channelId: string; sendRoleIds: string[] | null }) => Promise<{ success: boolean; error?: string }>
   updateChannelSettings: (p: { serverId: string; actorId: string; channelId: string; bitrateKbps: number | null; userLimit: number }) => Promise<{ success: boolean; error?: string }>
+  setChannelOverrides: (p: { serverId: string; actorId: string; channelId: string; overrides: unknown | null }) => Promise<{ success: boolean; error?: string }>
 }
 
 interface NetworkSignature {

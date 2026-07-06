@@ -4,7 +4,7 @@ import type { Message, FileAttachment } from '@/types/messages'
 import { useIdentityStore } from './identity.store'
 import { useAvatarStore } from './avatar.store'
 import { useChannelsStore } from './channels.store'
-import { PERM, effectivePermissions, hasPerm } from '../../../shared/permissions'
+import { PERM, effectivePermissions, hasPerm, resolveChannelPerm } from '../../../shared/permissions'
 import { normalizeReactions } from './messages.store'
 import { notify } from '@/lib/notify'
 import { playServerMessage } from '@/lib/sounds'
@@ -442,7 +442,27 @@ export const useServersStore = create<ServersStore>((set, get) => ({
   toggleServerReaction: async (serverId, messageId, emojiId) => {
     const identity = useIdentityStore.getState().identity
     if (!identity) return
-    if (!hasPerm(get().selfPermissions(serverId), PERM.addReactions)) return
+    // Channel-aware permission: overrides can grant or revoke reactions
+    // for this specific channel; fall back to the server-level bit.
+    const targetMsg = (get().serverMessages[serverId] || []).find((m) => m.id === messageId)
+    const chDef = targetMsg?.channelId
+      ? useChannelsStore.getState().byServer[serverId]?.channels.find((c) => c.id === targetMsg.channelId)
+      : undefined
+    if (chDef) {
+      const me = (get().serverMembers[serverId] || []).find((m) => m.userId === identity.userId)
+      const allowed = resolveChannelPerm({
+        tier: me?.role ?? 'member',
+        roleIds: me?.roleIds ?? [],
+        roles: get().serverRoles[serverId] ?? [],
+        overrides: chDef.overrides,
+        minRole: chDef.minRole,
+        allowedRoleIds: chDef.allowedRoleIds,
+        key: 'addReactions'
+      })
+      if (!allowed) return
+    } else if (!hasPerm(get().selfPermissions(serverId), PERM.addReactions)) {
+      return
+    }
 
     const msgs = get().serverMessages[serverId]
     if (!msgs) return

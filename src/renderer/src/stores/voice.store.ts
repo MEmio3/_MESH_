@@ -3,7 +3,9 @@ import type { VoiceParticipant } from '@/types/server'
 import { useIdentityStore } from './identity.store'
 import { useAudioPrefsStore } from './audioPrefs.store'
 import { useChannelsStore } from './channels.store'
+import { useServersStore } from './servers.store'
 import { webrtcManager } from '@/lib/webrtc'
+import { resolveChannelPerm } from '../../../shared/permissions'
 import {
   playVoiceSelfJoin,
   playVoiceSelfLeave,
@@ -41,6 +43,10 @@ interface VoiceStore {
   localMediaStream: MediaStream | null // reactive handle to self-preview stream
   isMuted: boolean
   isDeafened: boolean
+  /** Channel denies the Speak permission — mic is force-muted, unmute blocked. */
+  speakLocked: boolean
+  /** Channel denies the Stream permission — screen/camera start is blocked. */
+  streamLocked: boolean
   isScreenSharing: boolean
   isCameraOn: boolean
   streamQuality: StreamQuality
@@ -87,6 +93,8 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   localMediaStream: null,
   isMuted: false,
   isDeafened: false,
+  speakLocked: false,
+  streamLocked: false,
   isScreenSharing: false,
   isCameraOn: false,
   streamQuality: 'SD',
@@ -165,6 +173,31 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       : undefined
     webrtcManager.setAudioMaxBitrate(channelDef?.bitrateKbps ?? null)
 
+    // Per-channel Speak/Stream permissions — enforced, not decorative.
+    const meMember = useServersStore.getState().serverMembers[serverId]?.find(
+      (m) => m.userId === identity?.userId
+    )
+    const roleDefs = useServersStore.getState().serverRoles[serverId] ?? []
+    const chanPerm = (key: 'speak' | 'stream'): boolean =>
+      channelDef
+        ? resolveChannelPerm({
+            tier: meMember?.role ?? 'member',
+            roleIds: meMember?.roleIds ?? [],
+            roles: roleDefs,
+            overrides: channelDef.overrides,
+            minRole: channelDef.minRole,
+            allowedRoleIds: channelDef.allowedRoleIds,
+            key
+          })
+        : true
+    const speakLocked = !chanPerm('speak')
+    const streamLocked = !chanPerm('stream')
+    if (speakLocked) {
+      // Denied Speak: join muted, and the mute toggle is locked shut.
+      webrtcManager.setAudioEnabled(false)
+    }
+    set({ speakLocked, streamLocked, isMuted: speakLocked ? true : get().isMuted })
+
     // Scope the room to server + channel so different voice channels are
     // separate rooms (users in #gaming don't hear users in #voice-lounge).
     // `legacy` bucket keeps pre-channels callers (ServerVoiceRoom without a
@@ -195,6 +228,8 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       localMediaStream: null,
       isMuted: false,
       isDeafened: false,
+      speakLocked: false,
+      streamLocked: false,
       isScreenSharing: false,
       isCameraOn: false,
       currentStreamSource: null,
@@ -254,6 +289,8 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   },
 
   toggleMute: () => {
+    // Speak denied by the channel — the mic stays shut.
+    if (get().speakLocked && get().isConnected) return
     const next = !get().isMuted
     webrtcManager.setAudioEnabled(!next)
     set({ isMuted: next })
@@ -267,8 +304,10 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       set({ isDeafened: true, isMuted: true })
       playDeafen()
     } else {
-      webrtcManager.setAudioEnabled(true)
-      set({ isDeafened: false, isMuted: false })
+      // Undeafen restores the mic only if the channel lets this member speak.
+      const locked = get().speakLocked && get().isConnected
+      webrtcManager.setAudioEnabled(!locked)
+      set({ isDeafened: false, isMuted: locked })
       playUndeafen()
     }
   },
@@ -298,6 +337,8 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   setStreamQuality: (quality) => set({ streamQuality: quality }),
 
   startStreamFromSource: async (source, quality) => {
+    // Stream denied by the channel — hard stop, regardless of UI path.
+    if (get().streamLocked && get().isConnected) return
     const { width, height, frameRate } = resolveQuality(quality)
     const selfId = useIdentityStore.getState().identity?.userId
 
@@ -391,7 +432,10 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     if (wasStreaming) playStreamStop()
   },
 
-  openPicker: (tab = 'applications') => set({ pickerOpen: true, pickerInitialTab: tab }),
+  openPicker: (tab = 'applications') => {
+    if (get().streamLocked && get().isConnected) return
+    set({ pickerOpen: true, pickerInitialTab: tab })
+  },
   closePicker: () => set({ pickerOpen: false }),
   openStreamViewer: (userId: string) => set({ viewingStreamUserId: userId }),
   closeStreamViewer: () => set({ viewingStreamUserId: null }),

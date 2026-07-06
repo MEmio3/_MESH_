@@ -122,6 +122,7 @@ function migrateSchema(): void {
     if (!chanNames.has('bitrate_kbps')) d.exec('ALTER TABLE server_channels ADD COLUMN bitrate_kbps INTEGER')
     if (!chanNames.has('user_limit')) d.exec('ALTER TABLE server_channels ADD COLUMN user_limit INTEGER NOT NULL DEFAULT 0')
     if (!chanNames.has('send_role_ids')) d.exec('ALTER TABLE server_channels ADD COLUMN send_role_ids TEXT')
+    if (!chanNames.has('permission_overrides')) d.exec('ALTER TABLE server_channels ADD COLUMN permission_overrides TEXT')
   }
 
   // Custom role assignments on members.
@@ -263,6 +264,7 @@ function createTables(): void {
       bitrate_kbps INTEGER,
       user_limit INTEGER NOT NULL DEFAULT 0,
       send_role_ids TEXT,
+      permission_overrides TEXT,
       FOREIGN KEY (server_id) REFERENCES servers(id)
     );
     CREATE INDEX IF NOT EXISTS idx_server_channels_server ON server_channels(server_id, position);
@@ -578,7 +580,7 @@ export function removeServer(serverId: string): void {
 // ── Server Categories / Channels ──
 
 const CAT_COLS = 'id, server_id AS serverId, name, position'
-const CHAN_COLS = 'id, server_id AS serverId, category_id AS categoryId, name, type, position, min_role AS minRole, allowed_role_ids AS allowedRoleIds, bitrate_kbps AS bitrateKbps, COALESCE(user_limit, 0) AS userLimit, send_role_ids AS sendRoleIds'
+const CHAN_COLS = 'id, server_id AS serverId, category_id AS categoryId, name, type, position, min_role AS minRole, allowed_role_ids AS allowedRoleIds, bitrate_kbps AS bitrateKbps, COALESCE(user_limit, 0) AS userLimit, send_role_ids AS sendRoleIds, permission_overrides AS permissionOverrides'
 
 export function getServerCategories(serverId: string): ServerCategoryRow[] {
   return getDb().prepare(`SELECT ${CAT_COLS} FROM server_categories WHERE server_id = ? ORDER BY position ASC`).all(serverId) as ServerCategoryRow[]
@@ -604,7 +606,11 @@ export function deleteServerCategory(id: string): void {
 }
 
 export function insertServerChannel(row: ServerChannelRow): void {
-  getDb().prepare('INSERT OR REPLACE INTO server_channels (id, server_id, category_id, name, type, position, min_role, allowed_role_ids, bitrate_kbps, user_limit, send_role_ids) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(row.id, row.serverId, row.categoryId, row.name, row.type, row.position, row.minRole ?? 'member', row.allowedRoleIds ?? null, row.bitrateKbps ?? null, row.userLimit ?? 0, row.sendRoleIds ?? null)
+  getDb().prepare('INSERT OR REPLACE INTO server_channels (id, server_id, category_id, name, type, position, min_role, allowed_role_ids, bitrate_kbps, user_limit, send_role_ids, permission_overrides) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(row.id, row.serverId, row.categoryId, row.name, row.type, row.position, row.minRole ?? 'member', row.allowedRoleIds ?? null, row.bitrateKbps ?? null, row.userLimit ?? 0, row.sendRoleIds ?? null, row.permissionOverrides ?? null)
+}
+
+export function updateServerChannelOverrides(id: string, overridesJson: string | null): void {
+  getDb().prepare('UPDATE server_channels SET permission_overrides = ? WHERE id = ?').run(overridesJson, id)
 }
 
 export function updateServerChannelRoles(id: string, allowedRoleIdsJson: string | null): void {
@@ -676,8 +682,8 @@ export function seedDefaultServerChannelsIfMissing(): void {
     const voiceChId = `${s.id}__ch-voice-default`
     insertServerCategory({ id: textCatId, serverId: s.id, name: 'Text Channels', position: 0 })
     insertServerCategory({ id: voiceCatId, serverId: s.id, name: 'Voice Channels', position: 1 })
-    insertServerChannel({ id: textChId, serverId: s.id, categoryId: textCatId, name: s.textChannelName || 'general', type: 'text', position: 0, minRole: 'member', allowedRoleIds: null, bitrateKbps: null, userLimit: 0, sendRoleIds: null })
-    insertServerChannel({ id: voiceChId, serverId: s.id, categoryId: voiceCatId, name: s.voiceRoomName || 'Voice Lounge', type: 'voice', position: 0, minRole: 'member', allowedRoleIds: null, bitrateKbps: null, userLimit: 0, sendRoleIds: null })
+    insertServerChannel({ id: textChId, serverId: s.id, categoryId: textCatId, name: s.textChannelName || 'general', type: 'text', position: 0, minRole: 'member', allowedRoleIds: null, bitrateKbps: null, userLimit: 0, sendRoleIds: null, permissionOverrides: null })
+    insertServerChannel({ id: voiceChId, serverId: s.id, categoryId: voiceCatId, name: s.voiceRoomName || 'Voice Lounge', type: 'voice', position: 0, minRole: 'member', allowedRoleIds: null, bitrateKbps: null, userLimit: 0, sendRoleIds: null, permissionOverrides: null })
     // Backfill legacy messages onto the default text channel.
     d.prepare('UPDATE server_messages SET channel_id = ? WHERE server_id = ? AND channel_id IS NULL').run(textChId, s.id)
   }

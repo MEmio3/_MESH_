@@ -19,7 +19,7 @@ import { useIdentityStore } from '@/stores/identity.store'
 import { useAvatarStore } from '@/stores/avatar.store'
 import { useServersStore } from '@/stores/servers.store'
 import { ChannelSettingsModal } from '@/components/server/ChannelSettingsModal'
-import { PERM, effectivePermissions, hasPerm } from '../../../../shared/permissions'
+import { resolveChannelPerm, type ChannelPermKey } from '../../../../shared/permissions'
 
 interface ChannelTreeProps {
   serverId: string
@@ -30,12 +30,6 @@ interface ChannelTreeProps {
   onSelectTextChannel: (channelId: string) => void
 }
 
-const ROLE_RANK: Record<ChannelMinRole, number> = { member: 0, moderator: 1, host: 2 }
-
-/** Can `viewer` see a channel gated at `minRole`? */
-function canSee(viewer: ChannelMinRole, minRole: ChannelMinRole | undefined): boolean {
-  return ROLE_RANK[viewer] >= ROLE_RANK[minRole ?? 'member']
-}
 
 type ContextMenuState =
   | { kind: 'pane' }
@@ -83,10 +77,20 @@ export function ChannelTree({
   const serverMembers = useServersStore((s) => s.serverMembers[serverId])
   const selfMemberEntry = serverMembers?.find((m) => m.userId === selfId)
   const selfRoleIds = selfMemberEntry?.roleIds ?? []
-  const canConnectVoice = hasPerm(
-    selfMemberEntry ? effectivePermissions(selfMemberEntry.role, selfRoleIds, customRoles) : 0,
-    PERM.connectVoice
-  )
+
+  // Per-channel permission resolution: role-based overrides first, legacy
+  // gates as fallback, host always allowed.
+  const chanPerm = (c: Channel, key: ChannelPermKey): boolean =>
+    resolveChannelPerm({
+      tier: selfRole,
+      roleIds: selfRoleIds,
+      roles: customRoles,
+      overrides: c.overrides,
+      minRole: c.minRole,
+      allowedRoleIds: c.allowedRoleIds,
+      sendRoleIds: c.sendRoleIds,
+      key
+    })
 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [menu, setMenu] = useState<MenuAnchor | null>(null)
@@ -109,23 +113,16 @@ export function ChannelTree({
   const isVoiceHere = isConnected && currentServerId === serverId
 
   const { uncategorized, categoryBuckets } = useMemo(() => {
-    // Role gate: restricted channels simply don't exist for the viewer.
-    // A custom-role allow-list takes precedence over the legacy tier gate;
-    // the host always sees everything.
-    const visible = layout.channels.filter((c) => {
-      if (selfRole === 'host') return true
-      if (c.allowedRoleIds && c.allowedRoleIds.length > 0) {
-        return c.allowedRoleIds.some((id) => selfRoleIds.includes(id))
-      }
-      return canSee(selfRole, c.minRole)
-    })
+    // Role gate: channels the viewer can't see simply don't exist for them.
+    const visible = layout.channels.filter((c) => chanPerm(c, 'viewChannel'))
     const uncategorized = visible.filter((c) => !c.categoryId)
     const categoryBuckets = layout.categories.map((cat) => ({
       category: cat,
       channels: visible.filter((c) => c.categoryId === cat.id)
     }))
     return { uncategorized, categoryBuckets }
-  }, [layout, selfRole, selfRoleIds])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layout, selfRole, selfRoleIds, customRoles])
 
   // Close the menu / popover on outside click / Escape.
   useEffect(() => {
@@ -181,8 +178,8 @@ export function ChannelTree({
             if (isText) {
               onSelectTextChannel(ch.id)
             } else if (!isJoinedVoice) {
-              // Permission gate: Connect is role-controlled.
-              if (!canConnectVoice) return
+              // Permission gate: Connect is role-controlled per channel.
+              if (!chanPerm(ch, 'connectVoice')) return
               // Either not in any voice channel, or in a different one — hop
               // into this channel's room (voice.store handles the switch).
               joinRoom(serverId, ch.id)
@@ -207,7 +204,9 @@ export function ChannelTree({
             )}
           />
           <span className="text-[14px] truncate flex-1 tracking-tight">{ch.name}</span>
-          {((ch.minRole && ch.minRole !== 'member') || (ch.allowedRoleIds && ch.allowedRoleIds.length > 0)) && (
+          {((ch.minRole && ch.minRole !== 'member') ||
+            (ch.allowedRoleIds && ch.allowedRoleIds.length > 0) ||
+            (ch.overrides && Object.keys(ch.overrides).length > 0)) && (
             <Lock className="h-3 w-3 shrink-0 text-mesh-text-muted" aria-label="Restricted channel" />
           )}
         </button>

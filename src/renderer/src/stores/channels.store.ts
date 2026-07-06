@@ -9,6 +9,7 @@
  */
 import { create } from 'zustand'
 import { useIdentityStore } from './identity.store'
+import type { ChannelOverrides } from '../../../shared/permissions'
 
 export interface ChannelCategory {
   id: string
@@ -37,6 +38,8 @@ export interface Channel {
   userLimit: number
   /** Text: role ids allowed to send; null = everyone with the global perm. */
   sendRoleIds: string[] | null
+  /** Per-role allow/deny overrides; null = inherit everything. */
+  overrides: ChannelOverrides | null
 }
 
 interface ServerLayout {
@@ -60,6 +63,7 @@ interface ChannelsStore {
   setChannelRoles: (serverId: string, channelId: string, allowedRoleIds: string[] | null) => Promise<{ success: boolean; error?: string }>
   setChannelSendRoles: (serverId: string, channelId: string, sendRoleIds: string[] | null) => Promise<{ success: boolean; error?: string }>
   updateChannelSettings: (serverId: string, channelId: string, bitrateKbps: number | null, userLimit: number) => Promise<{ success: boolean; error?: string }>
+  setChannelOverrides: (serverId: string, channelId: string, overrides: ChannelOverrides | null) => Promise<{ success: boolean; error?: string }>
 }
 
 const EMPTY_LAYOUT: ServerLayout = { categories: [], channels: [] }
@@ -87,12 +91,22 @@ export const useChannelsStore = create<ChannelsStore>((set, get) => ({
         return null
       }
     }
+    const parseOverrides = (raw: string | null): ChannelOverrides | null => {
+      if (!raw) return null
+      try {
+        const parsed = JSON.parse(raw)
+        return parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0 ? parsed : null
+      } catch {
+        return null
+      }
+    }
     const channels: Channel[] = [...res.channels]
       .sort((a, b) => a.position - b.position)
       .map((c) => ({
         ...c,
         allowedRoleIds: parseIds(c.allowedRoleIds),
         sendRoleIds: parseIds(c.sendRoleIds),
+        overrides: parseOverrides(c.permissionOverrides),
         bitrateKbps: c.bitrateKbps ?? null,
         userLimit: c.userLimit ?? 0
       }))
@@ -163,6 +177,12 @@ export const useChannelsStore = create<ChannelsStore>((set, get) => ({
 
   updateChannelSettings: async (serverId, channelId, bitrateKbps, userLimit) => {
     const res = await window.api.server.updateChannelSettings({ serverId, actorId: selfId(), channelId, bitrateKbps, userLimit })
+    if (res.success) await get().reload(serverId)
+    return res
+  },
+
+  setChannelOverrides: async (serverId, channelId, overrides) => {
+    const res = await window.api.server.setChannelOverrides({ serverId, actorId: selfId(), channelId, overrides })
     if (res.success) await get().reload(serverId)
     return res
   }

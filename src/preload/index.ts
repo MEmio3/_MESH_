@@ -331,7 +331,7 @@ const api = {
     listChannels: (serverId: string) =>
       ipcRenderer.invoke('server:list-channels', { serverId }) as Promise<{
         categories: Array<{ id: string; serverId: string; name: string; position: number }>
-        channels: Array<{ id: string; serverId: string; categoryId: string | null; name: string; type: 'text' | 'voice'; position: number; minRole: 'member' | 'moderator' | 'host'; allowedRoleIds: string | null; bitrateKbps: number | null; userLimit: number; sendRoleIds: string | null }>
+        channels: Array<{ id: string; serverId: string; categoryId: string | null; name: string; type: 'text' | 'voice'; position: number; minRole: 'member' | 'moderator' | 'host'; allowedRoleIds: string | null; bitrateKbps: number | null; userLimit: number; sendRoleIds: string | null; permissionOverrides: string | null }>
       }>,
     createCategory: (payload: { serverId: string; actorId: string; name: string }) =>
       ipcRenderer.invoke('server:create-category', payload) as Promise<{ success: boolean; error?: string; categoryId?: string }>,
@@ -374,7 +374,9 @@ const api = {
     setChannelSendRoles: (payload: { serverId: string; actorId: string; channelId: string; sendRoleIds: string[] | null }) =>
       ipcRenderer.invoke('server:set-channel-send-roles', payload) as Promise<{ success: boolean; error?: string }>,
     updateChannelSettings: (payload: { serverId: string; actorId: string; channelId: string; bitrateKbps: number | null; userLimit: number }) =>
-      ipcRenderer.invoke('server:update-channel-settings', payload) as Promise<{ success: boolean; error?: string }>
+      ipcRenderer.invoke('server:update-channel-settings', payload) as Promise<{ success: boolean; error?: string }>,
+    setChannelOverrides: (payload: { serverId: string; actorId: string; channelId: string; overrides: unknown | null }) =>
+      ipcRenderer.invoke('server:set-channel-overrides', payload) as Promise<{ success: boolean; error?: string }>
   },
 
   reaction: {

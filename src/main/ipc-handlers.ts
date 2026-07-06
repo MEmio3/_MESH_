@@ -7,7 +7,7 @@ import * as avatar from './avatar'
 import * as serverAvatar from './server-avatar'
 import * as fileManager from './file-manager'
 import { showNotification, type NotifyPayload } from './notifications'
-import { PERM, MODERATOR_BUNDLE, effectivePermissions, hasPerm } from '../shared/permissions'
+import { PERM, MODERATOR_BUNDLE, effectivePermissions, hasPerm, resolveChannelPerm } from '../shared/permissions'
 import type {
   FriendRow,
   FriendRequestRow,
@@ -1092,26 +1092,43 @@ export function registerServerHandlers(): void {
     channelId?: string | null
     file?: { fileId: string; fileName: string; fileSize: number; fileType: string; base64: string; filePath?: string | null } | null
   }) => {
-    // Permission gates: sending and attaching are role-controlled.
-    if (!actorHasPerm(payload.serverId, payload.senderId, PERM.sendMessages)) {
-      return { success: false, error: 'You do not have permission to send messages here.' }
-    }
-    if (payload.file && !actorHasPerm(payload.serverId, payload.senderId, PERM.attachFiles)) {
-      return { success: false, error: 'You do not have permission to attach files here.' }
-    }
-    // Per-channel send restriction (channel settings → who can send).
+    // Permission gates. With a channel context the channel-override resolver
+    // is authoritative (overrides can grant beyond server-level, Discord
+    // semantics); otherwise fall back to the server-level bits.
     if (payload.channelId) {
       const ch = db.getServerChannel(payload.channelId)
-      const srv = db.getServer(payload.serverId)
-      if (ch?.sendRoleIds && srv?.hostUserId !== payload.senderId) {
+      if (ch) {
         const me = db.getServerMembers(payload.serverId).find((m) => m.userId === payload.senderId)
-        let mine: string[] = []
-        let allowed: string[] = []
-        try { mine = JSON.parse(me?.roleIds || '[]') } catch { /* default */ }
-        try { allowed = JSON.parse(ch.sendRoleIds) } catch { /* default */ }
-        if (!allowed.some((id) => mine.includes(id))) {
-          return { success: false, error: 'Only specific roles can send messages in this channel.' }
+        const parseArr = (raw: string | null): string[] | null => {
+          if (!raw) return null
+          try { const v = JSON.parse(raw); return Array.isArray(v) ? v : null } catch { return null }
         }
+        let overrides: import('../shared/permissions').ChannelOverrides | null = null
+        try { overrides = ch.permissionOverrides ? JSON.parse(ch.permissionOverrides) : null } catch { /* none */ }
+        let myRoleIds: string[] = []
+        try { myRoleIds = JSON.parse(me?.roleIds || '[]') } catch { /* default */ }
+        const common = {
+          tier: me?.role ?? 'member',
+          roleIds: myRoleIds,
+          roles: db.getServerRoles(payload.serverId),
+          overrides,
+          minRole: ch.minRole,
+          allowedRoleIds: parseArr(ch.allowedRoleIds),
+          sendRoleIds: parseArr(ch.sendRoleIds)
+        }
+        if (!resolveChannelPerm({ ...common, key: 'sendMessages' })) {
+          return { success: false, error: 'You do not have permission to send messages in this channel.' }
+        }
+        if (payload.file && !resolveChannelPerm({ ...common, key: 'attachFiles' })) {
+          return { success: false, error: 'You do not have permission to attach files in this channel.' }
+        }
+      }
+    } else {
+      if (!actorHasPerm(payload.serverId, payload.senderId, PERM.sendMessages)) {
+        return { success: false, error: 'You do not have permission to send messages here.' }
+      }
+      if (payload.file && !actorHasPerm(payload.serverId, payload.senderId, PERM.attachFiles)) {
+        return { success: false, error: 'You do not have permission to attach files here.' }
       }
     }
     // Renderer only passes content + sender info — we mint the id/timestamp here
@@ -1446,10 +1463,28 @@ export function registerServerHandlers(): void {
       allowedRoleIds: null,
       bitrateKbps: null,
       userLimit: 0,
-      sendRoleIds: null
+      sendRoleIds: null,
+      permissionOverrides: null
     })
     emitLayoutUpdate(payload.serverId)
     return { success: true, channelId: id }
+  })
+
+  // Discord-style per-channel permission overrides (Manage Channels).
+  ipcMain.handle('server:set-channel-overrides', async (_e, payload: {
+    serverId: string
+    actorId: string
+    channelId: string
+    overrides: unknown | null
+  }) => {
+    if (!canManageServer(payload.serverId, payload.actorId)) return { success: false, error: 'forbidden' }
+    let json: string | null = null
+    if (payload.overrides && typeof payload.overrides === 'object' && Object.keys(payload.overrides).length > 0) {
+      json = JSON.stringify(payload.overrides)
+    }
+    db.updateServerChannelOverrides(payload.channelId, json)
+    emitLayoutUpdate(payload.serverId)
+    return { success: true }
   })
 
   // Restrict who can see a channel (host/moderator only, host outranks all).
