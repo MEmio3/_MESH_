@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Copy, Check, MessageSquare } from 'lucide-react'
+import { Check, Copy, MessageSquare, Server, Shield, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
 import { useAvatarStore } from '@/stores/avatar.store'
@@ -66,120 +66,183 @@ function UserProfileCard({
     status === 'offline' && friend?.lastSeen
       ? formatLastSeen(friend.lastSeen)
       : null
+  const statusDotClass =
+    status === 'online'
+      ? 'bg-[#23a559] shadow-[0_0_14px_rgba(35,165,89,0.75)]'
+      : status === 'idle'
+        ? 'bg-[#f0b232] shadow-[0_0_14px_rgba(240,178,50,0.65)]'
+        : status === 'dnd'
+          ? 'bg-[#f23f43] shadow-[0_0_14px_rgba(242,63,67,0.65)]'
+          : 'bg-[#80848e]'
+  const bannerStyle = {
+    background: `
+      radial-gradient(circle at 18% 18%, hsl(${(hue + 24) % 360} 96% 72% / 0.62), transparent 30%),
+      radial-gradient(circle at 78% 8%, hsl(${(hue + 145) % 360} 88% 62% / 0.46), transparent 34%),
+      linear-gradient(135deg, hsl(${hue} 56% 30%), hsl(${(hue + 42) % 360} 56% 13%) 58%, hsl(${(hue + 96) % 360} 58% 10%))
+    `
+  }
+  const accentStyle = {
+    background: `linear-gradient(135deg, hsl(${hue} 92% 66%), hsl(${(hue + 84) % 360} 92% 63%))`
+  }
+  const roleSummary = contextRoles.length > 0 ? `${contextRoles.length}` : 'None'
+
+  const copyUserId = (): void => {
+    navigator.clipboard.writeText(userId)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
 
   return (
-    <div className={cn('flex flex-col bg-mesh-bg-secondary overflow-y-auto', className)}>
-      {/* Banner */}
-      <div
-        className="h-24 shrink-0"
-        style={{
-          background: `linear-gradient(135deg, hsl(${hue} 45% 22%), hsl(${(hue + 40) % 360} 40% 12%))`
-        }}
-      />
-
-      {/* Avatar overlapping the banner */}
-      <div className="px-4 -mt-10">
-        <div className="relative inline-block rounded-full ring-[5px] ring-mesh-bg-secondary">
-          <Avatar fallback={username} size="xl" src={avatarSrc} />
-          <span
-            className={cn(
-              'absolute bottom-0.5 right-0.5 rounded-full border-[3px] border-mesh-bg-secondary',
-              status === 'online' ? 'bg-[#23a559]' : status === 'idle' ? 'bg-[#f0b232]' : 'bg-[#80848e]'
-            )}
-            style={{ height: 18, width: 18 }}
-          />
+    <div
+      className={cn(
+        'flex flex-col overflow-y-auto bg-mesh-bg-secondary text-mesh-text-primary',
+        'shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]',
+        className
+      )}
+    >
+      <div className="relative h-28 shrink-0 overflow-hidden" style={bannerStyle}>
+        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.14),transparent_42%,rgba(0,0,0,0.34))]" />
+        <div className="absolute inset-x-0 bottom-0 h-px bg-white/15" />
+        <div className="absolute right-3 top-3 inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-black/25 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-white/80 shadow-lg backdrop-blur-md">
+          <Sparkles className="h-3 w-3" />
+          Profile
         </div>
       </div>
 
-      {/* Identity */}
-      <div className="px-4 pt-2.5 pb-4 flex flex-col gap-3">
-        <div>
-          <h3 className="text-lg font-bold text-mesh-text-primary leading-tight truncate">
-            {username}{isSelf ? ' (you)' : ''}
-          </h3>
-          <div className="flex items-center gap-1.5 mt-0.5">
-            <span className="text-xs text-mesh-text-secondary">{statusLabel}</span>
-            {lastSeen && <span className="text-xs text-mesh-text-muted">· last seen {lastSeen}</span>}
+      <div className="px-4 -mt-12">
+        <div className="relative inline-flex rounded-full">
+          <span
+            className="absolute -inset-1.5 rounded-full opacity-70 blur-md"
+            style={accentStyle}
+          />
+          <div className="relative rounded-full bg-mesh-bg-secondary p-1.5 shadow-[0_14px_32px_rgba(0,0,0,0.42)]">
+            <Avatar fallback={username} size="xl" src={avatarSrc} />
+            <span
+              className={cn(
+                'absolute bottom-1 right-1 h-[18px] w-[18px] rounded-full border-[4px] border-mesh-bg-secondary',
+                statusDotClass
+              )}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-4 px-4 pb-4 pt-2.5">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <h3 className="min-w-0 truncate text-xl font-bold leading-tight text-mesh-text-primary">
+              {username}
+            </h3>
+            {isSelf && (
+              <span className="shrink-0 rounded-full border border-mesh-green/30 bg-mesh-green/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-mesh-green">
+                You
+              </span>
+            )}
+          </div>
+          <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-mesh-text-secondary">
+            <span className={cn('h-2 w-2 shrink-0 rounded-full', statusDotClass)} />
+            <span className="truncate">{statusLabel}</span>
+            {lastSeen && (
+              <span className="truncate text-mesh-text-muted">
+                last seen {lastSeen}
+              </span>
+            )}
           </div>
         </div>
 
-        {/* User ID — this is how people add each other in MESH */}
-        <div>
-          <span className="block text-[10px] font-semibold uppercase tracking-wide text-mesh-text-muted mb-1">
-            User ID
-          </span>
-          <div className="flex items-center gap-1.5 rounded-md bg-mesh-bg-tertiary border border-mesh-border px-2.5 py-1.5">
-            <code className="flex-1 text-[11px] font-mono text-mesh-text-secondary truncate">{userId}</code>
+        <div className="grid grid-cols-3 gap-2">
+          <ProfileStat label="Status" value={statusLabel} />
+          <ProfileStat label="Mutual" value={`${mutualServers.length}`} />
+          <ProfileStat label="Roles" value={serverId ? roleSummary : 'N/A'} />
+        </div>
+
+        <section className="rounded-xl border border-mesh-border/70 bg-mesh-bg-tertiary/45 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-mesh-text-muted">
+              User ID
+            </span>
+            {copied && (
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-mesh-green">
+                Copied
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 rounded-lg border border-mesh-border/70 bg-mesh-bg-secondary/80 px-2.5 py-2">
+            <span className="h-2 w-2 shrink-0 rounded-full" style={accentStyle} />
+            <code className="min-w-0 flex-1 truncate text-[11px] font-mono text-mesh-text-secondary">{userId}</code>
             <button
-              onClick={() => {
-                navigator.clipboard.writeText(userId)
-                setCopied(true)
-                setTimeout(() => setCopied(false), 1500)
-              }}
-              className="shrink-0 text-mesh-text-muted hover:text-mesh-text-primary transition-colors"
+              onClick={copyUserId}
+              className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-mesh-text-muted transition-colors hover:bg-mesh-bg-tertiary hover:text-mesh-text-primary"
               title="Copy User ID"
             >
               {copied ? <Check className="h-3.5 w-3.5 text-mesh-green" /> : <Copy className="h-3.5 w-3.5" />}
             </button>
           </div>
-        </div>
+        </section>
 
-        {/* Roles in the current server */}
         {serverId && contextMember && (
-          <div>
-            <span className="block text-[10px] font-semibold uppercase tracking-wide text-mesh-text-muted mb-1">
-              Roles
-            </span>
+          <section className="rounded-xl border border-mesh-border/70 bg-mesh-bg-tertiary/45 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+            <div className="mb-2 flex items-center gap-2">
+              <Shield className="h-3.5 w-3.5 text-mesh-text-muted" />
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-mesh-text-muted">
+                Roles
+              </span>
+            </div>
             <div className="flex flex-wrap gap-1.5">
               {contextRoles.length === 0 ? (
-                <span className="text-[11px] text-mesh-text-muted">No roles</span>
+                <span className="rounded-full border border-mesh-border/60 bg-mesh-bg-secondary/70 px-2.5 py-1 text-[11px] text-mesh-text-muted">
+                  No roles
+                </span>
               ) : (
                 contextRoles.map((r) => (
                   <span
                     key={r.id}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-mesh-border bg-mesh-bg-tertiary px-2 py-0.5 text-[11px] text-mesh-text-secondary"
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-mesh-border/70 bg-mesh-bg-secondary/80 px-2.5 py-1 text-[11px] text-mesh-text-secondary shadow-sm"
                   >
-                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: r.color }} />
-                    {r.name}
+                    <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: r.color }} />
+                    <span className="truncate">{r.name}</span>
                   </span>
                 ))
               )}
             </div>
-          </div>
+          </section>
         )}
 
-        {/* Mutual servers */}
         {!isSelf && mutualServers.length > 0 && (
-          <div>
-            <span className="block text-[10px] font-semibold uppercase tracking-wide text-mesh-text-muted mb-1">
-              Mutual servers — {mutualServers.length}
-            </span>
+          <section className="rounded-xl border border-mesh-border/70 bg-mesh-bg-tertiary/45 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+            <div className="mb-2 flex items-center gap-2">
+              <Server className="h-3.5 w-3.5 text-mesh-text-muted" />
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-mesh-text-muted">
+                Mutual servers - {mutualServers.length}
+              </span>
+            </div>
             <div className="flex flex-col gap-1">
               {mutualServers.slice(0, 4).map((sv) => (
                 <button
                   key={sv.id}
                   onClick={() => { navigate(`/channels/${sv.id}`); onAction?.() }}
-                  className="flex items-center gap-2 rounded-md px-2 py-1 -mx-2 text-left hover:bg-mesh-bg-tertiary transition-colors"
+                  className="group flex items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-mesh-bg-secondary/80"
                 >
                   <span
-                    className="h-5 w-5 rounded-md flex items-center justify-center text-[9px] font-bold text-white shrink-0"
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold text-white shadow-sm transition-transform group-hover:scale-105"
                     style={{ backgroundColor: sv.iconColor }}
                   >
                     {sv.name[0]?.toUpperCase()}
                   </span>
-                  <span className="text-xs text-mesh-text-secondary truncate">{sv.name}</span>
+                  <span className="min-w-0 flex-1 truncate text-xs font-medium text-mesh-text-secondary group-hover:text-mesh-text-primary">
+                    {sv.name}
+                  </span>
                 </button>
               ))}
               {mutualServers.length > 4 && (
-                <span className="text-[11px] text-mesh-text-muted px-0.5">
+                <span className="px-2 pt-1 text-[11px] text-mesh-text-muted">
                   +{mutualServers.length - 4} more
                 </span>
               )}
             </div>
-          </div>
+          </section>
         )}
 
-        {/* Actions */}
         {!isSelf && (
           <button
             onClick={async () => {
@@ -187,13 +250,26 @@ function UserProfileCard({
               navigate(`/channels/@me/dm_${userId}`)
               onAction?.()
             }}
-            className="flex items-center justify-center gap-2 h-9 rounded-md bg-mesh-green hover:bg-mesh-green-light text-white text-sm font-medium transition-colors mt-1"
+            className="mt-0.5 flex h-10 items-center justify-center gap-2 rounded-lg bg-mesh-green text-sm font-semibold text-white shadow-[0_12px_28px_rgba(35,165,89,0.28)] transition hover:bg-mesh-green-light hover:shadow-[0_14px_34px_rgba(35,165,89,0.36)]"
           >
             <MessageSquare className="h-4 w-4" />
             Message
           </button>
         )}
       </div>
+    </div>
+  )
+}
+
+function ProfileStat({ label, value }: { label: string; value: string }): JSX.Element {
+  return (
+    <div className="min-w-0 rounded-lg border border-mesh-border/60 bg-mesh-bg-tertiary/55 px-2.5 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+      <span className="block truncate text-[9px] font-semibold uppercase tracking-wide text-mesh-text-muted">
+        {label}
+      </span>
+      <span className="mt-0.5 block truncate text-xs font-semibold text-mesh-text-primary">
+        {value}
+      </span>
     </div>
   )
 }

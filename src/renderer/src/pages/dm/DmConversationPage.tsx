@@ -381,7 +381,7 @@ function DmConversationPage(): JSX.Element {
         <UserProfileCard
           userId={conversation.recipientId}
           username={conversation.recipientName}
-          className="w-72 shrink-0 border-l border-mesh-border/50 h-full"
+          className="h-full w-80 shrink-0 border-l border-mesh-border/50"
         />
       )}
     </div>

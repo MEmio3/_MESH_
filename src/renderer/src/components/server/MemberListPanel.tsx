@@ -112,14 +112,14 @@ function MemberListPanel({ serverId, members }: MemberListPanelProps): JSX.Eleme
       {profilePop && (
         <div
           ref={profileRef}
-          className="fixed z-[105] w-72 max-h-[440px] rounded-xl border border-mesh-border shadow-2xl overflow-hidden"
+          className="fixed z-[105] w-80 max-h-[520px] overflow-hidden rounded-2xl border border-mesh-border/70 bg-mesh-bg-secondary shadow-[0_24px_80px_rgba(0,0,0,0.55)]"
           style={{ right: 236, top: Math.max(52, profilePop.y) }}
         >
           <UserProfileCard
             userId={profilePop.userId}
             username={profilePop.username}
             serverId={serverId}
-            className="max-h-[440px]"
+            className="max-h-[520px]"
             onAction={() => setProfilePop(null)}
           />
         </div>
@@ -143,7 +143,7 @@ function MemberListPanel({ serverId, members }: MemberListPanelProps): JSX.Eleme
                 setProfilePop({
                   userId: member.userId,
                   username: member.username,
-                  y: Math.min(e.clientY - 40, window.innerHeight - 460)
+                  y: Math.min(e.clientY - 72, window.innerHeight - 540)
                 })
               }}
               roleBadgeColor={roleBadgeColors[member.role]}
