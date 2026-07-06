@@ -2,15 +2,18 @@ import { useEffect, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 interface ModalProps {
   isOpen: boolean
   onClose: () => void
   title: string
   children: ReactNode
+  className?: string
+  bodyClassName?: string
 }
 
-function Modal({ isOpen, onClose, title, children }: ModalProps): JSX.Element | null {
+function Modal({ isOpen, onClose, title, children, className, bodyClassName }: ModalProps): JSX.Element | null {
   useEffect(() => {
     if (!isOpen) return
     const handleEsc = (e: KeyboardEvent): void => {
@@ -40,7 +43,10 @@ function Modal({ isOpen, onClose, title, children }: ModalProps): JSX.Element | 
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 10 }}
             transition={{ duration: 0.2, ease: 'easeOut' }}
-            className="relative w-full max-w-md mx-4 rounded-xl bg-mesh-bg-secondary border border-mesh-border-light/60 shadow-[0_24px_64px_-16px_rgba(0,0,0,0.75),inset_0_1px_0_rgba(255,255,255,0.05)]"
+            className={cn(
+              'relative w-full max-w-md mx-4 rounded-xl bg-mesh-bg-secondary border border-mesh-border-light/60 shadow-[0_24px_64px_-16px_rgba(0,0,0,0.75),inset_0_1px_0_rgba(255,255,255,0.05)]',
+              className
+            )}
           >
             {/* Header */}
             <div className="flex items-center justify-between px-5 pt-5 pb-2">
@@ -54,7 +60,7 @@ function Modal({ isOpen, onClose, title, children }: ModalProps): JSX.Element | 
             </div>
 
             {/* Body */}
-            <div className="px-5 pb-5">
+            <div className={cn('px-5 pb-5', bodyClassName)}>
               {children}
             </div>
           </motion.div>
