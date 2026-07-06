@@ -44,17 +44,27 @@ function WelcomePage(): JSX.Element {
     navigate('/channels/@me')
   }
 
+  const stepIndex = ['welcome', 'profile', 'keygen', 'complete'].indexOf(step) + 1
+
   return (
-    <div className="h-screen w-screen bg-mesh-bg-primary overflow-hidden">
-      {/* Subtle background grid pattern */}
+    <div className="relative h-screen w-screen overflow-hidden bg-mesh-bg-primary">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_18%,rgba(35,165,89,0.16),transparent_28%),radial-gradient(circle_at_82%_8%,rgba(0,120,212,0.12),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.025),transparent_44%)]" />
       <div
-        className="absolute inset-0 opacity-[0.03]"
+        className="absolute inset-0 opacity-[0.035]"
         style={{
           backgroundImage:
             'linear-gradient(var(--color-mesh-text-muted) 1px, transparent 1px), linear-gradient(90deg, var(--color-mesh-text-muted) 1px, transparent 1px)',
-          backgroundSize: '40px 40px',
+          backgroundSize: '42px 42px',
         }}
       />
+      <div className="absolute left-6 top-6 z-10 flex items-center gap-2">
+        {[1, 2, 3, 4].map((item) => (
+          <span
+            key={item}
+            className={`h-1.5 rounded-full transition-all ${item <= stepIndex ? 'w-8 bg-mesh-green' : 'w-4 bg-mesh-bg-tertiary'}`}
+          />
+        ))}
+      </div>
 
       {/* Step content */}
       <AnimatePresence mode="wait">

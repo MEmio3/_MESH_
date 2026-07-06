@@ -8,7 +8,8 @@ interface CompleteStepProps {
 
 function CompleteStep({ username, onEnter }: CompleteStepProps): JSX.Element {
   return (
-    <div className="flex flex-col items-center justify-center h-full px-8 text-center">
+    <div className="flex h-full flex-col items-center justify-center px-8 text-center">
+      <div className="w-full max-w-md rounded-3xl border border-mesh-border/70 bg-mesh-bg-secondary/82 p-8 shadow-[0_28px_80px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.04)]">
       {/* Animated checkmark */}
       <motion.div
         initial={{ scale: 0 }}
@@ -41,7 +42,7 @@ function CompleteStep({ username, onEnter }: CompleteStepProps): JSX.Element {
         initial={{ opacity: 0, y: 15 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.5, duration: 0.4 }}
-        className="text-2xl font-bold text-mesh-text-primary mb-2"
+        className="mb-2 text-2xl font-bold text-mesh-text-primary"
       >
         You're all set, {username}!
       </motion.h2>
@@ -50,7 +51,7 @@ function CompleteStep({ username, onEnter }: CompleteStepProps): JSX.Element {
         initial={{ opacity: 0, y: 15 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.6, duration: 0.4 }}
-        className="text-mesh-text-muted text-sm max-w-sm mb-10"
+        className="mx-auto mb-10 max-w-sm text-sm text-mesh-text-muted"
       >
         Your decentralized identity is ready. Connect to a relay, find friends,
         and start communicating — privately and securely.
@@ -64,10 +65,11 @@ function CompleteStep({ username, onEnter }: CompleteStepProps): JSX.Element {
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
         onClick={onEnter}
-        className="px-10 py-3.5 rounded-lg bg-mesh-green hover:bg-mesh-green-light text-white font-semibold text-base transition-colors shadow-lg shadow-mesh-green/20"
+        className="rounded-xl bg-mesh-green px-10 py-3.5 text-base font-semibold text-white shadow-[0_18px_40px_rgba(35,165,89,0.24)] transition-colors hover:bg-mesh-green-light"
       >
         Enter MESH
       </motion.button>
+      </div>
     </div>
   )
 }

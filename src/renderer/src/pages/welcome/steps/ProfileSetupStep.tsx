@@ -58,22 +58,22 @@ function ProfileSetupStep({ onNext, onBack }: ProfileSetupStepProps): JSX.Elemen
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -40 }}
       transition={{ duration: 0.3 }}
-      className="flex flex-col items-center justify-center h-full px-8"
+      className="flex h-full flex-col items-center justify-center px-8"
     >
-      <div className="w-full max-w-md">
+      <div className="w-full max-w-md rounded-3xl border border-mesh-border/70 bg-mesh-bg-secondary/82 p-6 shadow-[0_28px_80px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.04)]">
         {/* Back button */}
         <button
           onClick={onBack}
-          className="flex items-center gap-1.5 text-mesh-text-muted hover:text-mesh-text-primary text-sm mb-8 transition-colors"
+          className="mb-6 flex items-center gap-1.5 rounded-lg px-1 text-sm text-mesh-text-muted transition-colors hover:text-mesh-text-primary"
         >
           <ArrowLeft className="h-4 w-4" />
           Back
         </button>
 
-        <h2 className="text-2xl font-bold text-mesh-text-primary mb-1">
+        <h2 className="mb-1 text-2xl font-bold text-mesh-text-primary">
           Create your profile
         </h2>
-        <p className="text-mesh-text-muted text-sm mb-8">
+        <p className="mb-8 text-sm text-mesh-text-muted">
           This is how others will see you on MESH.
         </p>
 
@@ -82,7 +82,7 @@ function ProfileSetupStep({ onNext, onBack }: ProfileSetupStepProps): JSX.Elemen
           <label className="block text-xs font-semibold text-mesh-text-secondary uppercase tracking-wide mb-3">
             Choose an Avatar
           </label>
-          <div className="flex gap-3 flex-wrap">
+          <div className="grid grid-cols-4 gap-3">
             {defaultAvatars.map((avatar, i) => {
               const initial = username.trim() ? username.trim()[0].toUpperCase() : '?'
               return (
@@ -90,10 +90,10 @@ function ProfileSetupStep({ onNext, onBack }: ProfileSetupStepProps): JSX.Elemen
                   key={i}
                   onClick={() => setSelectedAvatar(i)}
                   className={cn(
-                    'h-12 w-12 rounded-full flex items-center justify-center text-white font-bold text-lg transition-all duration-150',
+                    'h-12 w-12 rounded-2xl flex items-center justify-center text-white font-bold text-lg transition-all duration-150 shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]',
                     selectedAvatar === i
-                      ? 'ring-2 ring-mesh-green ring-offset-2 ring-offset-mesh-bg-primary scale-110'
-                      : 'hover:scale-105 opacity-70 hover:opacity-100'
+                      ? 'ring-2 ring-mesh-green ring-offset-2 ring-offset-mesh-bg-secondary scale-105'
+                      : 'hover:scale-105 opacity-75 hover:opacity-100'
                   )}
                   style={{ backgroundColor: avatar.bg }}
                 >
@@ -121,7 +121,7 @@ function ProfileSetupStep({ onNext, onBack }: ProfileSetupStepProps): JSX.Elemen
             maxLength={24}
             autoFocus
             className={cn(
-              'w-full h-11 px-4 rounded-lg bg-mesh-bg-tertiary text-mesh-text-primary text-sm border transition-colors focus:outline-none focus:ring-2 focus:ring-mesh-green',
+              'w-full h-11 px-4 rounded-xl bg-mesh-bg-tertiary/75 text-mesh-text-primary text-sm border transition-colors focus:outline-none focus:ring-2 focus:ring-mesh-green/50',
               'placeholder:text-mesh-text-muted',
               error ? 'border-mesh-danger' : 'border-mesh-border'
             )}
@@ -140,7 +140,7 @@ function ProfileSetupStep({ onNext, onBack }: ProfileSetupStepProps): JSX.Elemen
           whileTap={{ scale: 0.99 }}
           onClick={handleContinue}
           disabled={username.trim().length < 2}
-          className="w-full py-3 rounded-lg bg-mesh-green hover:bg-mesh-green-light disabled:opacity-40 disabled:hover:bg-mesh-green text-white font-semibold transition-colors"
+          className="w-full rounded-xl bg-mesh-green py-3 font-semibold text-white shadow-[0_18px_40px_rgba(35,165,89,0.24)] transition-colors hover:bg-mesh-green-light disabled:opacity-40 disabled:hover:bg-mesh-green"
         >
           Continue
         </motion.button>

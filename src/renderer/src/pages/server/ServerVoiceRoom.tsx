@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { Volume2, Users, AlertTriangle, MicOff } from 'lucide-react'
+import { AlertTriangle, MicOff, Radio, ScreenShare, Sparkles, Users, Volume2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useVoiceStore } from '@/stores/voice.store'
 import { useIdentityStore } from '@/stores/identity.store'
@@ -42,24 +42,40 @@ function ServerVoiceRoom({ server }: ServerVoiceRoomProps): JSX.Element {
 
   if (!isConnected) {
     return (
-      <div className="flex flex-col h-full">
-        <div className="flex items-center gap-2 h-12 px-4 border-b border-mesh-border/50 shrink-0">
-          <Volume2 className="h-4.5 w-4.5 text-mesh-green" />
-          <span className="text-sm font-semibold text-mesh-text-primary">
-            {server.voiceRoomName}
-          </span>
+      <div className="flex h-full flex-col">
+        <div className="flex h-12 shrink-0 items-center gap-2 border-b border-mesh-border/50 px-4">
+          <div className="grid h-7 w-7 place-items-center rounded-lg border border-mesh-border/60 bg-mesh-bg-tertiary text-mesh-green">
+            <Volume2 className="h-4 w-4" />
+          </div>
+          <div className="min-w-0">
+            <span className="block truncate text-sm font-semibold text-mesh-text-primary">
+              {server.voiceRoomName}
+            </span>
+            <span className="block text-[10px] uppercase tracking-wide text-mesh-text-muted">Voice room</span>
+          </div>
         </div>
-        <div className="flex-1 flex items-center justify-center">
-          <div className="flex flex-col items-center justify-center text-center">
-            <Volume2 className="h-16 w-16 text-mesh-text-muted mb-4" />
-            <h3 className="text-xl font-bold text-mesh-text-primary mb-2">
+        <div className="flex flex-1 items-center justify-center p-6">
+          <div className="relative w-full max-w-lg overflow-hidden rounded-3xl border border-mesh-border/70 bg-mesh-bg-secondary/85 p-8 text-center shadow-[0_24px_70px_rgba(0,0,0,0.32),inset_0_1px_0_rgba(255,255,255,0.04)]">
+            <div className="absolute inset-x-10 -top-24 h-44 rounded-full bg-mesh-green/16 blur-3xl" />
+            <div className="relative mx-auto mb-5 grid h-20 w-20 place-items-center rounded-3xl border border-mesh-green/25 bg-mesh-green/12 text-mesh-green shadow-[0_18px_42px_rgba(35,165,89,0.18)]">
+              <Volume2 className="h-10 w-10" />
+            </div>
+            <h3 className="relative mb-2 text-2xl font-bold text-mesh-text-primary">
               {server.voiceRoomName}
             </h3>
-            <p className="text-sm text-mesh-text-muted mb-8">Click to join voice</p>
+            <p className="relative mx-auto mb-6 max-w-sm text-sm text-mesh-text-muted">
+              Join the room to talk, listen, or start a stream.
+            </p>
+            <div className="relative mb-6 grid grid-cols-3 gap-2 text-left">
+              <VoiceStat icon={<Radio className="h-3.5 w-3.5" />} label="Mode" value="Mesh" />
+              <VoiceStat icon={<Users className="h-3.5 w-3.5" />} label="People" value={`${participants.length}`} />
+              <VoiceStat icon={<ScreenShare className="h-3.5 w-3.5" />} label="Streams" value={`${streamingUsers.size}`} />
+            </div>
             <button
               onClick={() => joinRoom(server.id)}
-              className="bg-mesh-green hover:bg-mesh-green/90 text-white px-6 py-2.5 rounded-lg font-medium transition-colors"
+              className="relative inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-mesh-green px-6 text-sm font-semibold text-white shadow-[0_16px_34px_rgba(35,165,89,0.28)] transition hover:bg-mesh-green-light"
             >
+              <Volume2 className="h-4 w-4" />
               Join Voice
             </button>
           </div>
@@ -75,24 +91,31 @@ function ServerVoiceRoom({ server }: ServerVoiceRoomProps): JSX.Element {
   const hasStreamers = streamers.length > 0
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex items-center justify-between h-12 px-4 border-b border-mesh-border/50 shrink-0">
-        <div className="flex items-center gap-3">
-          <Volume2 className="h-4.5 w-4.5 text-mesh-green" />
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-mesh-text-primary">
+    <div className="flex h-full flex-col">
+      <div className="flex h-12 shrink-0 items-center justify-between border-b border-mesh-border/50 bg-mesh-bg-secondary/55 px-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="grid h-7 w-7 place-items-center rounded-lg border border-mesh-green/25 bg-mesh-green/12 text-mesh-green">
+            <Volume2 className="h-4 w-4" />
+          </div>
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="truncate text-sm font-semibold text-mesh-text-primary">
               {server.voiceRoomName}
             </span>
-            <span className="bg-mesh-bg-tertiary text-mesh-text-muted text-[10px] font-bold px-1.5 py-0.5 rounded-sm">
-              <Users className="inline h-3 w-3 mr-1 -mt-0.5" />
+            <span className="inline-flex items-center gap-1 rounded-full border border-mesh-border/60 bg-mesh-bg-tertiary px-2 py-0.5 text-[10px] font-bold text-mesh-text-muted">
+              <Users className="h-3 w-3" />
               {participants.length}
             </span>
+            {hasStreamers && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-red-400/25 bg-red-500/10 px-2 py-0.5 text-[10px] font-bold uppercase text-red-300">
+                <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
+                Live
+              </span>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-3">
           {overCap && (
-            <div className="flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs px-3 py-1.5 rounded">
+            <div className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-300">
               <AlertTriangle className="h-3.5 w-3.5" />
               <span>Mesh over capacity</span>
             </div>
@@ -101,7 +124,7 @@ function ServerVoiceRoom({ server }: ServerVoiceRoomProps): JSX.Element {
       </div>
 
       {/* Discord-style layout: stream tiles on top, avatar row below */}
-      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+      <div className="flex flex-1 flex-col gap-4 overflow-y-auto bg-[radial-gradient(circle_at_top,rgba(35,165,89,0.05),transparent_34%)] p-4">
         {hasStreamers ? (
           <StreamGrid
             streamers={streamers}
@@ -130,6 +153,26 @@ function ServerVoiceRoom({ server }: ServerVoiceRoomProps): JSX.Element {
 
 /* ─────────────────────────────── Stream grid ─────────────────────────────── */
 
+function VoiceStat({
+  icon,
+  label,
+  value
+}: {
+  icon: JSX.Element
+  label: string
+  value: string
+}): JSX.Element {
+  return (
+    <div className="rounded-xl border border-mesh-border/60 bg-mesh-bg-tertiary/55 px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+      <div className="mb-1 flex items-center gap-1.5 text-mesh-text-muted">
+        {icon}
+        <span className="text-[9px] font-semibold uppercase tracking-wide">{label}</span>
+      </div>
+      <span className="block truncate text-sm font-semibold text-mesh-text-primary">{value}</span>
+    </div>
+  )
+}
+
 interface StreamGridProps {
   streamers: VoiceParticipant[]
   remoteStreams: Map<string, MediaStream>
@@ -157,7 +200,7 @@ function StreamGrid({
           : 'grid-cols-2 lg:grid-cols-3'
 
   return (
-    <div className={cn('grid gap-3 flex-1', gridCols)}>
+    <div className={cn('grid flex-1 gap-3', gridCols)}>
       {streamers.map((p) => {
         const isSelf = p.userId === selfId
         return (
@@ -204,7 +247,7 @@ function StreamTile({ participant, stream, isSelf, isCameraStream }: StreamTileP
       type="button"
       onClick={() => openStreamViewer(participant.userId)}
       title="Click to view full stream"
-      className="relative rounded-xl overflow-hidden bg-black border border-mesh-border/40 aspect-video cursor-pointer group text-left focus:outline-none focus:ring-2 focus:ring-mesh-green"
+      className="group relative aspect-video cursor-pointer overflow-hidden rounded-2xl border border-mesh-border/60 bg-black text-left shadow-[0_18px_46px_rgba(0,0,0,0.32)] outline-none transition hover:border-mesh-green/40 focus:ring-2 focus:ring-mesh-green"
     >
       {/* Always mount the <video> so the ref is stable; show a placeholder overlay
           when we don't yet have a MediaStream (self: stream starting; remote: awaiting tracks).
@@ -222,37 +265,37 @@ function StreamTile({ participant, stream, isSelf, isCameraStream }: StreamTileP
       />
       {!stream && (
         <div className="absolute inset-0 flex items-center justify-center bg-mesh-bg-tertiary">
-          <span className="text-sm text-mesh-text-muted">
+          <span className="rounded-full border border-mesh-border/60 bg-mesh-bg-secondary/85 px-3 py-1.5 text-sm text-mesh-text-muted">
             {isSelf ? 'Starting stream…' : 'Connecting stream…'}
           </span>
         </div>
       )}
 
       {/* LIVE badge — quiet technical indicator, not an alarm */}
-      <div className="absolute top-2 left-2 inline-flex items-center gap-1.5 rounded-sm bg-black/70 border border-mesh-danger/40 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider leading-none text-mesh-danger backdrop-blur-sm">
-        <span className="h-1 w-1 rounded-full bg-mesh-danger animate-pulse" />
+      <div className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full border border-red-400/35 bg-black/70 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider leading-none text-red-300 backdrop-blur-sm">
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-400" />
         Live
       </div>
 
       {/* Hover hint — Discord-style "click to view" */}
-      <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/30 transition-colors pointer-events-none">
-        <span className="opacity-0 group-hover:opacity-100 transition-opacity text-xs font-semibold text-white bg-black/70 px-3 py-1.5 rounded-full">
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover:bg-black/30">
+        <span className="rounded-full bg-black/70 px-3 py-1.5 text-xs font-semibold text-white opacity-0 transition-opacity group-hover:opacity-100">
           View stream
         </span>
       </div>
 
       {/* Muted overlay */}
       {participant.isMuted && (
-        <div className="absolute top-2 right-2 h-6 w-6 rounded-full bg-black/60 flex items-center justify-center">
+        <div className="absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-full border border-red-400/25 bg-black/65">
           <MicOff className="h-3.5 w-3.5 text-red-400" />
         </div>
       )}
 
       {/* Username pill at bottom */}
-      <div className="absolute bottom-2 left-2 right-2 flex justify-start">
-        <span className="bg-black/70 px-2.5 py-1 rounded text-xs font-semibold text-white truncate max-w-full">
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-3 pt-10">
+        <span className="inline-flex max-w-full items-center rounded-lg border border-white/10 bg-black/55 px-2.5 py-1 text-xs font-semibold text-white backdrop-blur">
           {participant.username}
-          {isSelf && <span className="ml-1 text-mesh-text-muted font-normal">(you)</span>}
+          {isSelf && <span className="ml-1 font-normal text-white/60">(you)</span>}
         </span>
       </div>
     </button>
@@ -271,21 +314,21 @@ function AvatarRow({ participants, selfId }: AvatarRowProps): JSX.Element {
   const avatarsByUser = useAvatarStore((s) => s.byUser)
 
   return (
-    <div className="flex flex-wrap items-center justify-center gap-4 shrink-0 pt-2 pb-1">
+    <div className="flex shrink-0 flex-wrap items-center justify-center gap-3 rounded-2xl border border-mesh-border/60 bg-mesh-bg-secondary/55 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
       {participants.map((p) => {
         const src = p.userId === selfId ? selfAvatar : avatarsByUser[p.userId]
         return (
           <div
             key={p.userId}
             className={cn(
-              'flex flex-col items-center gap-1.5 px-2 transition-all',
+              'flex flex-col items-center gap-1.5 rounded-xl px-3 py-2 transition-all',
               p.isSpeaking && 'scale-105'
             )}
           >
             <div
               className={cn(
-                'relative rounded-full',
-                p.isSpeaking && 'ring-2 ring-mesh-green shadow-lg shadow-mesh-green/20'
+                'relative rounded-full bg-mesh-bg-tertiary p-1',
+                p.isSpeaking && 'ring-2 ring-mesh-green shadow-lg shadow-mesh-green/25'
               )}
             >
               <Avatar fallback={p.username} size="lg" src={src} />
@@ -295,7 +338,7 @@ function AvatarRow({ participants, selfId }: AvatarRowProps): JSX.Element {
                 </div>
               )}
             </div>
-            <span className="text-xs text-mesh-text-secondary max-w-[80px] truncate">
+            <span className="max-w-[88px] truncate text-xs font-medium text-mesh-text-secondary">
               {p.username}
               {p.userId === selfId && (
                 <span className="text-mesh-text-muted"> (you)</span>
@@ -320,18 +363,19 @@ function ParticipantGrid({ participants, selfId }: ParticipantGridProps): JSX.El
   const avatarsByUser = useAvatarStore((s) => s.byUser)
 
   return (
-    <div className="flex-1 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 auto-rows-min content-start">
+    <div className="grid flex-1 auto-rows-min grid-cols-2 content-start gap-3 md:grid-cols-3 lg:grid-cols-4">
       {participants.map((p) => {
         const src = p.userId === selfId ? selfAvatar : avatarsByUser[p.userId]
         return (
           <div
             key={p.userId}
             className={cn(
-              'relative flex flex-col items-center justify-center rounded-xl bg-mesh-bg-tertiary p-6 min-h-[160px] transition-colors',
-              p.isSpeaking && 'ring-2 ring-mesh-green shadow-lg shadow-mesh-green/10'
+              'relative flex min-h-[168px] flex-col items-center justify-center overflow-hidden rounded-2xl border border-mesh-border/60 bg-mesh-bg-secondary/70 p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition',
+              p.isSpeaking && 'border-mesh-green/45 ring-2 ring-mesh-green/70 shadow-[0_18px_44px_rgba(35,165,89,0.12)]'
             )}
           >
-            <div className="relative">
+            {p.isSpeaking && <div className="absolute inset-x-8 -top-14 h-24 rounded-full bg-mesh-green/18 blur-2xl" />}
+            <div className="relative rounded-full bg-mesh-bg-tertiary p-1">
               <Avatar fallback={p.username} size="xl" src={src} />
               {p.isMuted && (
                 <div className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full bg-mesh-bg-elevated flex items-center justify-center border border-mesh-bg-tertiary">
@@ -339,12 +383,18 @@ function ParticipantGrid({ participants, selfId }: ParticipantGridProps): JSX.El
                 </div>
               )}
             </div>
-            <span className="mt-3 text-sm text-mesh-text-primary truncate max-w-[90%]">
+            <span className="mt-3 max-w-[90%] truncate text-sm font-semibold text-mesh-text-primary">
               {p.username}
               {p.userId === selfId && (
                 <span className="text-mesh-text-muted text-xs ml-1">(you)</span>
               )}
             </span>
+            {p.isSpeaking && (
+              <span className="mt-2 inline-flex items-center gap-1 rounded-full border border-mesh-green/25 bg-mesh-green/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-mesh-green">
+                <Sparkles className="h-3 w-3" />
+                Speaking
+              </span>
+            )}
           </div>
         )
       })}

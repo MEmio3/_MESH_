@@ -55,8 +55,8 @@ function KeyGenerationStep({ username, avatarColor, onNext }: KeyGenerationStepP
   }
 
   return (
-    <div className="flex flex-col items-center justify-center h-full px-8">
-      <div className="w-full max-w-md text-center">
+    <div className="flex h-full flex-col items-center justify-center px-8">
+      <div className="w-full max-w-md rounded-3xl border border-mesh-border/70 bg-mesh-bg-secondary/82 p-6 text-center shadow-[0_28px_80px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.04)]">
         <AnimatePresence mode="wait">
           {phase === 'generating' ? (
             <motion.div
@@ -73,7 +73,7 @@ function KeyGenerationStep({ username, avatarColor, onNext }: KeyGenerationStepP
                   transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
                   className="absolute inset-0 rounded-full border-2 border-transparent border-t-mesh-green h-28 w-28 -m-2"
                 />
-                <div className="h-24 w-24 rounded-full bg-mesh-bg-tertiary flex items-center justify-center">
+                <div className="flex h-24 w-24 items-center justify-center rounded-3xl border border-mesh-border/70 bg-mesh-bg-tertiary shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
                   <Shield className="h-10 w-10 text-mesh-green" />
                 </div>
               </div>
@@ -123,7 +123,7 @@ function KeyGenerationStep({ username, avatarColor, onNext }: KeyGenerationStepP
               </p>
 
               {/* User ID display */}
-              <div className="w-full bg-mesh-bg-tertiary rounded-lg border border-mesh-border p-4 mb-3">
+              <div className="mb-3 w-full rounded-xl border border-mesh-border bg-mesh-bg-tertiary p-4">
                 <label className="block text-[10px] font-semibold text-mesh-text-muted uppercase tracking-wider mb-2 text-left">
                   Your User ID
                 </label>
@@ -145,7 +145,7 @@ function KeyGenerationStep({ username, avatarColor, onNext }: KeyGenerationStepP
               </div>
 
               {/* Public key (collapsed) */}
-              <div className="w-full bg-mesh-bg-tertiary/50 rounded-lg border border-mesh-border/50 p-3 mb-8">
+              <div className="mb-8 w-full rounded-xl border border-mesh-border/50 bg-mesh-bg-tertiary/50 p-3">
                 <label className="block text-[10px] font-semibold text-mesh-text-muted uppercase tracking-wider mb-1 text-left">
                   Public Key
                 </label>
@@ -159,7 +159,7 @@ function KeyGenerationStep({ username, avatarColor, onNext }: KeyGenerationStepP
                 whileHover={{ scale: 1.01 }}
                 whileTap={{ scale: 0.99 }}
                 onClick={() => keypair && onNext(keypair)}
-                className="w-full py-3 rounded-lg bg-mesh-green hover:bg-mesh-green-light text-white font-semibold transition-colors"
+                className="w-full rounded-xl bg-mesh-green py-3 font-semibold text-white shadow-[0_18px_40px_rgba(35,165,89,0.24)] transition-colors hover:bg-mesh-green-light"
               >
                 Continue
               </motion.button>

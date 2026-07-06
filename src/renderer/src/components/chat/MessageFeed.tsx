@@ -1,7 +1,7 @@
 import type { Message } from '@/types/messages'
 import { MessageBubble } from './MessageBubble'
 import { useScrollAnchor } from '@/hooks/useScrollAnchor'
-import { ChevronDown, MessageCircle } from 'lucide-react'
+import { ChevronDown, MessageCircle, Sparkles } from 'lucide-react'
 import { useIdentityStore } from '@/stores/identity.store'
 
 interface MessageFeedProps {
@@ -57,12 +57,21 @@ function MessageFeed({ messages, recipientName: _recipientName, onEditMessage, o
 
   if (messages.length === 0) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-2">
-        <MessageCircle className="h-12 w-12 text-mesh-text-muted stroke-1" />
-        <h3 className="text-lg font-semibold text-mesh-text-primary">No messages yet</h3>
-        <p className="text-sm text-mesh-text-muted max-w-xs text-center">
-          Send a message to start the conversation
-        </p>
+      <div className="flex-1 flex items-center justify-center px-6">
+        <div className="relative w-full max-w-sm overflow-hidden rounded-2xl border border-mesh-border/70 bg-mesh-bg-secondary/80 p-6 text-center shadow-[0_18px_48px_rgba(0,0,0,0.22),inset_0_1px_0_rgba(255,255,255,0.04)]">
+          <div className="absolute inset-x-8 -top-20 h-32 rounded-full bg-mesh-green/15 blur-3xl" />
+          <div className="relative mx-auto mb-4 grid h-14 w-14 place-items-center rounded-2xl border border-mesh-border/70 bg-mesh-bg-tertiary text-mesh-green shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+            <MessageCircle className="h-7 w-7 stroke-1.5" />
+          </div>
+          <h3 className="relative text-lg font-semibold text-mesh-text-primary">No messages yet</h3>
+          <p className="relative mx-auto mt-1 max-w-xs text-sm text-mesh-text-muted">
+            Send the first message and this space will start filling in.
+          </p>
+          <div className="relative mt-4 inline-flex items-center gap-1.5 rounded-full border border-mesh-border/60 bg-mesh-bg-tertiary/60 px-3 py-1 text-xs text-mesh-text-secondary">
+            <Sparkles className="h-3.5 w-3.5 text-mesh-green" />
+            Private conversation
+          </div>
+        </div>
       </div>
     )
   }
@@ -71,7 +80,7 @@ function MessageFeed({ messages, recipientName: _recipientName, onEditMessage, o
     <div className="relative flex-1 min-h-0">
       <div
         ref={containerRef}
-        className="h-full overflow-y-auto pb-2"
+        className="h-full overflow-y-auto pb-3"
       >
         {messages.map((msg, i) => {
           const prev = i > 0 ? messages[i - 1] : undefined
@@ -82,9 +91,9 @@ function MessageFeed({ messages, recipientName: _recipientName, onEditMessage, o
             <div key={msg.id}>
               {/* Date divider */}
               {showDate && (
-                <div className="flex items-center justify-center px-4 py-3 my-2 relative">
-                  <div className="absolute left-4 right-4 h-px bg-mesh-border border-t" />
-                  <span className="relative text-[11px] font-semibold text-mesh-text-muted bg-mesh-bg-secondary px-2 z-10 leading-none">
+                <div className="relative my-3 flex items-center justify-center px-4 py-2">
+                  <div className="absolute left-4 right-4 h-px bg-gradient-to-r from-transparent via-mesh-border to-transparent" />
+                  <span className="relative z-10 rounded-full border border-mesh-border/60 bg-mesh-bg-secondary px-3 py-1 text-[11px] font-semibold leading-none text-mesh-text-muted shadow-sm">
                     {formatDateDivider(msg.timestamp)}
                   </span>
                 </div>
@@ -109,7 +118,7 @@ function MessageFeed({ messages, recipientName: _recipientName, onEditMessage, o
       {!isAtBottom && (
         <button
           onClick={scrollToBottom}
-          className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-mesh-green shadow-lg flex items-center justify-center px-4 py-2 text-white hover:bg-mesh-green/90 transition-all gap-1.5 whitespace-nowrap z-20 animate-in"
+          className="absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 animate-in items-center justify-center gap-1.5 whitespace-nowrap rounded-full border border-white/10 bg-mesh-green px-4 py-2 text-white shadow-[0_14px_36px_rgba(35,165,89,0.32)] transition-all hover:bg-mesh-green-light"
         >
           <span className="text-xs font-semibold">Jump to present</span>
           <ChevronDown className="h-4 w-4" />

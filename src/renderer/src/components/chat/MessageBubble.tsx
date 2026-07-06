@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { Check, CheckCheck, Clock, Trash2, Reply, Pencil, SmilePlus } from 'lucide-react'
+import { forwardRef, useEffect, useRef, useState } from 'react'
+import { Check, CheckCheck, Clock, Pencil, Reply, SmilePlus, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
 import type { Message } from '@/types/messages'
@@ -9,7 +9,6 @@ import { ReactionBar } from './ReactionBar'
 import { useIdentityStore } from '@/stores/identity.store'
 import { useAvatarStore } from '@/stores/avatar.store'
 
-/** Delivery status indicator for own messages (Task 9). */
 function StatusTick({ status }: { status: Message['status'] }): JSX.Element | null {
   if (status === 'sending') return <Clock className="h-3 w-3 text-mesh-text-muted" />
   if (status === 'sent') return <Check className="h-3 w-3 text-mesh-text-muted" />
@@ -22,7 +21,6 @@ interface MessageBubbleProps {
   message: Message
   isGrouped: boolean
   isOwnMessage: boolean
-  /** Whether the caller can delete this message (sender or mod/host on servers). */
   canDelete?: boolean
   onEdit?: (messageId: string, newContent: string) => void
   onDelete?: (messageId: string) => void
@@ -38,17 +36,17 @@ function formatTime(timestamp: number): string {
 function EditedTag({ editedAt }: { editedAt: number }): JSX.Element {
   return (
     <span
-      className="text-[10px] text-mesh-text-muted ml-1.5"
+      className="ml-1.5 text-[10px] font-medium text-mesh-text-muted"
       title={`Edited ${new Date(editedAt).toLocaleString()}`}
     >
-      (edited)
+      edited
     </span>
   )
 }
 
 function DeletedPlaceholder(): JSX.Element {
   return (
-    <p className="text-sm italic text-mesh-text-muted leading-relaxed">
+    <p className="inline-flex rounded-lg border border-mesh-border/50 bg-mesh-bg-tertiary/35 px-2.5 py-1.5 text-sm italic leading-relaxed text-mesh-text-muted">
       Message deleted
     </p>
   )
@@ -84,7 +82,7 @@ function InlineEditor({ initial, onSave, onCancel }: InlineEditorProps): JSX.Ele
   }
 
   return (
-    <div className="mt-1">
+    <div className="mt-1.5 rounded-xl border border-mesh-border/70 bg-mesh-bg-tertiary/45 p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
       <textarea
         ref={textareaRef}
         value={value}
@@ -103,31 +101,108 @@ function InlineEditor({ initial, onSave, onCancel }: InlineEditorProps): JSX.Ele
             onCancel()
           }
         }}
-        className="w-full resize-none rounded-md bg-mesh-bg-tertiary text-sm text-mesh-text-primary leading-relaxed px-3 py-2 focus:outline-none focus:ring-1 focus:ring-mesh-green"
+        className="w-full resize-none rounded-lg border border-mesh-border/60 bg-mesh-bg-primary/45 px-3 py-2 text-sm leading-relaxed text-mesh-text-primary outline-none transition focus:border-mesh-green focus:ring-1 focus:ring-mesh-green/30"
       />
-      <div className="mt-1 flex items-center gap-2 text-[10px] text-mesh-text-muted">
-        <span>
-          escape to{' '}
-          <button onClick={onCancel} className="text-mesh-info hover:underline">
-            cancel
-          </button>
-        </span>
-        <span>·</span>
-        <span>
-          enter to{' '}
-          <button onClick={submit} className="text-mesh-green hover:underline">
-            save
-          </button>
-        </span>
+      <div className="mt-1.5 flex items-center gap-2 px-1 text-[10px] text-mesh-text-muted">
+        <button onClick={onCancel} className="font-medium text-mesh-text-secondary hover:text-mesh-text-primary">
+          Esc cancel
+        </button>
+        <span>-</span>
+        <button onClick={submit} className="font-medium text-mesh-green hover:text-mesh-green-light">
+          Enter save
+        </button>
       </div>
+    </div>
+  )
+}
+
+function MessageActionBar({
+  message,
+  canEdit,
+  allowDelete,
+  onReply,
+  onEdit,
+  onDelete,
+  onToggleReaction
+}: {
+  message: Message
+  canEdit: boolean
+  allowDelete: boolean
+  onReply?: (message: Message) => void
+  onEdit: () => void
+  onDelete: () => void
+  onToggleReaction?: (messageId: string, emojiId: string) => void
+}): JSX.Element | null {
+  const [showPicker, setShowPicker] = useState(false)
+  const pickerBtnRef = useRef<HTMLButtonElement>(null)
+
+  if (message.isDeleted) return null
+
+  return (
+    <div className="absolute -top-3 right-5 z-10 flex items-center rounded-lg border border-mesh-border/70 bg-mesh-bg-elevated/95 p-0.5 opacity-0 shadow-[0_12px_30px_rgba(0,0,0,0.38)] backdrop-blur transition-opacity group-hover:opacity-100">
+      <ActionButton onClick={() => onReply?.(message)} title="Reply">
+        <Reply className="h-4 w-4" />
+      </ActionButton>
+      {!!onToggleReaction && (
+        <div className="relative flex items-center justify-center">
+          <ActionButton
+            ref={pickerBtnRef}
+            onClick={() => setShowPicker((value) => !value)}
+            title="Add Reaction"
+          >
+            <SmilePlus className="h-4 w-4" />
+          </ActionButton>
+          {showPicker && (
+            <ReactionPicker
+              anchorRef={pickerBtnRef}
+              onSelect={(emojiId) => onToggleReaction(message.id, emojiId)}
+              onClose={() => setShowPicker(false)}
+            />
+          )}
+        </div>
+      )}
+      {canEdit && (
+        <ActionButton onClick={onEdit} title="Edit Message">
+          <Pencil className="h-4 w-4" />
+        </ActionButton>
+      )}
+      {allowDelete && (
+        <ActionButton danger onClick={onDelete} title="Delete Message">
+          <Trash2 className="h-4 w-4" />
+        </ActionButton>
+      )}
+    </div>
+  )
+}
+
+const ActionButton = forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement> & { danger?: boolean }>(
+  ({ danger, className, ...props }, ref) => (
+    <button
+      ref={ref}
+      className={cn(
+        'grid h-7 w-7 place-items-center rounded-md text-mesh-text-secondary transition-colors hover:bg-mesh-bg-tertiary hover:text-mesh-text-primary',
+        danger && 'hover:bg-red-500/10 hover:text-red-400',
+        className
+      )}
+      {...props}
+    />
+  )
+)
+ActionButton.displayName = 'ActionButton'
+
+function ReplyQuote({ message }: { message: Message }): JSX.Element | null {
+  if (!message.replyTo) return null
+  return (
+    <div className="mb-1.5 flex max-w-2xl items-start gap-2 rounded-lg border border-mesh-border/45 bg-mesh-bg-tertiary/35 px-2.5 py-1.5">
+      <span className="mt-0.5 h-4 w-0.5 shrink-0 rounded-full bg-mesh-green" />
+      <span className="shrink-0 text-[11px] font-semibold text-mesh-green">{message.replyTo.senderName}</span>
+      <span className="min-w-0 truncate text-[11px] text-mesh-text-muted">{message.replyTo.content.slice(0, 90)}</span>
     </div>
   )
 }
 
 function MessageBubble({ message, isGrouped, isOwnMessage, canDelete, onEdit, onDelete, onToggleReaction, onReply }: MessageBubbleProps): JSX.Element {
   const [isEditing, setIsEditing] = useState(false)
-  const [showPicker, setShowPicker] = useState(false)
-  const pickerBtnRef = useRef<HTMLButtonElement>(null)
   const selfId = useIdentityStore((s) => s.identity?.userId)
   const selfAvatar = useAvatarStore((s) => s.self)
   const peerAvatar = useAvatarStore((s) => s.byUser[message.senderId])
@@ -156,12 +231,7 @@ function MessageBubble({ message, isGrouped, isOwnMessage, canDelete, onEdit, on
   function renderBody(): JSX.Element {
     if (message.isDeleted) return <DeletedPlaceholder />
 
-    const replyQuote = message.replyTo ? (
-      <div className="mb-1.5 flex items-start gap-1.5 pl-2 border-l-2 border-mesh-green/60 rounded-sm bg-mesh-bg-tertiary/50 py-1 pr-2">
-        <span className="font-semibold text-[11px] text-mesh-green shrink-0">{message.replyTo.senderName}</span>
-        <span className="text-[11px] text-mesh-text-muted truncate">{message.replyTo.content.slice(0, 80)}</span>
-      </div>
-    ) : null
+    const replyQuote = <ReplyQuote message={message} />
 
     if (isEditing) {
       return (
@@ -179,7 +249,6 @@ function MessageBubble({ message, isGrouped, isOwnMessage, canDelete, onEdit, on
         </>
       )
     }
-    // Inline data-URL image (used by server channels for media preview)
     if (message.content.startsWith('data:image/')) {
       return (
         <>
@@ -188,7 +257,7 @@ function MessageBubble({ message, isGrouped, isOwnMessage, canDelete, onEdit, on
             <img
               src={message.content}
               alt="attachment"
-              className="rounded-lg max-h-[300px] w-auto object-contain border border-mesh-border/30 cursor-pointer"
+              className="max-h-[300px] w-auto cursor-pointer rounded-xl border border-mesh-border/55 object-contain shadow-[0_12px_32px_rgba(0,0,0,0.26)]"
               onClick={() => window.open(message.content, '_blank')}
             />
             {message.editedAt ? <EditedTag editedAt={message.editedAt} /> : null}
@@ -199,7 +268,7 @@ function MessageBubble({ message, isGrouped, isOwnMessage, canDelete, onEdit, on
     return (
       <>
         {replyQuote}
-        <p className="text-sm text-mesh-text-primary leading-relaxed break-words">
+        <p className="max-w-3xl break-words text-sm leading-relaxed text-mesh-text-primary">
           {message.content}
           {message.editedAt ? <EditedTag editedAt={message.editedAt} /> : null}
         </p>
@@ -207,60 +276,28 @@ function MessageBubble({ message, isGrouped, isOwnMessage, canDelete, onEdit, on
     )
   }
 
+  const actions = (
+    <MessageActionBar
+      message={message}
+      canEdit={canEdit}
+      allowDelete={allowDelete}
+      onReply={onReply}
+      onEdit={() => setIsEditing(true)}
+      onDelete={commitDelete}
+      onToggleReaction={onToggleReaction}
+    />
+  )
+
   if (isGrouped) {
     return (
-      <div className="group relative flex items-start gap-3 px-4 py-0.5 hover:bg-mesh-bg-tertiary/30 transition-colors">
-        {/* Floating action bar */}
-        {!message.isDeleted && (
-          <div className="absolute -top-3 right-4 opacity-0 group-hover:opacity-100 transition-opacity bg-mesh-bg-elevated border border-mesh-border rounded-md shadow-md flex items-center p-0.5 z-10">
-            <button onClick={() => onReply?.(message)} className="w-7 h-7 rounded flex items-center justify-center text-mesh-text-secondary hover:bg-mesh-bg-tertiary hover:text-mesh-text-primary transition-colors" title="Reply">
-              <Reply className="h-4 w-4" />
-            </button>
-            {!!onToggleReaction && (
-              <div className="relative flex items-center justify-center">
-                <button
-                  ref={pickerBtnRef}
-                  onClick={() => setShowPicker(!showPicker)}
-                  className="w-7 h-7 rounded flex items-center justify-center text-mesh-text-secondary hover:bg-mesh-bg-tertiary hover:text-mesh-text-primary transition-colors cursor-pointer"
-                  title="Add Reaction"
-                >
-                  <SmilePlus className="h-4 w-4" />
-                </button>
-                {showPicker && (
-                  <ReactionPicker
-                    anchorRef={pickerBtnRef}
-                    onSelect={(emojiId) => onToggleReaction(message.id, emojiId)}
-                    onClose={() => setShowPicker(false)}
-                  />
-                )}
-              </div>
-            )}
-            {canEdit && (
-              <button
-                onClick={() => setIsEditing(true)}
-                className="w-7 h-7 rounded flex items-center justify-center text-mesh-text-secondary hover:bg-mesh-bg-tertiary hover:text-mesh-text-primary transition-colors cursor-pointer"
-                title="Edit Message"
-              >
-                <Pencil className="h-4 w-4" />
-              </button>
-            )}
-            {allowDelete && (
-              <button
-                onClick={commitDelete}
-                className="w-7 h-7 rounded flex items-center justify-center text-mesh-text-secondary hover:bg-red-500/10 hover:text-red-500 transition-colors cursor-pointer"
-                title="Delete Message"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            )}
-          </div>
-        )}
-        <div className="w-10 shrink-0 flex items-center justify-end">
-          <span className="text-[10px] text-mesh-text-muted opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="group relative flex items-start gap-3 px-4 py-1 transition-colors hover:bg-mesh-bg-tertiary/20">
+        {actions}
+        <div className="flex w-10 shrink-0 items-center justify-end">
+          <span className="rounded px-1.5 py-0.5 text-[10px] text-mesh-text-muted opacity-0 transition-opacity group-hover:opacity-100">
             {formatTime(message.timestamp)}
           </span>
         </div>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 rounded-lg px-0.5">
           {renderBody()}
           {!message.isDeleted && message.reactions && selfId && onToggleReaction && (
             <ReactionBar
@@ -280,61 +317,22 @@ function MessageBubble({ message, isGrouped, isOwnMessage, canDelete, onEdit, on
   }
 
   return (
-    <div className="group relative flex items-start gap-3 px-4 pt-4 pb-0.5 hover:bg-mesh-bg-tertiary/30 transition-colors mt-[17px]">
-      {!message.isDeleted && (
-        <div className="absolute -top-3 right-4 opacity-0 group-hover:opacity-100 transition-opacity bg-mesh-bg-elevated border border-mesh-border rounded-md shadow-md flex items-center p-0.5 z-10 w-fit">
-          <button onClick={() => onReply?.(message)} className="w-7 h-7 rounded flex items-center justify-center text-mesh-text-secondary hover:bg-mesh-bg-tertiary hover:text-mesh-text-primary transition-colors" title="Reply">
-            <Reply className="h-4 w-4" />
-          </button>
-          {!!onToggleReaction && (
-            <div className="relative flex items-center justify-center">
-              <button
-                onClick={() => setShowPicker(!showPicker)}
-                className="w-7 h-7 rounded flex items-center justify-center text-mesh-text-secondary hover:bg-mesh-bg-tertiary hover:text-mesh-text-primary transition-colors cursor-pointer"
-                title="Add Reaction"
-              >
-                <SmilePlus className="h-4 w-4" />
-              </button>
-              {showPicker && (
-                <ReactionPicker
-                  onSelect={(emojiId) => onToggleReaction(message.id, emojiId)}
-                  onClose={() => setShowPicker(false)}
-                />
-              )}
-            </div>
-          )}
-          {canEdit && (
-            <button
-              onClick={() => setIsEditing(true)}
-              className="w-7 h-7 rounded flex items-center justify-center text-mesh-text-secondary hover:bg-mesh-bg-tertiary hover:text-mesh-text-primary transition-colors cursor-pointer"
-              title="Edit Message"
-            >
-              <Pencil className="h-4 w-4" />
-            </button>
-          )}
-          {allowDelete && (
-            <button
-              onClick={commitDelete}
-              className="w-7 h-7 rounded flex items-center justify-center text-mesh-text-secondary hover:bg-red-500/10 hover:text-red-500 transition-colors cursor-pointer"
-              title="Delete Message"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
-          )}
-        </div>
-      )}
+    <div className="group relative mt-3 flex items-start gap-3 px-4 pb-1.5 pt-3 transition-colors hover:bg-mesh-bg-tertiary/20">
+      {actions}
       <div className="w-10 shrink-0 pt-0.5">
-        <Avatar src={senderAvatarSrc} fallback={message.senderName} size="md" />
+        <div className={cn('rounded-full', isOwnMessage && 'ring-2 ring-mesh-green/35 ring-offset-2 ring-offset-mesh-bg-secondary')}>
+          <Avatar src={senderAvatarSrc} fallback={message.senderName} size="md" />
+        </div>
       </div>
       <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-2">
+        <div className="mb-0.5 flex min-w-0 items-baseline gap-2">
           <span className={cn(
-            'text-sm font-semibold',
+            'truncate text-sm font-semibold',
             isOwnMessage ? 'text-mesh-green' : 'text-mesh-text-primary'
           )}>
             {message.senderName}
           </span>
-          <span className="text-[10px] text-mesh-text-muted">
+          <span className="shrink-0 text-[10px] text-mesh-text-muted">
             {formatFullTime(message.timestamp)}
           </span>
         </div>
@@ -347,7 +345,7 @@ function MessageBubble({ message, isGrouped, isOwnMessage, canDelete, onEdit, on
           />
         )}
         {isOwnMessage && !message.isDeleted && (
-          <span className="inline-flex align-middle ml-1.5" title={message.status}>
+          <span className="ml-1.5 inline-flex align-middle" title={message.status}>
             <StatusTick status={message.status} />
           </span>
         )}

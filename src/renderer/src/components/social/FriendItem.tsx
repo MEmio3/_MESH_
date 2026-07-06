@@ -36,7 +36,7 @@ function FriendItem({ friend }: FriendItemProps): JSX.Element {
     <ContextMenu items={contextItems}>
       <div
         onClick={() => navigate(`/channels/@me/dm_${friend.userId}`)}
-        className="flex items-center h-16 border-t border-mesh-border px-3 hover:bg-mesh-bg-tertiary/40 rounded-lg mx-2 my-1 transition-colors group cursor-pointer"
+        className="group mx-2 my-1 flex h-16 cursor-pointer items-center rounded-xl border border-transparent px-3 transition-all hover:border-mesh-border/60 hover:bg-mesh-bg-tertiary/45 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"
       >
         {/* Avatar */}
         <UserAvatar
@@ -48,23 +48,23 @@ function FriendItem({ friend }: FriendItemProps): JSX.Element {
 
         {/* Info */}
         <div className="flex-1 min-w-0 ml-3">
-          <span className="text-base font-semibold text-mesh-text-primary block truncate">
+          <span className="block truncate text-sm font-semibold text-mesh-text-primary">
             {friend.username}
           </span>
-          <span className="text-xs text-mesh-text-muted truncate block">
+          <span className="block truncate text-xs text-mesh-text-muted">
             {statusLabels[status]}
           </span>
         </div>
 
         {/* Action Buttons — visible on hover */}
-        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
           <Tooltip content="Message" side="top">
             <button
               onClick={(e) => {
                 e.stopPropagation()
                 navigate(`/channels/@me/dm_${friend.userId}`)
               }}
-              className="h-9 w-9 rounded-full flex items-center justify-center bg-mesh-bg-secondary hover:bg-mesh-bg-tertiary text-mesh-text-secondary hover:text-mesh-text-primary transition-colors"
+              className="grid h-9 w-9 place-items-center rounded-xl border border-mesh-border/60 bg-mesh-bg-secondary text-mesh-text-secondary transition-colors hover:bg-mesh-green hover:text-white"
             >
               <MessageSquare className="h-4.5 w-4.5" />
             </button>
@@ -72,7 +72,7 @@ function FriendItem({ friend }: FriendItemProps): JSX.Element {
           <Tooltip content="Voice Call" side="top">
             <button
               onClick={(e) => e.stopPropagation()}
-              className="h-9 w-9 rounded-full flex items-center justify-center bg-mesh-bg-secondary hover:bg-mesh-bg-tertiary text-mesh-text-secondary hover:text-mesh-text-primary transition-colors"
+              className="grid h-9 w-9 place-items-center rounded-xl border border-mesh-border/60 bg-mesh-bg-secondary text-mesh-text-secondary transition-colors hover:bg-mesh-bg-tertiary hover:text-mesh-text-primary"
             >
               <Phone className="h-4.5 w-4.5" />
             </button>
