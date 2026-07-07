@@ -292,7 +292,7 @@ function CallOverlay(): JSX.Element | null {
         )}
         <button
           onClick={() => setShowSettings((v) => !v)}
-          className={`h-12 w-12 rounded-full flex items-center justify-center transition-colors ${
+          className={`mesh-icon-button mesh-icon-settings h-12 w-12 rounded-full flex items-center justify-center transition-colors ${
             showSettings
               ? 'bg-mesh-green text-white'
               : 'bg-mesh-bg-tertiary text-mesh-text-primary hover:bg-mesh-bg-hover'
@@ -303,7 +303,7 @@ function CallOverlay(): JSX.Element | null {
         </button>
         <button
           onClick={toggleMute}
-          className={`h-12 w-12 rounded-full flex items-center justify-center transition-colors ${
+          className={`mesh-icon-button mesh-icon-mic h-12 w-12 rounded-full flex items-center justify-center transition-colors ${
             isMuted
               ? 'bg-mesh-danger text-white hover:opacity-90'
               : 'bg-mesh-bg-tertiary text-mesh-text-primary hover:bg-mesh-bg-hover'
@@ -314,7 +314,7 @@ function CallOverlay(): JSX.Element | null {
         </button>
         <button
           onClick={() => toggleCamera()}
-          className={`h-12 w-12 rounded-full flex items-center justify-center transition-colors ${
+          className={`mesh-icon-button mesh-icon-video h-12 w-12 rounded-full flex items-center justify-center transition-colors ${
             isCameraOn
               ? 'bg-mesh-bg-tertiary text-mesh-text-primary hover:bg-mesh-bg-hover'
               : 'bg-mesh-bg-tertiary text-mesh-text-muted hover:bg-mesh-bg-hover'
@@ -325,7 +325,7 @@ function CallOverlay(): JSX.Element | null {
         </button>
         <button
           onClick={() => end(true)}
-          className="h-12 px-6 rounded-full bg-mesh-danger text-white flex items-center gap-2 hover:opacity-90 transition text-sm font-semibold"
+          className="mesh-icon-button mesh-icon-phone h-12 px-6 rounded-full bg-mesh-danger text-white flex items-center gap-2 hover:opacity-90 transition text-sm font-semibold"
           title="End call"
         >
           <PhoneOff className="h-5 w-5" />

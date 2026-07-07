@@ -72,7 +72,7 @@ function FriendItem({ friend }: FriendItemProps): JSX.Element {
           <Tooltip content="Voice Call" side="top">
             <button
               onClick={(e) => e.stopPropagation()}
-              className="mesh-pressable grid h-9 w-9 place-items-center rounded-xl border border-mesh-border/60 bg-mesh-bg-secondary text-mesh-text-secondary transition-colors hover:bg-mesh-bg-tertiary hover:text-mesh-text-primary"
+              className="mesh-pressable mesh-icon-button mesh-icon-phone grid h-9 w-9 place-items-center rounded-xl border border-mesh-border/60 bg-mesh-bg-secondary text-mesh-text-secondary transition-colors hover:bg-mesh-bg-tertiary hover:text-mesh-text-primary"
             >
               <Phone className="h-4.5 w-4.5" />
             </button>

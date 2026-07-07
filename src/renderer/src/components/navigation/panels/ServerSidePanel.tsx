@@ -126,7 +126,7 @@ function ServerSidePanel({ serverId }: ServerSidePanelProps): JSX.Element {
                 setShowDropdown(false)
                 navigate(`/server-settings/${serverId}`)
               }}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 mx-1 text-sm text-mesh-text-primary hover:bg-mesh-green hover:text-white rounded-sm transition-colors"
+              className="mesh-icon-button mesh-icon-settings w-full flex items-center gap-2 px-2.5 py-1.5 mx-1 text-sm text-mesh-text-primary hover:bg-mesh-green hover:text-white rounded-sm transition-colors"
               style={{ width: 'calc(100% - 8px)' }}
             >
               <Settings className="h-3.5 w-3.5" />

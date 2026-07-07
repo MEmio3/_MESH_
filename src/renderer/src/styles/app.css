@@ -676,6 +676,77 @@ html, body {
   filter: brightness(0.95);
 }
 
+[data-motion='on'] .mesh-icon-button svg {
+  transform-origin: center;
+  transition:
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 180ms ease,
+    opacity 180ms ease;
+  will-change: transform;
+}
+
+[data-motion='on'] .mesh-icon-button:hover svg {
+  transform: translateY(-1px) scale(1.07);
+  filter: drop-shadow(0 6px 12px color-mix(in srgb, currentColor 24%, transparent));
+}
+
+[data-motion='on'] .mesh-icon-button:active svg {
+  transform: translateY(0) scale(0.92);
+}
+
+[data-motion='on'] .mesh-icon-settings:hover svg {
+  transform: rotate(26deg) scale(1.08);
+}
+
+[data-motion='on'] .mesh-icon-settings:active svg {
+  animation: mesh-gear-click 520ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+[data-motion='on'] .mesh-icon-mic:hover svg {
+  animation: mesh-mic-hover 520ms ease;
+}
+
+[data-motion='on'] .mesh-icon-mic:active svg {
+  animation: mesh-mic-tap 280ms cubic-bezier(0.2, 0.9, 0.25, 1.25);
+}
+
+[data-motion='on'] .mesh-icon-headphones:hover svg {
+  animation: mesh-headphones-nod 520ms ease;
+}
+
+[data-motion='on'] .mesh-icon-headphones:active svg {
+  animation: mesh-headphones-press 280ms cubic-bezier(0.2, 0.9, 0.25, 1.25);
+}
+
+[data-motion='on'] .mesh-icon-bell:hover svg {
+  animation: mesh-bell-ring 560ms ease;
+}
+
+[data-motion='on'] .mesh-icon-search:hover svg {
+  animation: mesh-search-sweep 540ms ease;
+}
+
+[data-motion='on'] .mesh-icon-phone:hover svg {
+  transform: translateY(-1px) rotate(-10deg) scale(1.08);
+}
+
+[data-motion='on'] .mesh-icon-video:hover svg,
+[data-motion='on'] .mesh-icon-screen:hover svg {
+  transform: translateY(-1px) scale(1.08);
+}
+
+[data-motion='on'] .mesh-icon-users:hover svg {
+  animation: mesh-users-bob 540ms ease;
+}
+
+[data-motion='on'] .mesh-icon-chevron svg {
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+[data-motion='on'] .mesh-icon-chevron.mesh-chevron-open svg {
+  transform: rotate(180deg);
+}
+
 [data-motion='on'] .mesh-reaction-chip {
   animation: mesh-pop-in 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -823,6 +894,56 @@ html, body {
   0% { transform: scale(1); }
   45% { transform: scale(1.16); }
   100% { transform: scale(1); }
+}
+
+@keyframes mesh-gear-click {
+  0% { transform: rotate(0deg) scale(1); }
+  55% { transform: rotate(160deg) scale(1.08); }
+  100% { transform: rotate(180deg) scale(1); }
+}
+
+@keyframes mesh-mic-hover {
+  0%, 100% { transform: translateY(0) scale(1); }
+  35% { transform: translateY(-2px) scale(1.08); }
+  65% { transform: translateY(1px) scale(0.98); }
+}
+
+@keyframes mesh-mic-tap {
+  0% { transform: scale(1); }
+  45% { transform: scale(0.82); }
+  100% { transform: scale(1.08); }
+}
+
+@keyframes mesh-headphones-nod {
+  0%, 100% { transform: rotate(0deg) scale(1); }
+  35% { transform: rotate(-7deg) scale(1.08); }
+  70% { transform: rotate(5deg) scale(1.03); }
+}
+
+@keyframes mesh-headphones-press {
+  0% { transform: scale(1); }
+  45% { transform: scale(0.88) translateY(2px); }
+  100% { transform: scale(1.06); }
+}
+
+@keyframes mesh-bell-ring {
+  0%, 100% { transform: rotate(0deg); }
+  18% { transform: rotate(-14deg); }
+  36% { transform: rotate(12deg); }
+  54% { transform: rotate(-8deg); }
+  72% { transform: rotate(5deg); }
+}
+
+@keyframes mesh-search-sweep {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  40% { transform: translate(2px, -1px) scale(1.08); }
+  70% { transform: translate(-1px, 1px) scale(1.03); }
+}
+
+@keyframes mesh-users-bob {
+  0%, 100% { transform: translateY(0) scale(1); }
+  40% { transform: translateY(-2px) scale(1.08); }
+  70% { transform: translateY(1px) scale(1.02); }
 }
 
 @keyframes mesh-live-pulse {

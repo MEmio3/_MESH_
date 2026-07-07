@@ -314,6 +314,7 @@ function UserPanel(): JSX.Element {
           <UserPanelButton
             tooltip={isMuted ? 'Unmute' : 'Mute'}
             active={isMuted}
+            motion="mic"
             onClick={toggleMute}
           >
             {isMuted ? <MicOff className="h-[18px] w-[18px]" /> : <Mic className="h-[18px] w-[18px]" />}
@@ -322,7 +323,8 @@ function UserPanel(): JSX.Element {
             <button
               onClick={() => setPopover((p) => (p === 'input' ? null : 'input'))}
               className={cn(
-                'flex items-center justify-center h-8 w-4 rounded-md transition-colors -ml-0.5',
+                'mesh-icon-button mesh-icon-chevron flex items-center justify-center h-8 w-4 rounded-md transition-colors -ml-0.5',
+                popover === 'input' && 'mesh-chevron-open',
                 popover === 'input'
                   ? 'text-white bg-white/[0.06]'
                   : 'text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-white/[0.06]'
@@ -338,6 +340,7 @@ function UserPanel(): JSX.Element {
           <UserPanelButton
             tooltip={isDeafened ? 'Undeafen' : 'Deafen'}
             active={isDeafened}
+            motion="headphones"
             onClick={toggleDeafen}
           >
             {isDeafened ? <HeadphoneOff className="h-[18px] w-[18px]" /> : <Headphones className="h-[18px] w-[18px]" />}
@@ -346,7 +349,8 @@ function UserPanel(): JSX.Element {
             <button
               onClick={() => setPopover((p) => (p === 'output' ? null : 'output'))}
               className={cn(
-                'flex items-center justify-center h-8 w-4 rounded-md transition-colors -ml-0.5',
+                'mesh-icon-button mesh-icon-chevron flex items-center justify-center h-8 w-4 rounded-md transition-colors -ml-0.5',
+                popover === 'output' && 'mesh-chevron-open',
                 popover === 'output'
                   ? 'text-white bg-white/[0.06]'
                   : 'text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-white/[0.06]'
@@ -359,6 +363,7 @@ function UserPanel(): JSX.Element {
 
         <UserPanelButton
           tooltip="User Settings"
+          motion="settings"
           onClick={() => navigate('/settings')}
         >
           <Settings className="h-[18px] w-[18px]" />
@@ -384,17 +389,19 @@ function UserPanel(): JSX.Element {
 interface UserPanelButtonProps {
   tooltip: string
   active?: boolean
+  motion?: 'mic' | 'headphones' | 'settings'
   onClick: () => void
   children: React.ReactNode
 }
 
-function UserPanelButton({ tooltip, active, onClick, children }: UserPanelButtonProps): JSX.Element {
+function UserPanelButton({ tooltip, active, motion, onClick, children }: UserPanelButtonProps): JSX.Element {
   return (
     <Tooltip content={tooltip} side="top">
       <button
         onClick={onClick}
         className={cn(
-          'flex items-center justify-center h-8 w-8 rounded-md transition-colors',
+          'mesh-icon-button flex items-center justify-center h-8 w-8 rounded-md transition-colors',
+          motion && `mesh-icon-${motion}`,
           active
             ? 'text-mesh-danger hover:bg-white/[0.06]'
             : 'text-mesh-text-secondary hover:bg-white/[0.06] hover:text-mesh-text-primary'

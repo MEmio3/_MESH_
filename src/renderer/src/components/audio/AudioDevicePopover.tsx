@@ -196,7 +196,7 @@ function AudioDevicePopover({ kind, anchorRef, open, onClose }: Props): JSX.Elem
           onClose()
           navigate('/settings')
         }}
-        className="flex items-center justify-between border-t border-white/[0.06] pt-2 mt-1 text-[13px] text-[#dbdee1] hover:text-white transition-colors"
+        className="mesh-icon-button mesh-icon-settings flex items-center justify-between border-t border-white/[0.06] pt-2 mt-1 text-[13px] text-[#dbdee1] hover:text-white transition-colors"
       >
         <span className="font-medium">Voice Settings</span>
         <Settings className="h-4 w-4 text-[#b5bac1]" />

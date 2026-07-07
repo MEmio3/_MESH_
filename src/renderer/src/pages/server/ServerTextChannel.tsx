@@ -95,12 +95,12 @@ function ServerTextChannel({ server, channelName, channelId, isDefaultChannel }:
           
           <div className="flex items-center gap-2 shrink-0 ml-4">
             <Tooltip content="Search" side="bottom">
-              <button className="h-8 w-8 rounded flex items-center justify-center text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary transition-colors">
+              <button className="mesh-icon-button mesh-icon-search h-8 w-8 rounded flex items-center justify-center text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary transition-colors">
                 <Search className="h-[18px] w-[18px]" />
               </button>
             </Tooltip>
             <Tooltip content="Inbox" side="bottom">
-              <button className="h-8 w-8 rounded flex items-center justify-center text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary transition-colors">
+              <button className="mesh-icon-button mesh-icon-bell h-8 w-8 rounded flex items-center justify-center text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary transition-colors">
                 <Bell className="h-[18px] w-[18px]" />
               </button>
             </Tooltip>
@@ -108,7 +108,7 @@ function ServerTextChannel({ server, channelName, channelId, isDefaultChannel }:
               <button
                 onClick={() => setShowMembers(!showMembers)}
                 className={cn(
-                  "h-8 w-8 rounded flex items-center justify-center transition-colors",
+                  "mesh-icon-button mesh-icon-users h-8 w-8 rounded flex items-center justify-center transition-colors",
                   showMembers 
                     ? "text-mesh-text-primary bg-mesh-bg-tertiary" 
                     : "text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary"

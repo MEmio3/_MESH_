@@ -41,6 +41,7 @@ function VoiceControlBar(): JSX.Element {
           tooltip={isMuted ? 'Unmute' : 'Mute'}
           active={!isMuted}
           danger={isMuted}
+          motion="mic"
           onClick={toggleMute}
         >
           {isMuted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
@@ -50,6 +51,7 @@ function VoiceControlBar(): JSX.Element {
           tooltip={isDeafened ? 'Undeafen' : 'Deafen'}
           active={!isDeafened}
           danger={isDeafened}
+          motion="headphones"
           onClick={toggleDeafen}
         >
           {isDeafened ? <HeadphoneOff className="h-5 w-5" /> : <Headphones className="h-5 w-5" />}
@@ -59,6 +61,7 @@ function VoiceControlBar(): JSX.Element {
           tooltip={isScreenSharing ? 'Stop Sharing' : 'Share Screen'}
           active={isScreenSharing}
           streaming={isScreenSharing}
+          motion="screen"
           onClick={handleShareClick}
         >
           <Monitor className="h-5 w-5" />
@@ -68,6 +71,7 @@ function VoiceControlBar(): JSX.Element {
           tooltip={isCameraOn ? 'Turn Off Camera' : 'Turn On Camera'}
           active={isCameraOn}
           streaming={isCameraOn}
+          motion="video"
           onClick={handleCameraClick}
         >
           {isCameraOn ? <Camera className="h-5 w-5" /> : <CameraOff className="h-5 w-5" />}
@@ -75,7 +79,7 @@ function VoiceControlBar(): JSX.Element {
 
         <div className="w-px h-8 bg-mesh-border mx-1" />
 
-        <VoiceButton tooltip="Disconnect" danger onClick={leaveRoom}>
+        <VoiceButton tooltip="Disconnect" danger motion="phone" onClick={leaveRoom}>
           <PhoneOff className="h-5 w-5" />
         </VoiceButton>
       </div>
@@ -88,6 +92,7 @@ interface VoiceButtonProps {
   active?: boolean
   danger?: boolean
   streaming?: boolean
+  motion?: 'mic' | 'headphones' | 'screen' | 'video' | 'phone'
   onClick: () => void
   children: React.ReactNode
 }
@@ -97,6 +102,7 @@ function VoiceButton({
   active,
   danger,
   streaming,
+  motion,
   onClick,
   children
 }: VoiceButtonProps): JSX.Element {
@@ -105,7 +111,8 @@ function VoiceButton({
       <button
         onClick={onClick}
         className={cn(
-          'mesh-pressable h-10 w-10 rounded-full flex items-center justify-center transition-colors',
+          'mesh-pressable mesh-icon-button h-10 w-10 rounded-full flex items-center justify-center transition-colors',
+          motion && `mesh-icon-${motion}`,
           streaming
             ? 'mesh-live-badge bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-500/30'
             : danger

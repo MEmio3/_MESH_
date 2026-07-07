@@ -37,7 +37,7 @@ function ChatHeader({ conversation, profileOpen, onToggleProfile }: ChatHeaderPr
         <Tooltip content="Voice Call" side="bottom">
           <button
             onClick={() => startOutgoing(conversation.recipientId, conversation.recipientName, 'voice')}
-            className="h-8 w-8 rounded-md flex items-center justify-center text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary transition-colors"
+            className="mesh-icon-button mesh-icon-phone h-8 w-8 rounded-md flex items-center justify-center text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary transition-colors"
           >
             <Phone className="h-4.5 w-4.5" />
           </button>
@@ -45,13 +45,13 @@ function ChatHeader({ conversation, profileOpen, onToggleProfile }: ChatHeaderPr
         <Tooltip content="Video Call" side="bottom">
           <button
             onClick={() => startOutgoing(conversation.recipientId, conversation.recipientName, 'video')}
-            className="h-8 w-8 rounded-md flex items-center justify-center text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary transition-colors"
+            className="mesh-icon-button mesh-icon-video h-8 w-8 rounded-md flex items-center justify-center text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary transition-colors"
           >
             <Video className="h-4.5 w-4.5" />
           </button>
         </Tooltip>
         <Tooltip content="Search" side="bottom">
-          <button className="h-8 w-8 rounded-md flex items-center justify-center text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary transition-colors">
+          <button className="mesh-icon-button mesh-icon-search h-8 w-8 rounded-md flex items-center justify-center text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary transition-colors">
             <Search className="h-4.5 w-4.5" />
           </button>
         </Tooltip>
@@ -60,7 +60,7 @@ function ChatHeader({ conversation, profileOpen, onToggleProfile }: ChatHeaderPr
             <button
               onClick={onToggleProfile}
               className={cn(
-                'h-8 w-8 rounded-md flex items-center justify-center transition-colors',
+                'mesh-icon-button mesh-icon-users h-8 w-8 rounded-md flex items-center justify-center transition-colors',
                 profileOpen
                   ? 'text-mesh-text-primary bg-mesh-bg-tertiary'
                   : 'text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary'
