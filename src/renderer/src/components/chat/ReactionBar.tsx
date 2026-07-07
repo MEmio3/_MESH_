@@ -33,7 +33,7 @@ export function ReactionBar({ reactions, selfId, onToggle }: ReactionBarProps): 
             key={emojiId}
             onClick={() => onToggle(emojiId)}
             className={cn(
-              "flex items-center gap-1.5 px-1.5 py-0.5 rounded-full text-xs font-medium transition-colors border",
+              "mesh-reaction-chip mesh-pressable flex items-center gap-1.5 px-1.5 py-0.5 rounded-full text-xs font-medium transition-colors border",
               hasReacted 
                 ? "bg-mesh-green/20 border-mesh-green/50 text-mesh-green" 
                 : "bg-mesh-bg-tertiary border-transparent text-mesh-text-secondary hover:bg-mesh-bg-elevated hover:border-mesh-border"

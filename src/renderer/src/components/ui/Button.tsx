@@ -13,7 +13,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         ref={ref}
         disabled={disabled}
         className={cn(
-          'inline-flex items-center justify-center font-medium transition-colors duration-150 rounded-md focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mesh-green/60 focus-visible:ring-offset-1 focus-visible:ring-offset-mesh-bg-primary disabled:opacity-50 disabled:pointer-events-none',
+          'mesh-pressable inline-flex items-center justify-center font-medium transition-colors duration-150 rounded-md focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mesh-green/60 focus-visible:ring-offset-1 focus-visible:ring-offset-mesh-bg-primary disabled:opacity-50 disabled:pointer-events-none',
           {
             // Glossy accent: vertical gradient + inner top highlight + press-down.
             'text-white border border-white/10 bg-gradient-to-b from-mesh-green-light to-mesh-green hover:from-mesh-green hover:to-mesh-green-dark shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_3px_rgba(0,0,0,0.4)] active:translate-y-px active:shadow-[inset_0_1px_2px_rgba(0,0,0,0.3)]': variant === 'primary',

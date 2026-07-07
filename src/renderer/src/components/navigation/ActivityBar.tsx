@@ -3,8 +3,8 @@ import { Home } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { Tooltip } from '@/components/ui/Tooltip'
-import { Separator } from '@/components/ui/Separator'
 import { ServerList } from './ServerList'
+import { meshSpring } from '@/lib/motion'
 
 function ActivityBar(): JSX.Element {
   const navigate = useNavigate()
@@ -52,10 +52,10 @@ function ActivityBarItem({ tooltip, isActive, onClick, hasNotification, children
         {isActive ? (
           <motion.div
             layoutId="activity-pill"
-            className="absolute left-0 w-[2px] rounded-r-full bg-mesh-green"
+            className="mesh-active-indicator absolute left-0 w-[2px] rounded-r-full bg-mesh-green"
             initial={{ height: 8 }}
             animate={{ height: 24 }}
-            transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+            transition={meshSpring}
           />
         ) : (
           <div className="absolute left-0 w-[2px] rounded-r-full bg-mesh-text-muted opacity-0 h-0 group-hover:opacity-100 group-hover:h-3 transition-all duration-150" />
@@ -65,7 +65,7 @@ function ActivityBarItem({ tooltip, isActive, onClick, hasNotification, children
           <button
             onClick={onClick}
             className={cn(
-              'flex items-center justify-center h-10 w-10 rounded-lg transition-colors duration-150 overflow-hidden',
+              'mesh-pressable mesh-hover-lift flex items-center justify-center h-10 w-10 rounded-lg transition-colors duration-150 overflow-hidden',
               isActive
                 ? 'bg-mesh-bg-tertiary text-mesh-text-primary'
                 : 'bg-transparent text-mesh-text-muted hover:bg-mesh-bg-secondary hover:text-mesh-text-secondary'

@@ -36,7 +36,7 @@ function FriendItem({ friend }: FriendItemProps): JSX.Element {
     <ContextMenu items={contextItems}>
       <div
         onClick={() => navigate(`/channels/@me/dm_${friend.userId}`)}
-        className="group mx-2 my-1 flex h-16 cursor-pointer items-center rounded-xl border border-transparent px-3 transition-all hover:border-mesh-border/60 hover:bg-mesh-bg-tertiary/45 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"
+        className="mesh-hover-lift group mx-2 my-1 flex h-16 cursor-pointer items-center rounded-xl border border-transparent px-3 transition-all hover:border-mesh-border/60 hover:bg-mesh-bg-tertiary/45 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"
       >
         {/* Avatar */}
         <UserAvatar
@@ -64,7 +64,7 @@ function FriendItem({ friend }: FriendItemProps): JSX.Element {
                 e.stopPropagation()
                 navigate(`/channels/@me/dm_${friend.userId}`)
               }}
-              className="grid h-9 w-9 place-items-center rounded-xl border border-mesh-border/60 bg-mesh-bg-secondary text-mesh-text-secondary transition-colors hover:bg-mesh-green hover:text-white"
+              className="mesh-pressable grid h-9 w-9 place-items-center rounded-xl border border-mesh-border/60 bg-mesh-bg-secondary text-mesh-text-secondary transition-colors hover:bg-mesh-green hover:text-white"
             >
               <MessageSquare className="h-4.5 w-4.5" />
             </button>
@@ -72,7 +72,7 @@ function FriendItem({ friend }: FriendItemProps): JSX.Element {
           <Tooltip content="Voice Call" side="top">
             <button
               onClick={(e) => e.stopPropagation()}
-              className="grid h-9 w-9 place-items-center rounded-xl border border-mesh-border/60 bg-mesh-bg-secondary text-mesh-text-secondary transition-colors hover:bg-mesh-bg-tertiary hover:text-mesh-text-primary"
+              className="mesh-pressable grid h-9 w-9 place-items-center rounded-xl border border-mesh-border/60 bg-mesh-bg-secondary text-mesh-text-secondary transition-colors hover:bg-mesh-bg-tertiary hover:text-mesh-text-primary"
             >
               <Phone className="h-4.5 w-4.5" />
             </button>

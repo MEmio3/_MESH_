@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { meshEase, meshSoftSpring, modalMotion } from '@/lib/motion'
 
 interface ModalProps {
   isOpen: boolean
@@ -32,19 +33,20 @@ function Modal({ isOpen, onClose, title, children, className, bodyClassName }: M
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
+            transition={meshEase}
+            className="absolute inset-0 bg-black/60 backdrop-blur-[3px]"
             onClick={onClose}
           />
 
           {/* Content */}
           <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 10 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 10 }}
-            transition={{ duration: 0.2, ease: 'easeOut' }}
+            variants={modalMotion}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+            transition={meshSoftSpring}
             className={cn(
-              'relative w-full max-w-md mx-4 rounded-xl bg-mesh-bg-secondary border border-mesh-border-light/60 shadow-[0_24px_64px_-16px_rgba(0,0,0,0.75),inset_0_1px_0_rgba(255,255,255,0.05)]',
+              'mesh-reveal-in relative w-full max-w-md mx-4 rounded-xl bg-mesh-bg-secondary border border-mesh-border-light/60 shadow-[0_24px_64px_-16px_rgba(0,0,0,0.75),inset_0_1px_0_rgba(255,255,255,0.05)]',
               className
             )}
           >

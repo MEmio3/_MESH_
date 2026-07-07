@@ -11,6 +11,7 @@ import { StreamViewerModal } from '@/components/server/StreamViewerModal'
 import { VoiceAudioEngine } from '@/components/voice/VoiceAudioEngine'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { useVoiceStore } from '@/stores/voice.store'
+import { meshEase, pageMotion } from '@/lib/motion'
 
 function AppShell(): JSX.Element {
   const location = useLocation()
@@ -50,9 +51,11 @@ function AppShell(): JSX.Element {
             {animationsEnabled ? (
               <motion.div
                 key={location.pathname}
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.16, ease: 'easeOut' }}
+                variants={pageMotion}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+                transition={meshEase}
                 className="h-full"
               >
                 <Outlet />

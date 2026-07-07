@@ -10,7 +10,7 @@ import { useIdentityStore } from '@/stores/identity.store'
 import { useAvatarStore } from '@/stores/avatar.store'
 
 function StatusTick({ status }: { status: Message['status'] }): JSX.Element | null {
-  if (status === 'sending') return <Clock className="h-3 w-3 text-mesh-text-muted" />
+  if (status === 'sending') return <Clock className="mesh-status-pending h-3 w-3 text-mesh-text-muted" />
   if (status === 'sent') return <Check className="h-3 w-3 text-mesh-text-muted" />
   if (status === 'delivered') return <CheckCheck className="h-3 w-3 text-mesh-text-muted" />
   if (status === 'read') return <CheckCheck className="h-3 w-3 text-mesh-green" />
@@ -139,7 +139,7 @@ function MessageActionBar({
   if (message.isDeleted) return null
 
   return (
-    <div className="absolute -top-3 right-5 z-10 flex items-center rounded-lg border border-mesh-border/70 bg-mesh-bg-elevated/95 p-0.5 opacity-0 shadow-[0_12px_30px_rgba(0,0,0,0.38)] backdrop-blur transition-opacity group-hover:opacity-100">
+    <div className="mesh-action-pop absolute -top-3 right-5 z-10 flex items-center rounded-lg border border-mesh-border/70 bg-mesh-bg-elevated/95 p-0.5 opacity-0 shadow-[0_12px_30px_rgba(0,0,0,0.38)] backdrop-blur transition-opacity group-hover:opacity-100">
       <ActionButton onClick={() => onReply?.(message)} title="Reply">
         <Reply className="h-4 w-4" />
       </ActionButton>
@@ -180,7 +180,7 @@ const ActionButton = forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HT
     <button
       ref={ref}
       className={cn(
-        'grid h-7 w-7 place-items-center rounded-md text-mesh-text-secondary transition-colors hover:bg-mesh-bg-tertiary hover:text-mesh-text-primary',
+        'mesh-pressable grid h-7 w-7 place-items-center rounded-md text-mesh-text-secondary transition-colors hover:bg-mesh-bg-tertiary hover:text-mesh-text-primary',
         danger && 'hover:bg-red-500/10 hover:text-red-400',
         className
       )}
@@ -193,7 +193,7 @@ ActionButton.displayName = 'ActionButton'
 function ReplyQuote({ message }: { message: Message }): JSX.Element | null {
   if (!message.replyTo) return null
   return (
-    <div className="mb-1.5 flex max-w-2xl items-start gap-2 rounded-lg border border-mesh-border/45 bg-mesh-bg-tertiary/35 px-2.5 py-1.5">
+    <div className="mesh-reveal-in mb-1.5 flex max-w-2xl items-start gap-2 rounded-lg border border-mesh-border/45 bg-mesh-bg-tertiary/35 px-2.5 py-1.5">
       <span className="mt-0.5 h-4 w-0.5 shrink-0 rounded-full bg-mesh-green" />
       <span className="shrink-0 text-[11px] font-semibold text-mesh-green">{message.replyTo.senderName}</span>
       <span className="min-w-0 truncate text-[11px] text-mesh-text-muted">{message.replyTo.content.slice(0, 90)}</span>
@@ -290,7 +290,7 @@ function MessageBubble({ message, isGrouped, isOwnMessage, canDelete, onEdit, on
 
   if (isGrouped) {
     return (
-      <div className="group relative flex items-start gap-3 px-4 py-1 transition-colors hover:bg-mesh-bg-tertiary/20">
+      <div className="mesh-message-enter group relative flex items-start gap-3 px-4 py-1 transition-colors hover:bg-mesh-bg-tertiary/20">
         {actions}
         <div className="flex w-10 shrink-0 items-center justify-end">
           <span className="rounded px-1.5 py-0.5 text-[10px] text-mesh-text-muted opacity-0 transition-opacity group-hover:opacity-100">
@@ -317,7 +317,7 @@ function MessageBubble({ message, isGrouped, isOwnMessage, canDelete, onEdit, on
   }
 
   return (
-    <div className="group relative mt-3 flex items-start gap-3 px-4 pb-1.5 pt-3 transition-colors hover:bg-mesh-bg-tertiary/20">
+    <div className="mesh-message-enter group relative mt-3 flex items-start gap-3 px-4 pb-1.5 pt-3 transition-colors hover:bg-mesh-bg-tertiary/20">
       {actions}
       <div className="w-10 shrink-0 pt-0.5">
         <div className={cn('rounded-full', isOwnMessage && 'ring-2 ring-mesh-green/35 ring-offset-2 ring-offset-mesh-bg-secondary')}>

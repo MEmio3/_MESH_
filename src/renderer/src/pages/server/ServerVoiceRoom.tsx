@@ -55,7 +55,7 @@ function ServerVoiceRoom({ server }: ServerVoiceRoomProps): JSX.Element {
           </div>
         </div>
         <div className="flex flex-1 items-center justify-center p-6">
-          <div className="relative w-full max-w-lg overflow-hidden rounded-3xl border border-mesh-border/70 bg-mesh-bg-secondary/85 p-8 text-center shadow-[0_24px_70px_rgba(0,0,0,0.32),inset_0_1px_0_rgba(255,255,255,0.04)]">
+          <div className="mesh-reveal-in mesh-shimmer relative w-full max-w-lg overflow-hidden rounded-3xl border border-mesh-border/70 bg-mesh-bg-secondary/85 p-8 text-center shadow-[0_24px_70px_rgba(0,0,0,0.32),inset_0_1px_0_rgba(255,255,255,0.04)]">
             <div className="absolute inset-x-10 -top-24 h-44 rounded-full bg-mesh-green/16 blur-3xl" />
             <div className="relative mx-auto mb-5 grid h-20 w-20 place-items-center rounded-3xl border border-mesh-green/25 bg-mesh-green/12 text-mesh-green shadow-[0_18px_42px_rgba(35,165,89,0.18)]">
               <Volume2 className="h-10 w-10" />
@@ -73,7 +73,7 @@ function ServerVoiceRoom({ server }: ServerVoiceRoomProps): JSX.Element {
             </div>
             <button
               onClick={() => joinRoom(server.id)}
-              className="relative inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-mesh-green px-6 text-sm font-semibold text-white shadow-[0_16px_34px_rgba(35,165,89,0.28)] transition hover:bg-mesh-green-light"
+              className="mesh-pressable relative inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-mesh-green px-6 text-sm font-semibold text-white shadow-[0_16px_34px_rgba(35,165,89,0.28)] transition hover:bg-mesh-green-light"
             >
               <Volume2 className="h-4 w-4" />
               Join Voice
@@ -106,7 +106,7 @@ function ServerVoiceRoom({ server }: ServerVoiceRoomProps): JSX.Element {
               {participants.length}
             </span>
             {hasStreamers && (
-              <span className="inline-flex items-center gap-1 rounded-full border border-red-400/25 bg-red-500/10 px-2 py-0.5 text-[10px] font-bold uppercase text-red-300">
+              <span className="mesh-live-badge inline-flex items-center gap-1 rounded-full border border-red-400/25 bg-red-500/10 px-2 py-0.5 text-[10px] font-bold uppercase text-red-300">
                 <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
                 Live
               </span>
@@ -247,7 +247,7 @@ function StreamTile({ participant, stream, isSelf, isCameraStream }: StreamTileP
       type="button"
       onClick={() => openStreamViewer(participant.userId)}
       title="Click to view full stream"
-      className="group relative aspect-video cursor-pointer overflow-hidden rounded-2xl border border-mesh-border/60 bg-black text-left shadow-[0_18px_46px_rgba(0,0,0,0.32)] outline-none transition hover:border-mesh-green/40 focus:ring-2 focus:ring-mesh-green"
+      className="mesh-hover-lift group relative aspect-video cursor-pointer overflow-hidden rounded-2xl border border-mesh-border/60 bg-black text-left shadow-[0_18px_46px_rgba(0,0,0,0.32)] outline-none transition hover:border-mesh-green/40 focus:ring-2 focus:ring-mesh-green"
     >
       {/* Always mount the <video> so the ref is stable; show a placeholder overlay
           when we don't yet have a MediaStream (self: stream starting; remote: awaiting tracks).
@@ -272,7 +272,7 @@ function StreamTile({ participant, stream, isSelf, isCameraStream }: StreamTileP
       )}
 
       {/* LIVE badge — quiet technical indicator, not an alarm */}
-      <div className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full border border-red-400/35 bg-black/70 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider leading-none text-red-300 backdrop-blur-sm">
+      <div className="mesh-live-badge absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full border border-red-400/35 bg-black/70 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider leading-none text-red-300 backdrop-blur-sm">
         <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-400" />
         Live
       </div>
@@ -328,7 +328,7 @@ function AvatarRow({ participants, selfId }: AvatarRowProps): JSX.Element {
             <div
               className={cn(
                 'relative rounded-full bg-mesh-bg-tertiary p-1',
-                p.isSpeaking && 'ring-2 ring-mesh-green shadow-lg shadow-mesh-green/25'
+                p.isSpeaking && 'mesh-speaking-ring ring-2 ring-mesh-green shadow-lg shadow-mesh-green/25'
               )}
             >
               <Avatar fallback={p.username} size="lg" src={src} />
@@ -370,12 +370,12 @@ function ParticipantGrid({ participants, selfId }: ParticipantGridProps): JSX.El
           <div
             key={p.userId}
             className={cn(
-              'relative flex min-h-[168px] flex-col items-center justify-center overflow-hidden rounded-2xl border border-mesh-border/60 bg-mesh-bg-secondary/70 p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition',
+              'mesh-hover-lift relative flex min-h-[168px] flex-col items-center justify-center overflow-hidden rounded-2xl border border-mesh-border/60 bg-mesh-bg-secondary/70 p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition',
               p.isSpeaking && 'border-mesh-green/45 ring-2 ring-mesh-green/70 shadow-[0_18px_44px_rgba(35,165,89,0.12)]'
             )}
           >
             {p.isSpeaking && <div className="absolute inset-x-8 -top-14 h-24 rounded-full bg-mesh-green/18 blur-2xl" />}
-            <div className="relative rounded-full bg-mesh-bg-tertiary p-1">
+            <div className={cn('relative rounded-full bg-mesh-bg-tertiary p-1', p.isSpeaking && 'mesh-speaking-ring')}>
               <Avatar fallback={p.username} size="xl" src={src} />
               {p.isMuted && (
                 <div className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full bg-mesh-bg-elevated flex items-center justify-center border border-mesh-bg-tertiary">

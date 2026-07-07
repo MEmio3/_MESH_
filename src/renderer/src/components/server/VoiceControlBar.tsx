@@ -36,7 +36,7 @@ function VoiceControlBar(): JSX.Element {
 
   return (
     <>
-      <div className="flex items-center justify-center gap-3 h-16 bg-mesh-bg-primary border-t border-mesh-border px-4" data-testid="voice-control-bar">
+      <div className="flex h-16 items-center justify-center gap-3 border-t border-mesh-border bg-mesh-bg-primary px-4" data-testid="voice-control-bar">
         <VoiceButton
           tooltip={isMuted ? 'Unmute' : 'Mute'}
           active={!isMuted}
@@ -105,9 +105,9 @@ function VoiceButton({
       <button
         onClick={onClick}
         className={cn(
-          'h-10 w-10 rounded-full flex items-center justify-center transition-colors',
+          'mesh-pressable h-10 w-10 rounded-full flex items-center justify-center transition-colors',
           streaming
-            ? 'bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-500/30'
+            ? 'mesh-live-badge bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-500/30'
             : danger
               ? active
                 ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'

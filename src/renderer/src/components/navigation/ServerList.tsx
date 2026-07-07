@@ -7,6 +7,7 @@ import { Tooltip } from '@/components/ui/Tooltip'
 import { useServersStore } from '@/stores/servers.store'
 import { useServerAvatarStore } from '@/stores/serverAvatar.store'
 import { CreateServerModal } from '@/components/modals/CreateServerModal'
+import { meshSpring } from '@/lib/motion'
 
 function ServerList(): JSX.Element {
   const navigate = useNavigate()
@@ -28,10 +29,10 @@ function ServerList(): JSX.Element {
                 {isActive ? (
                   <motion.div
                     layoutId="server-pill"
-                    className="absolute left-0 w-[2px] rounded-r-full bg-mesh-green"
+                    className="mesh-active-indicator absolute left-0 w-[2px] rounded-r-full bg-mesh-green"
                     initial={{ height: 8 }}
                     animate={{ height: 24 }}
-                    transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                    transition={meshSpring}
                   />
                 ) : (
                   <div className="absolute left-0 w-[2px] rounded-r-full bg-mesh-text-muted opacity-0 h-0 group-hover:opacity-100 group-hover:h-3 transition-all duration-150" />
@@ -39,7 +40,7 @@ function ServerList(): JSX.Element {
                 <button
                   onClick={() => navigate(`/channels/${server.id}`)}
                   className={cn(
-                    'flex items-center justify-center h-10 w-10 rounded-lg transition-all duration-150 font-semibold text-sm overflow-hidden border',
+                    'mesh-pressable mesh-hover-lift flex items-center justify-center h-10 w-10 rounded-lg transition-all duration-150 font-semibold text-sm overflow-hidden border',
                     isActive
                       ? 'border-mesh-border-light text-white opacity-100'
                       : 'border-transparent text-white/85 opacity-80 hover:opacity-100 hover:text-white'
@@ -69,7 +70,7 @@ function ServerList(): JSX.Element {
           <div className="relative flex items-center justify-center w-full group">
             <button
               onClick={() => setShowCreateModal(true)}
-              className="flex items-center justify-center h-10 w-10 rounded-lg border border-dashed border-mesh-border-light text-mesh-text-muted hover:text-mesh-green hover:border-mesh-green/50 hover:bg-mesh-bg-secondary transition-colors duration-150"
+              className="mesh-pressable mesh-hover-lift flex items-center justify-center h-10 w-10 rounded-lg border border-dashed border-mesh-border-light text-mesh-text-muted hover:text-mesh-green hover:border-mesh-green/50 hover:bg-mesh-bg-secondary transition-colors duration-150"
             >
               <Plus className="h-[18px] w-[18px]" strokeWidth={1.75} />
             </button>

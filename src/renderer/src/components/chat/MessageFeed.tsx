@@ -58,7 +58,7 @@ function MessageFeed({ messages, recipientName: _recipientName, onEditMessage, o
   if (messages.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center px-6">
-        <div className="relative w-full max-w-sm overflow-hidden rounded-2xl border border-mesh-border/70 bg-mesh-bg-secondary/80 p-6 text-center shadow-[0_18px_48px_rgba(0,0,0,0.22),inset_0_1px_0_rgba(255,255,255,0.04)]">
+        <div className="mesh-reveal-in mesh-shimmer relative w-full max-w-sm overflow-hidden rounded-2xl border border-mesh-border/70 bg-mesh-bg-secondary/80 p-6 text-center shadow-[0_18px_48px_rgba(0,0,0,0.22),inset_0_1px_0_rgba(255,255,255,0.04)]">
           <div className="absolute inset-x-8 -top-20 h-32 rounded-full bg-mesh-green/15 blur-3xl" />
           <div className="relative mx-auto mb-4 grid h-14 w-14 place-items-center rounded-2xl border border-mesh-border/70 bg-mesh-bg-tertiary text-mesh-green shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
             <MessageCircle className="h-7 w-7 stroke-1.5" />
@@ -118,7 +118,7 @@ function MessageFeed({ messages, recipientName: _recipientName, onEditMessage, o
       {!isAtBottom && (
         <button
           onClick={scrollToBottom}
-          className="absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 animate-in items-center justify-center gap-1.5 whitespace-nowrap rounded-full border border-white/10 bg-mesh-green px-4 py-2 text-white shadow-[0_14px_36px_rgba(35,165,89,0.32)] transition-all hover:bg-mesh-green-light"
+          className="mesh-pressable absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 animate-in items-center justify-center gap-1.5 whitespace-nowrap rounded-full border border-white/10 bg-mesh-green px-4 py-2 text-white shadow-[0_14px_36px_rgba(35,165,89,0.32)] transition-all hover:bg-mesh-green-light"
         >
           <span className="text-xs font-semibold">Jump to present</span>
           <ChevronDown className="h-4 w-4" />

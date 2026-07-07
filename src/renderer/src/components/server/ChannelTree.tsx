@@ -171,7 +171,7 @@ export function ChannelTree({
         {/* Active accent — thin green bar anchored to the left, only on the
             currently-selected text channel or the voice room we're in. */}
         {(isActiveText || isJoinedVoice) && (
-          <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-mesh-green" />
+          <span className="mesh-active-indicator absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-mesh-green" />
         )}
         <button
           onClick={() => {
@@ -187,7 +187,7 @@ export function ChannelTree({
           }}
           onContextMenu={(e) => openMenuAt(e, { kind: 'channel', channel: ch })}
           className={cn(
-            'w-full flex items-center gap-2 pl-5 pr-2 rounded-lg text-left transition-all h-8 border border-transparent',
+            'mesh-hover-lift w-full flex items-center gap-2 pl-5 pr-2 rounded-lg text-left transition-all h-8 border border-transparent',
             isActiveText || isJoinedVoice
               ? 'bg-mesh-bg-tertiary/90 border-mesh-border/60 text-mesh-text-primary font-medium shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]'
               : 'text-mesh-text-secondary hover:bg-mesh-bg-tertiary/55 hover:border-mesh-border/35 hover:text-mesh-text-primary'
@@ -221,7 +221,7 @@ export function ChannelTree({
               return (
                 <div
                   key={p.userId}
-                  className="flex items-center gap-2 rounded-lg border border-transparent py-1 pl-2 pr-1.5 text-mesh-text-secondary transition-colors hover:border-mesh-border/35 hover:bg-mesh-bg-tertiary/45"
+                  className="mesh-reveal-in flex items-center gap-2 rounded-lg border border-transparent py-1 pl-2 pr-1.5 text-mesh-text-secondary transition-colors hover:border-mesh-border/35 hover:bg-mesh-bg-tertiary/45"
                 >
                   <Avatar fallback={p.username} size="xs" status="online" src={p.userId === selfId ? selfAvatar : avatarsByUser[p.userId]} />
                   <span className="truncate text-xs font-medium text-mesh-text-secondary">{p.username}</span>

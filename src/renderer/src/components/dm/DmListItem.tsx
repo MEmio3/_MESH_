@@ -43,7 +43,7 @@ function DmListItem({ conversation, isActive, onClick }: DmListItemProps): JSX.E
     <button
       onClick={onClick}
       className={cn(
-        'group flex items-center gap-2.5 mx-1.5 px-2 h-11 rounded-md text-left transition-colors duration-100',
+        'mesh-hover-lift group flex items-center gap-2.5 mx-1.5 px-2 h-11 rounded-md text-left transition-colors duration-100',
         isActive
           ? 'bg-mesh-bg-tertiary text-mesh-text-primary'
           : 'text-mesh-text-secondary hover:bg-mesh-bg-tertiary/60 hover:text-mesh-text-primary'
@@ -80,7 +80,7 @@ function DmListItem({ conversation, isActive, onClick }: DmListItemProps): JSX.E
           <X className="h-3.5 w-3.5" />
         </span>
         {conversation.unreadCount > 0 && (
-          <div className="bg-mesh-green text-white text-[10px] font-bold min-w-[18px] h-[18px] rounded-full flex items-center justify-center px-1">
+          <div className="mesh-reaction-chip bg-mesh-green text-white text-[10px] font-bold min-w-[18px] h-[18px] rounded-full flex items-center justify-center px-1">
             {conversation.unreadCount}
           </div>
         )}
