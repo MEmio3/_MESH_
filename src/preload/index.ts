@@ -556,6 +556,28 @@ const api = {
       credentials: { username: string; password: string } | null
       users: number
     }>> => ipcRenderer.invoke('relay:fetch-remote', args)
+  },
+
+  networkDiscovery: {
+    fetchServers: (args: { url: string }): Promise<{
+      success: boolean
+      url: string
+      latencyMs: number | null
+      servers: Array<{
+        id: string
+        name: string
+        iconColor: string
+        textChannelName: string
+        voiceRoomName: string
+        hostUserId: string
+        hostUsername: string
+        hostAvatarColor: string | null
+        memberCount: number
+        onlineMemberCount: number
+        requiresPassword: boolean
+      }>
+      error?: string
+    }> => ipcRenderer.invoke('network-discovery:fetch-servers', args)
   }
 }
 

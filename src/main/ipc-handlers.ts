@@ -20,6 +20,54 @@ import type {
   RelayRow
 } from '../shared/types'
 
+interface DiscoveredServerPayload {
+  id: string
+  name: string
+  iconColor: string
+  textChannelName: string
+  voiceRoomName: string
+  hostUserId: string
+  hostUsername: string
+  hostAvatarColor: string | null
+  memberCount: number
+  onlineMemberCount: number
+  requiresPassword: boolean
+}
+
+interface NetworkProbeResult {
+  success: boolean
+  url: string
+  latencyMs: number | null
+  servers: DiscoveredServerPayload[]
+  error?: string
+}
+
+function normalizeSignalingUrl(input: string): string {
+  const trimmed = input.trim()
+  if (!trimmed) return ''
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`
+  return withScheme.replace(/\/+$/, '')
+}
+
+function sanitizeDiscoveredServer(raw: unknown): DiscoveredServerPayload | null {
+  if (!raw || typeof raw !== 'object') return null
+  const s = raw as Record<string, unknown>
+  if (typeof s.id !== 'string' || typeof s.name !== 'string') return null
+  return {
+    id: s.id,
+    name: s.name,
+    iconColor: typeof s.iconColor === 'string' ? s.iconColor : '#107C10',
+    textChannelName: typeof s.textChannelName === 'string' ? s.textChannelName : 'general',
+    voiceRoomName: typeof s.voiceRoomName === 'string' ? s.voiceRoomName : 'Voice Lounge',
+    hostUserId: typeof s.hostUserId === 'string' ? s.hostUserId : '',
+    hostUsername: typeof s.hostUsername === 'string' ? s.hostUsername : 'Unknown host',
+    hostAvatarColor: typeof s.hostAvatarColor === 'string' ? s.hostAvatarColor : null,
+    memberCount: typeof s.memberCount === 'number' ? s.memberCount : 0,
+    onlineMemberCount: typeof s.onlineMemberCount === 'number' ? s.onlineMemberCount : 0,
+    requiresPassword: Boolean(s.requiresPassword)
+  }
+}
+
 /**
  * Register window control IPC handlers.
  * These require a reference to the main BrowserWindow.
@@ -1647,6 +1695,38 @@ export function registerRelayHandlers(): void {
   // would be blocked.
   ipcMain.handle('relay:fetch-remote', async (_e, args: { signalingUrl: string }) => {
     return relayManager.fetchRemoteRelays(args.signalingUrl)
+  })
+
+  ipcMain.handle('network-discovery:fetch-servers', async (_e, args: { url: string }): Promise<NetworkProbeResult> => {
+    const url = normalizeSignalingUrl(args.url || '')
+    if (!url) {
+      return { success: false, url, latencyMs: null, servers: [], error: 'Network URL is required.' }
+    }
+
+    const started = Date.now()
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 5000)
+    try {
+      const res = await fetch(`${url}/get-servers`, { signal: controller.signal })
+      const latencyMs = Date.now() - started
+      if (!res.ok) {
+        return { success: false, url, latencyMs, servers: [], error: `HTTP ${res.status}` }
+      }
+      const json = await res.json()
+      const servers = Array.isArray(json)
+        ? json.map(sanitizeDiscoveredServer).filter((s): s is DiscoveredServerPayload => Boolean(s))
+        : []
+      return { success: true, url, latencyMs, servers }
+    } catch (err) {
+      const message = err instanceof Error && err.name === 'AbortError'
+        ? 'Timed out'
+        : err instanceof Error
+          ? err.message
+          : 'Could not reach network'
+      return { success: false, url, latencyMs: Date.now() - started, servers: [], error: message }
+    } finally {
+      clearTimeout(timer)
+    }
   })
 }
 

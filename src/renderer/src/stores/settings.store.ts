@@ -79,9 +79,16 @@ interface NotificationSettings {
   serverKickNotifications: boolean
 }
 
+export interface KnownNetwork {
+  id: string
+  name: string
+  url: string
+}
+
 interface NetworkSettings {
   preferredIceStrategy: 'p2p-first' | 'relay-fallback' | 'relay-only'
   customRelays: string[]
+  knownNetworks: KnownNetwork[]
   /** If true, this machine runs the embedded signaling server. */
   hostSignaling: boolean
   /** URL of the signaling server to connect to (own when hosting, else peer's). */
@@ -136,6 +143,7 @@ const DEFAULT_NETWORK: NetworkSettings = {
   // found and changed a buried setting.
   preferredIceStrategy: 'relay-fallback',
   customRelays: [],
+  knownNetworks: [],
   hostSignaling: false,
   signalingUrl: 'http://localhost:3000'
 }

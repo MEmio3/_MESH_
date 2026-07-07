@@ -178,6 +178,25 @@ interface ServerEntry {
 }
 const servers = new Map<string, ServerEntry>()
 
+app.get('/get-servers', (_req, res) => {
+  const active = [...servers.values()]
+    .filter((entry) => Boolean(userSockets.get(entry.hostUserId)))
+    .map((entry) => ({
+      id: entry.id,
+      name: entry.name,
+      iconColor: entry.iconColor,
+      textChannelName: entry.textChannelName,
+      voiceRoomName: entry.voiceRoomName,
+      hostUserId: entry.hostUserId,
+      hostUsername: entry.hostUsername,
+      hostAvatarColor: entry.hostAvatarColor,
+      memberCount: entry.members.size,
+      onlineMemberCount: [...entry.members.keys()].filter((id) => userSockets.has(id)).length,
+      requiresPassword: Boolean(entry.passwordHash)
+    }))
+  res.json(active)
+})
+
 function roomName(serverId: string): string {
   return `server:${serverId}`
 }

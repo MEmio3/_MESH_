@@ -371,6 +371,32 @@ interface RelayAPI {
   fetchRemote: (args: { signalingUrl: string }) => Promise<RemoteRelay[]>
 }
 
+interface DiscoveredServer {
+  id: string
+  name: string
+  iconColor: string
+  textChannelName: string
+  voiceRoomName: string
+  hostUserId: string
+  hostUsername: string
+  hostAvatarColor: string | null
+  memberCount: number
+  onlineMemberCount: number
+  requiresPassword: boolean
+}
+
+interface NetworkProbeResult {
+  success: boolean
+  url: string
+  latencyMs: number | null
+  servers: DiscoveredServer[]
+  error?: string
+}
+
+interface NetworkDiscoveryAPI {
+  fetchServers: (args: { url: string }) => Promise<NetworkProbeResult>
+}
+
 interface CryptoAPI {
   hashPassword: (password: string) => Promise<string>
 }
@@ -404,6 +430,9 @@ interface MeshAPI {
 
   // Relay (local coturn)
   relay: RelayAPI
+
+  // Multi-network discovery probes
+  networkDiscovery: NetworkDiscoveryAPI
 
   // Friend requests (orchestrated through main process)
   friendRequest: FriendRequestAPI

@@ -7,6 +7,7 @@ import { DmConversationPage } from '@/pages/dm/DmConversationPage'
 import { ServerPage } from '@/pages/server/ServerPage'
 import { ServerSettingsPage } from '@/pages/server-settings/ServerSettingsPage'
 import { SettingsPage } from '@/pages/settings/SettingsPage'
+import { DiscoveryPage } from '@/pages/discovery/DiscoveryPage'
 import { useIdentityStore } from '@/stores/identity.store'
 import { useFriendsStore } from '@/stores/friends.store'
 import { useServersStore } from '@/stores/servers.store'
@@ -233,6 +234,9 @@ function App(): JSX.Element {
           {/* Community Server (default + specific channel) */}
           <Route path="/channels/:serverId" element={<ServerPage />} />
           <Route path="/channels/:serverId/:channelId" element={<ServerPage />} />
+
+          {/* Multi-network discovery */}
+          <Route path="/discover" element={<DiscoveryPage />} />
 
           {/* Settings */}
           <Route path="/settings" element={<Navigate to="/settings/profile" replace />} />
