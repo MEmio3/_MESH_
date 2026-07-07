@@ -67,6 +67,7 @@ interface VoiceStore {
   addParticipant: (participant: VoiceParticipant) => void
   removeParticipant: (userId: string) => void
   setRemoteStream: (userId: string, stream: MediaStream) => void
+  setParticipantSpeaking: (userId: string, speaking: boolean) => void
   toggleMute: () => void
   toggleDeafen: () => void
 
@@ -284,12 +285,24 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     })
   },
 
+  setParticipantSpeaking: (userId, speaking) => {
+    set((s) => ({
+      participants: s.participants.map((p) =>
+        p.userId === userId && p.isSpeaking !== speaking ? { ...p, isSpeaking: speaking } : p
+      )
+    }))
+  },
+
   toggleMute: () => {
     // Speak denied by the channel — the mic stays shut.
     if (get().speakLocked && get().isConnected) return
     const next = !get().isMuted
     mediaEngine.setMicEnabled(!next)
     set({ isMuted: next })
+    if (next) {
+      const selfId = useIdentityStore.getState().identity?.userId
+      if (selfId) get().setParticipantSpeaking(selfId, false)
+    }
     if (next) playMute(); else playUnmute()
   },
 
@@ -298,6 +311,8 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     if (next) {
       mediaEngine.setMicEnabled(false)
       set({ isDeafened: true, isMuted: true })
+      const selfId = useIdentityStore.getState().identity?.userId
+      if (selfId) get().setParticipantSpeaking(selfId, false)
       playDeafen()
     } else {
       // Undeafen restores the mic only if the channel lets this member speak.
@@ -480,6 +495,22 @@ const prevVoiceActive = mediaEngine.onParticipantVoice
 mediaEngine.onParticipantVoice = (userId) => {
   try { prevVoiceActive?.(userId) } catch { /* ignore */ }
   addVoiceParticipant(userId)
+}
+
+const prevLocalVoiceActivity = mediaEngine.onLocalVoiceActivity
+mediaEngine.onLocalVoiceActivity = (active) => {
+  try { prevLocalVoiceActivity?.(active) } catch { /* ignore */ }
+  const selfId = useIdentityStore.getState().identity?.userId
+  if (!selfId) return
+  const state = useVoiceStore.getState()
+  state.setParticipantSpeaking(selfId, active && state.isConnected && !state.isMuted && !state.isDeafened)
+}
+
+const prevParticipantVoiceActivity = mediaEngine.onParticipantVoiceActivity
+mediaEngine.onParticipantVoiceActivity = (userId, active) => {
+  try { prevParticipantVoiceActivity?.(userId, active) } catch { /* ignore */ }
+  if (active) addVoiceParticipant(userId)
+  useVoiceStore.getState().setParticipantSpeaking(userId, active)
 }
 
 const prevVoiceLeft = mediaEngine.onParticipantLeft

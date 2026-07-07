@@ -19,6 +19,7 @@ import { useIdentityStore } from '@/stores/identity.store'
 import { useAvatarStore } from '@/stores/avatar.store'
 import { useServersStore } from '@/stores/servers.store'
 import { ChannelSettingsModal } from '@/components/server/ChannelSettingsModal'
+import { VoiceDetectionRing } from '@/components/voice/VoiceDetectionRing'
 import { resolveChannelPerm, type ChannelPermKey } from '../../../../shared/permissions'
 
 interface ChannelTreeProps {
@@ -223,7 +224,10 @@ export function ChannelTree({
                   key={p.userId}
                   className="mesh-reveal-in flex items-center gap-2 rounded-lg border border-transparent py-1 pl-2 pr-1.5 text-mesh-text-secondary transition-colors hover:border-mesh-border/35 hover:bg-mesh-bg-tertiary/45"
                 >
-                  <Avatar fallback={p.username} size="xs" status="online" src={p.userId === selfId ? selfAvatar : avatarsByUser[p.userId]} />
+                  <span className="relative isolate shrink-0">
+                    {p.isSpeaking && <VoiceDetectionRing bars={false} size="xs" />}
+                    <Avatar fallback={p.username} size="xs" status="online" src={p.userId === selfId ? selfAvatar : avatarsByUser[p.userId]} />
+                  </span>
                   <span className="truncate text-xs font-medium text-mesh-text-secondary">{p.username}</span>
                   {isLive && (
                     <span className="ml-auto inline-flex items-center gap-1 rounded-full border border-red-400/25 bg-red-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase leading-none text-red-300">

@@ -6,6 +6,7 @@ import { useIdentityStore } from '@/stores/identity.store'
 import { useAvatarStore } from '@/stores/avatar.store'
 import { VoiceControlBar } from '@/components/server/VoiceControlBar'
 import { Avatar } from '@/components/ui/Avatar'
+import { VoiceDetectionRing } from '@/components/voice/VoiceDetectionRing'
 import type { Server } from '@/types/server'
 import type { VoiceParticipant } from '@/types/server'
 
@@ -327,10 +328,11 @@ function AvatarRow({ participants, selfId }: AvatarRowProps): JSX.Element {
           >
             <div
               className={cn(
-                'relative rounded-full bg-mesh-bg-tertiary p-1',
+                'relative isolate rounded-full bg-mesh-bg-tertiary p-1',
                 p.isSpeaking && 'mesh-speaking-ring ring-2 ring-mesh-green shadow-lg shadow-mesh-green/25'
               )}
             >
+              {p.isSpeaking && <VoiceDetectionRing size="sm" />}
               <Avatar fallback={p.username} size="lg" src={src} />
               {p.isMuted && (
                 <div className="absolute -bottom-0.5 -right-0.5 h-5 w-5 rounded-full bg-mesh-bg-elevated flex items-center justify-center border border-mesh-bg-primary">
@@ -375,7 +377,8 @@ function ParticipantGrid({ participants, selfId }: ParticipantGridProps): JSX.El
             )}
           >
             {p.isSpeaking && <div className="absolute inset-x-8 -top-14 h-24 rounded-full bg-mesh-green/18 blur-2xl" />}
-            <div className={cn('relative rounded-full bg-mesh-bg-tertiary p-1', p.isSpeaking && 'mesh-speaking-ring')}>
+            <div className={cn('relative isolate rounded-full bg-mesh-bg-tertiary p-1', p.isSpeaking && 'mesh-speaking-ring')}>
+              {p.isSpeaking && <VoiceDetectionRing size="lg" />}
               <Avatar fallback={p.username} size="xl" src={src} />
               {p.isMuted && (
                 <div className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full bg-mesh-bg-elevated flex items-center justify-center border border-mesh-bg-tertiary">

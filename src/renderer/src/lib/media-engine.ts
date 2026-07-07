@@ -58,11 +58,21 @@ interface PeerState {
 const AUDIO_TIMESLICE_US = 20_000 // Opus frame duration the encoder targets
 const JITTER_S = 0.09             // playback cushion — ~90ms feels instant on LAN
 const KEYFRAME_INTERVAL = 60      // video keyframe every N frames (~2s at 30fps)
+const VOICE_RMS_ON = 0.018
+const VOICE_RMS_OFF = 0.01
+const VOICE_HOLD_MS = 420
+
+interface VoiceActivityState {
+  active: boolean
+  offTimer: ReturnType<typeof setTimeout> | null
+}
 
 class MeshMediaEngine {
   // ── Callbacks (assigned by the store wiring, composed like webrtcManager's) ──
   onRemoteStream: ((userId: string, stream: MediaStream) => void) | null = null
   onParticipantVoice: ((userId: string) => void) | null = null
+  onParticipantVoiceActivity: ((userId: string, active: boolean) => void) | null = null
+  onLocalVoiceActivity: ((active: boolean) => void) | null = null
   onParticipantLeft: ((userId: string) => void) | null = null
   onStats: ((stats: MediaEngineStats) => void) | null = null
 
@@ -98,6 +108,9 @@ class MeshMediaEngine {
   private bytesDown = 0
   private lastRtt: number | null = null
   private statsTimer: ReturnType<typeof setInterval> | null = null
+  private localVoiceActive = false
+  private localVoiceOffTimer: ReturnType<typeof setTimeout> | null = null
+  private remoteVoiceActivity = new Map<string, VoiceActivityState>()
 
   /** Wire the socket → engine event listeners exactly once. */
   init(): void {
@@ -122,6 +135,7 @@ class MeshMediaEngine {
   joinRoom(roomId: string): void {
     this.init()
     this.roomId = roomId
+    this.setLocalVoiceActivity(false)
     this.startStatsLoop()
   }
 
@@ -152,9 +166,97 @@ class MeshMediaEngine {
     try { p.videoDecoder?.close() } catch { /* ignore */ }
     p.canvasStream?.getTracks().forEach((t) => t.stop())
     this.peers.delete(userId)
+    this.clearRemoteVoiceActivity(userId)
   }
 
   // ─────────────────────────── Microphone ───────────────────────────
+
+  private measureAudioRms(data: AudioData): number {
+    try {
+      const frames = data.numberOfFrames
+      const channels = Math.min(data.numberOfChannels, 2)
+      if (frames <= 0 || channels <= 0) return 0
+
+      let sum = 0
+      let count = 0
+      for (let ch = 0; ch < channels; ch++) {
+        const samples = new Float32Array(frames)
+        data.copyTo(samples, { planeIndex: ch, format: 'f32-planar' })
+        for (let i = 0; i < samples.length; i++) {
+          const sample = samples[i]
+          sum += sample * sample
+          count++
+        }
+      }
+      return count > 0 ? Math.sqrt(sum / count) : 0
+    } catch {
+      return 0
+    }
+  }
+
+  private setLocalVoiceActivity(active: boolean): void {
+    if (this.localVoiceOffTimer) {
+      clearTimeout(this.localVoiceOffTimer)
+      this.localVoiceOffTimer = null
+    }
+    if (this.localVoiceActive === active) return
+    this.localVoiceActive = active
+    this.onLocalVoiceActivity?.(active)
+  }
+
+  private updateLocalVoiceActivity(rms: number): void {
+    if (!this.micEnabled || !this.roomId) {
+      this.setLocalVoiceActivity(false)
+      return
+    }
+    if (rms >= VOICE_RMS_ON) {
+      this.setLocalVoiceActivity(true)
+      return
+    }
+    if (this.localVoiceActive && rms <= VOICE_RMS_OFF && !this.localVoiceOffTimer) {
+      this.localVoiceOffTimer = setTimeout(() => {
+        this.localVoiceOffTimer = null
+        this.setLocalVoiceActivity(false)
+      }, VOICE_HOLD_MS)
+    }
+  }
+
+  private setRemoteVoiceActivity(userId: string, active: boolean): void {
+    let state = this.remoteVoiceActivity.get(userId)
+    if (!state) {
+      state = { active: false, offTimer: null }
+      this.remoteVoiceActivity.set(userId, state)
+    }
+    if (state.offTimer) {
+      clearTimeout(state.offTimer)
+      state.offTimer = null
+    }
+    if (state.active === active) return
+    state.active = active
+    this.onParticipantVoiceActivity?.(userId, active)
+  }
+
+  private updateRemoteVoiceActivity(userId: string, rms: number): void {
+    const state = this.remoteVoiceActivity.get(userId)
+    if (rms >= VOICE_RMS_ON) {
+      this.setRemoteVoiceActivity(userId, true)
+      return
+    }
+    if (state?.active && rms <= VOICE_RMS_OFF && !state.offTimer) {
+      state.offTimer = setTimeout(() => {
+        state.offTimer = null
+        this.setRemoteVoiceActivity(userId, false)
+      }, VOICE_HOLD_MS)
+    }
+  }
+
+  private clearRemoteVoiceActivity(userId: string): void {
+    const state = this.remoteVoiceActivity.get(userId)
+    if (!state) return
+    if (state.offTimer) clearTimeout(state.offTimer)
+    this.remoteVoiceActivity.delete(userId)
+    if (state.active) this.onParticipantVoiceActivity?.(userId, false)
+  }
 
   async startMic(deviceId?: string): Promise<void> {
     this.stopMic()
@@ -206,7 +308,10 @@ class MeshMediaEngine {
           const { done, value } = await reader.read()
           if (done || !value) break
           if (this.audioEncoder === encoder && this.micEnabled && this.roomId) {
+            this.updateLocalVoiceActivity(this.measureAudioRms(value))
             encoder.encode(value)
+          } else {
+            this.setLocalVoiceActivity(false)
           }
           value.close()
         }
@@ -233,11 +338,13 @@ class MeshMediaEngine {
     this.micStream?.getTracks().forEach((t) => t.stop())
     this.micStream = null
     this.micTrack = null
+    this.setLocalVoiceActivity(false)
   }
 
   /** Mute = simply stop shipping packets; capture keeps running. */
   setMicEnabled(enabled: boolean): void {
     this.micEnabled = enabled
+    if (!enabled) this.setLocalVoiceActivity(false)
   }
 
   hasMic(): boolean {
@@ -405,11 +512,19 @@ class MeshMediaEngine {
     if (!p || !ctx) { data.close(); return }
     try {
       const buffer = ctx.createBuffer(data.numberOfChannels, data.numberOfFrames, data.sampleRate)
+      let sum = 0
+      let count = 0
       for (let ch = 0; ch < data.numberOfChannels; ch++) {
         const arr = new Float32Array(data.numberOfFrames)
         data.copyTo(arr, { planeIndex: ch, format: 'f32-planar' })
         buffer.copyToChannel(arr, ch)
+        for (let i = 0; i < arr.length; i++) {
+          const sample = arr[i]
+          sum += sample * sample
+          count++
+        }
       }
+      if (count > 0) this.updateRemoteVoiceActivity(userId, Math.sqrt(sum / count))
       // Jitter-buffered scheduling: keep a small cushion, never schedule in
       // the past, glue segments back-to-back.
       const now = ctx.currentTime

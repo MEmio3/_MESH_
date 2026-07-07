@@ -2,6 +2,7 @@ import { useRef, useEffect } from 'react'
 import { MicOff, Monitor } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
+import { VoiceDetectionRing } from '@/components/voice/VoiceDetectionRing'
 import { useIdentityStore } from '@/stores/identity.store'
 import { useAvatarStore } from '@/stores/avatar.store'
 import { registerAudioSink } from '@/stores/audioPrefs.store'
@@ -44,7 +45,7 @@ function VoiceParticipantTile({ participant, stream }: VoiceParticipantTileProps
     <div
       className={cn(
         'relative flex flex-col items-center justify-center rounded-xl bg-mesh-bg-tertiary p-4 min-h-[140px] transition-colors overflow-hidden',
-        participant.isSpeaking && 'ring-2 ring-mesh-green animate-pulse shadow-lg shadow-mesh-green/10'
+        participant.isSpeaking && 'ring-2 ring-mesh-green shadow-lg shadow-mesh-green/10'
       )}
     >
       {/* Video stream (shown when receiving video/screen share) */}
@@ -73,7 +74,8 @@ function VoiceParticipantTile({ participant, stream }: VoiceParticipantTileProps
 
       {/* Avatar block — shown when no video */}
       {!hasVideo && (
-        <div className="relative">
+        <div className="relative isolate">
+          {participant.isSpeaking && <VoiceDetectionRing size="lg" />}
           <Avatar fallback={participant.username} size="xl" src={avatarSrc} />
           
           {/* Muted indicator */}
