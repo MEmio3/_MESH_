@@ -8,11 +8,13 @@
 
 import { networkInterfaces } from 'os'
 import { ipcMain } from 'electron'
-import { startSignalingServer, stopSignalingServer, isSignalingRunning, getSignalingPort } from '../server/signaling'
+import { createSignalingInstance, type SignalingInstance } from '../server/signaling'
 
+// Every host port this machine is running, keyed by port. Multiple entries =
+// multiple independent MESH networks hosted from one machine at once.
+const hosts = new Map<number, SignalingInstance>()
 let lastError: string | null = null
-let isStarting = false
-let isStopping = false
+const inFlight = new Set<number>()
 
 export type IpScope = 'home' | 'isp' | 'public'
 
@@ -35,8 +37,8 @@ export interface DetectedIp {
  * the router's LAN range (countless routers ship with 10.0.0.x defaults).
  * Carrier-grade NAT shows up on the ROUTER'S WAN address (network-scanner's
  * job), not on a local NIC. The old classification labelled 10.x as "ISP
- * Network — friends on same ISP", telling users to share a LAN-only address
- * with friends across town — a direct cause of "the app picks the wrong IP".
+ * Network", telling users to share a LAN-only/private address with friends
+ * across town — a direct cause of "the app picks the wrong IP".
  */
 function classify(addr: string): IpScope {
   const parts = addr.split('.').map((p) => parseInt(p, 10))
@@ -51,8 +53,8 @@ function classify(addr: string): IpScope {
 
 const SCOPE_LABELS: Record<IpScope, string> = {
   home: 'Home WiFi — same router only',
-  isp: 'ISP Network — friends on same ISP',
-  public: 'Public IP — anyone can connect'
+  isp: 'ISP private address - not for sharing',
+  public: 'Public IP - port 3000 must be open'
 }
 
 /**
@@ -77,65 +79,83 @@ export function detectLocalIps(): DetectedIp[] {
   return out
 }
 
-export async function startHosting(port = 3000): Promise<{ success: boolean; error?: string; port?: number }> {
-  if (isStarting) {
-    console.log('[signaling-host] start already in progress, ignoring duplicate call')
-    return { success: true, port: getSignalingPort() }
-  }
-  if (isSignalingRunning()) {
-    console.log('[signaling-host] already running on port', getSignalingPort())
-    return { success: true, port: getSignalingPort() }
-  }
+const isRunningPort = (port: number): boolean => hosts.get(port)?.isRunning() ?? false
+
+/** Start (or confirm) a host instance on `port`. Idempotent per port. */
+export async function startHost(port: number): Promise<{ success: boolean; error?: string; port?: number }> {
+  if (isRunningPort(port)) return { success: true, port }
+  if (inFlight.has(port)) return { success: true, port }
+  inFlight.add(port)
   try {
-    isStarting = true
     lastError = null
-    const res = await startSignalingServer(port)
-    console.log('[signaling-host] started successfully on port', res.port)
-    return { success: true, port: res.port }
+    const instance = createSignalingInstance(port)
+    await instance.start()
+    hosts.set(port, instance)
+    console.log('[signaling-host] hosting on port', port, '· total hosts:', hosts.size)
+    return { success: true, port }
   } catch (err) {
     lastError = err instanceof Error ? err.message : String(err)
-    console.error('[signaling-host] start failed:', lastError)
+    // EADDRINUSE is the common one — surface a friendly reason.
+    const code = (err as NodeJS.ErrnoException)?.code
+    if (code === 'EADDRINUSE') lastError = `Port ${port} is already in use.`
+    console.error('[signaling-host] start failed on', port, ':', lastError)
     return { success: false, error: lastError }
   } finally {
-    isStarting = false
+    inFlight.delete(port)
   }
 }
 
+/** Stop one host port, or all of them when `port` is omitted. */
+export async function stopHost(port?: number): Promise<{ success: boolean }> {
+  const targets = port !== undefined ? [port] : [...hosts.keys()]
+  for (const p of targets) {
+    const instance = hosts.get(p)
+    if (!instance) continue
+    try {
+      await instance.stop()
+    } catch (err) {
+      console.error('[signaling-host] stop failed on', p, ':', err)
+    }
+    hosts.delete(p)
+  }
+  return { success: true }
+}
+
+/** The primary host port = the one the local client connects through. We
+ *  treat the lowest running port as primary for the single-host status view. */
+function primaryPort(): number {
+  const ports = [...hosts.keys()].filter((p) => isRunningPort(p)).sort((a, b) => a - b)
+  return ports[0] ?? 0
+}
+
+export function listHostPorts(): number[] {
+  return [...hosts.keys()].filter((p) => isRunningPort(p)).sort((a, b) => a - b)
+}
+
+// Back-compat wrappers for app boot / quit paths.
+export async function startHosting(port = 3000): Promise<{ success: boolean; error?: string; port?: number }> {
+  return startHost(port)
+}
 export async function stopHosting(): Promise<{ success: boolean }> {
-  if (isStopping) {
-    console.log('[signaling-host] stop already in progress, ignoring duplicate call')
-    return { success: true }
-  }
-  if (!isSignalingRunning()) {
-    console.log('[signaling-host] not running, nothing to stop')
-    return { success: true }
-  }
-  try {
-    isStopping = true
-    await stopSignalingServer()
-    console.log('[signaling-host] stopped successfully')
-    return { success: true }
-  } catch (err) {
-    console.error('[signaling-host] stop failed:', err)
-    return { success: false }
-  } finally {
-    isStopping = false
-  }
+  return stopHost()
 }
 
 export function registerSignalingHostHandlers(): void {
   ipcMain.handle('signaling-host:start', async (_e, payload?: { port?: number }) => {
-    return startHosting(payload?.port ?? 3000)
+    return startHost(payload?.port ?? 3000)
   })
-  ipcMain.handle('signaling-host:stop', async () => {
-    return stopHosting()
+  ipcMain.handle('signaling-host:stop', async (_e, payload?: { port?: number }) => {
+    return stopHost(payload?.port)
   })
   ipcMain.handle('signaling-host:status', () => {
+    const ports = listHostPorts()
     return {
-      running: isSignalingRunning(),
-      port: getSignalingPort(),
+      running: ports.length > 0,
+      port: primaryPort(),
+      ports,
       localIps: detectLocalIps(),
       error: lastError
     }
   })
+  ipcMain.handle('signaling-host:list', () => listHostPorts())
 }

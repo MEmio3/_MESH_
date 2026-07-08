@@ -3,6 +3,7 @@ import { HomeSidePanel } from './panels/HomeSidePanel'
 import { ServerSidePanel } from './panels/ServerSidePanel'
 import { SettingsSidePanel } from './panels/SettingsSidePanel'
 import { DiscoverySidePanel } from './panels/DiscoverySidePanel'
+import { NetworkCenterSidePanel } from './panels/NetworkCenterSidePanel'
 
 function SidePanel(): JSX.Element {
   const location = useLocation()
@@ -10,6 +11,7 @@ function SidePanel(): JSX.Element {
   const isHome = location.pathname.startsWith('/channels/@me')
   const isSettings = location.pathname.startsWith('/settings')
   const isDiscover = location.pathname.startsWith('/discover')
+  const isNetworkCenter = location.pathname.startsWith('/network-center')
   // `[^/]+` to capture only the serverId segment, not the optional
   // `/:channelId` suffix that Phase 4 routing introduced.
   const serverMatch = location.pathname.match(/^\/channels\/(?!@me)([^/]+)/)
@@ -21,6 +23,8 @@ function SidePanel(): JSX.Element {
       <div className="flex-1 overflow-y-auto overflow-x-hidden">
         {isSettings ? (
           <SettingsSidePanel />
+        ) : isNetworkCenter ? (
+          <NetworkCenterSidePanel />
         ) : isDiscover ? (
           <DiscoverySidePanel />
         ) : serverId ? (

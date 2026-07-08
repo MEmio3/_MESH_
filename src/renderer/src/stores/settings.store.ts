@@ -79,6 +79,12 @@ interface NotificationSettings {
   serverKickNotifications: boolean
 }
 
+function normalizePort(value: unknown): number {
+  const raw = typeof value === 'number' ? value : parseInt(String(value ?? ''), 10)
+  if (!Number.isFinite(raw)) return 3000
+  return Math.min(65535, Math.max(1, Math.floor(raw)))
+}
+
 export interface KnownNetwork {
   id: string
   name: string
@@ -91,6 +97,11 @@ interface NetworkSettings {
   knownNetworks: KnownNetwork[]
   /** If true, this machine runs the embedded signaling server. */
   hostSignaling: boolean
+  /** Primary host port — the one this client connects through. */
+  hostPort: number
+  /** Additional independent host ports to run alongside the primary
+   *  (multi-hosting: separate isolated MESH networks on one machine). */
+  extraHostPorts: number[]
   /** URL of the signaling server to connect to (own when hosting, else peer's). */
   signalingUrl: string
 }
@@ -145,6 +156,8 @@ const DEFAULT_NETWORK: NetworkSettings = {
   customRelays: [],
   knownNetworks: [],
   hostSignaling: false,
+  hostPort: 3000,
+  extraHostPorts: [],
   signalingUrl: 'http://localhost:3000'
 }
 
@@ -168,6 +181,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     ])
 
     const network = networkRaw ? { ...DEFAULT_NETWORK, ...JSON.parse(networkRaw) } : { ...DEFAULT_NETWORK }
+    network.hostPort = normalizePort(network.hostPort)
+    network.extraHostPorts = Array.isArray(network.extraHostPorts)
+      ? [...new Set(network.extraHostPorts.map(normalizePort))].filter((p) => p !== network.hostPort)
+      : []
     const privacy = privacyRaw ? { ...DEFAULT_PRIVACY, ...JSON.parse(privacyRaw) } : { ...DEFAULT_PRIVACY }
 
     const appearance: AppearanceSettings = appearanceRaw
@@ -214,6 +231,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   updateNetwork: (partial) => {
     set((s) => {
       const updated = { ...s.network, ...partial }
+      updated.hostPort = normalizePort(updated.hostPort)
       window.api.db.settings.set('network', JSON.stringify(updated))
       // Re-apply ICE config when the strategy (or relay list impact) changes
       applyIceConfig(updated)

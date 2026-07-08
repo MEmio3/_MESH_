@@ -75,9 +75,8 @@ function generatePassword(): string {
 /**
  * Pick the IP other peers should use to reach this relay, based on scope.
  *
- *   isp-local — the carrier-side interface (10/8, 100.64/10) if present so
- *               friends on the same ISP can dial it; falls back to the home
- *               LAN address (192.168/16, 172.16/12), then any interface.
+ *   isp-local — the nearest private interface if present; useful only when
+ *               peers can already route to that private network.
  *   global    — the public internet IP (via ipify), falling back to the
  *               router's WAN IP (UPnP), then to a local interface.
  *

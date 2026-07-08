@@ -24,6 +24,7 @@ interface DiscoveredServerPayload {
   id: string
   name: string
   iconColor: string
+  avatarDataUrl: string | null
   textChannelName: string
   voiceRoomName: string
   hostUserId: string
@@ -57,6 +58,7 @@ function sanitizeDiscoveredServer(raw: unknown): DiscoveredServerPayload | null 
     id: s.id,
     name: s.name,
     iconColor: typeof s.iconColor === 'string' ? s.iconColor : '#107C10',
+    avatarDataUrl: typeof s.avatarDataUrl === 'string' ? s.avatarDataUrl : null,
     textChannelName: typeof s.textChannelName === 'string' ? s.textChannelName : 'general',
     voiceRoomName: typeof s.voiceRoomName === 'string' ? s.voiceRoomName : 'Voice Lounge',
     hostUserId: typeof s.hostUserId === 'string' ? s.hostUserId : '',
@@ -808,6 +810,7 @@ export function registerServerHandlers(): void {
       serverId,
       name: payload.name,
       iconColor: payload.iconColor,
+      avatarDataUrl: serverAvatar.getServerAvatarDataUrl(serverId),
       textChannelName: row.textChannelName,
       voiceRoomName: row.voiceRoomName,
       hostUserId: payload.hostUserId,
@@ -1051,6 +1054,7 @@ export function registerServerHandlers(): void {
       hostUserId: string
       hostUsername: string
       hostAvatarColor: string | null
+      avatarDataUrl?: string | null
       roleNames?: { host?: string; moderator?: string; member?: string } | null
     }
     members: Array<{ userId: string; username: string; avatarColor: string | null; role: string; isMuted: boolean; roleIds?: string[] }>
@@ -1080,6 +1084,9 @@ export function registerServerHandlers(): void {
         passwordHash: pendingJoinPasswords.get(payload.server.id) ?? null,
         roleNames: payload.server.roleNames ? JSON.stringify(payload.server.roleNames) : null
       })
+      if (payload.server.avatarDataUrl) {
+        serverAvatar.saveServerAvatarDataUrl(payload.server.id, payload.server.avatarDataUrl)
+      }
       // Replace member list: remove stale, then add current.
       const existing = db.getServerMembers(payload.server.id)
       for (const m of existing) db.removeServerMember(payload.server.id, m.userId)
@@ -1358,6 +1365,7 @@ export function registerServerHandlers(): void {
         serverId: s.id,
         name: s.name,
         iconColor: s.iconColor,
+        avatarDataUrl: serverAvatar.getServerAvatarDataUrl(s.id),
         textChannelName: s.textChannelName,
         voiceRoomName: s.voiceRoomName,
         hostUserId: s.hostUserId,

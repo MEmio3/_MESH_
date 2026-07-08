@@ -13,6 +13,26 @@ import fs from 'fs'
 import path from 'path'
 import { PERM, MODERATOR_BUNDLE } from '../shared/permissions'
 
+export interface SignalingInstance {
+  /** Bind and start listening. Resolves once the port is open. */
+  start: () => Promise<{ port: number }>
+  /** Close the socket server + underlying http listener. */
+  stop: () => Promise<void>
+  isRunning: () => boolean
+  readonly port: number
+}
+
+/**
+ * Create an INDEPENDENT signaling server bound to `instancePort`.
+ *
+ * Each instance owns its own socket.io server, relay registry, presence,
+ * community-server registry, voice rooms and offline queue. Nothing is
+ * shared between instances — so one machine can host several isolated MESH
+ * networks on different ports simultaneously (multi-hosting). Previously
+ * every piece of state lived at module scope, which capped the machine at a
+ * single host port.
+ */
+export function createSignalingInstance(instancePort: number): SignalingInstance {
 const app = express()
 const httpServer = createServer(app)
 // maxHttpBufferSize: socket.io's default is 1MB and it DISCONNECTS a client
@@ -160,6 +180,7 @@ interface ServerEntry {
   id: string
   name: string
   iconColor: string
+  avatarDataUrl?: string | null
   textChannelName: string
   voiceRoomName: string
   hostUserId: string
@@ -185,6 +206,7 @@ app.get('/get-servers', (_req, res) => {
       id: entry.id,
       name: entry.name,
       iconColor: entry.iconColor,
+      avatarDataUrl: entry.avatarDataUrl ?? null,
       textChannelName: entry.textChannelName,
       voiceRoomName: entry.voiceRoomName,
       hostUserId: entry.hostUserId,
@@ -215,14 +237,16 @@ interface QueuedEvent {
 // read-only install directory in packaged builds, where writes silently
 // fail); standalone CLI mode falls back to cwd.
 function resolveQueueFile(): string {
+  // Per-port filename so simultaneous host instances never share a queue.
+  const fileName = `offline_queue_${instancePort}.json`
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const electron = require('electron') as { app?: { getPath: (name: string) => string } }
     if (electron?.app?.getPath) {
-      return path.join(electron.app.getPath('userData'), 'offline_queue.json')
+      return path.join(electron.app.getPath('userData'), fileName)
     }
   } catch { /* not running inside Electron */ }
-  return path.join(process.cwd(), 'offline_queue.json')
+  return path.join(process.cwd(), fileName)
 }
 const QUEUE_FILE = resolveQueueFile()
 let offlineQueue = new Map<string, QueuedEvent[]>()
@@ -518,6 +542,7 @@ io.on('connection', (socket) => {
     serverId: string
     name: string
     iconColor: string
+    avatarDataUrl?: string | null
     textChannelName: string
     voiceRoomName: string
     hostUserId: string
@@ -536,6 +561,7 @@ io.on('connection', (socket) => {
         id: payload.serverId,
         name: payload.name,
         iconColor: payload.iconColor,
+        avatarDataUrl: payload.avatarDataUrl ?? null,
         textChannelName: payload.textChannelName,
         voiceRoomName: payload.voiceRoomName,
         hostUserId: payload.hostUserId,
@@ -558,6 +584,7 @@ io.on('connection', (socket) => {
         console.log(`[server] re-registered: ${payload.serverId} by ${payload.hostUserId}`)
       }
       entry.banned = new Set(payload.banned)
+      if (payload.avatarDataUrl !== undefined) entry.avatarDataUrl = payload.avatarDataUrl ?? null
       if (payload.layout !== undefined) entry.layout = payload.layout
       if (payload.roleNames !== undefined) entry.roleNames = payload.roleNames ?? null
       if (payload.roles !== undefined) entry.roles = payload.roles ?? null
@@ -721,6 +748,7 @@ io.on('connection', (socket) => {
       serverId: entry.id,
       name: entry.name,
       iconColor: entry.iconColor,
+      avatarDataUrl: entry.avatarDataUrl ?? null,
       textChannelName: entry.textChannelName,
       voiceRoomName: entry.voiceRoomName,
       hostUserId: entry.hostUserId,
@@ -1057,15 +1085,14 @@ io.on('connection', (socket) => {
   })
 })
 
-// ── Start / Stop (embeddable) ──
+// ── Start / Stop (this instance) ──
 
 let running = false
-let currentPort = 0
 
-export function startSignalingServer(port = 3000): Promise<{ port: number }> {
+function start(): Promise<{ port: number }> {
   return new Promise((resolve, reject) => {
     if (running) {
-      resolve({ port: currentPort })
+      resolve({ port: instancePort })
       return
     }
     const onError = (err: NodeJS.ErrnoException): void => {
@@ -1073,17 +1100,16 @@ export function startSignalingServer(port = 3000): Promise<{ port: number }> {
       reject(err)
     }
     httpServer.once('error', onError)
-    httpServer.listen(port, () => {
+    httpServer.listen(instancePort, () => {
       httpServer.removeListener('error', onError)
       running = true
-      currentPort = port
-      console.log(`[signaling] listening on port ${port}`)
-      resolve({ port })
+      console.log(`[signaling:${instancePort}] listening`)
+      resolve({ port: instancePort })
     })
   })
 }
 
-export function stopSignalingServer(): Promise<void> {
+function stop(): Promise<void> {
   return new Promise((resolve) => {
     if (!running) {
       resolve()
@@ -1092,25 +1118,19 @@ export function stopSignalingServer(): Promise<void> {
     // io.close() also closes the underlying http server.
     io.close(() => {
       running = false
-      currentPort = 0
-      console.log('[signaling] stopped')
+      console.log(`[signaling:${instancePort}] stopped`)
       resolve()
     })
   })
 }
 
-export function isSignalingRunning(): boolean {
-  return running
-}
-
-export function getSignalingPort(): number {
-  return currentPort
-}
+return { start, stop, isRunning: () => running, port: instancePort }
+} // ── end createSignalingInstance ──
 
 // CLI entrypoint — only runs when invoked directly (e.g. `tsx src/server/signaling.ts`).
 if (require.main === module) {
   const PORT = parseInt(process.env.PORT || '3000', 10)
-  startSignalingServer(PORT).then(() => {
+  createSignalingInstance(PORT).start().then(() => {
     console.log(`\n  MESH signaling server running on port ${PORT}\n`)
   })
 }

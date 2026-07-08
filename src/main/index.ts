@@ -37,7 +37,7 @@ import { setNotificationsWindow } from './notifications'
 import { openDatabase, closeDatabase } from './database'
 import { setMainWindow, disconnectFromSignaling, emitSignaling } from './socket-client'
 import { shutdownRelay } from './relay-manager'
-import { registerSignalingHostHandlers, startHosting, stopHosting } from './signaling-host'
+import { registerSignalingHostHandlers, startHost, stopHosting } from './signaling-host'
 import { registerNetworkScannerHandlers, refreshNetworkSignature } from './network-scanner'
 import { getSetting } from './database'
 
@@ -158,7 +158,13 @@ app.whenReady().then(async () => {
     const raw = getSetting('network')
     const net = raw ? JSON.parse(raw) : null
     if (net?.hostSignaling) {
-      await startHosting(3000)
+      const primary = Number.isFinite(net.hostPort) ? net.hostPort : 3000
+      await startHost(primary)
+      // Restore any additional independent host ports (multi-hosting).
+      const extras: number[] = Array.isArray(net.extraHostPorts) ? net.extraHostPorts : []
+      for (const p of extras) {
+        if (p !== primary) await startHost(p)
+      }
     }
   } catch (err) {
     console.warn('[signaling-host] auto-start failed:', err)

@@ -8,6 +8,7 @@ import { ServerPage } from '@/pages/server/ServerPage'
 import { ServerSettingsPage } from '@/pages/server-settings/ServerSettingsPage'
 import { SettingsPage } from '@/pages/settings/SettingsPage'
 import { DiscoveryPage } from '@/pages/discovery/DiscoveryPage'
+import { NetworkCenterPage } from '@/pages/network-center/NetworkCenterPage'
 import { useIdentityStore } from '@/stores/identity.store'
 import { useFriendsStore } from '@/stores/friends.store'
 import { useServersStore } from '@/stores/servers.store'
@@ -237,6 +238,7 @@ function App(): JSX.Element {
 
           {/* Multi-network discovery */}
           <Route path="/discover" element={<DiscoveryPage />} />
+          <Route path="/network-center" element={<NetworkCenterPage />} />
 
           {/* Settings */}
           <Route path="/settings" element={<Navigate to="/settings/profile" replace />} />

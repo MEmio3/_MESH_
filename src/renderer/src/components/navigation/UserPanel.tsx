@@ -362,6 +362,13 @@ function UserPanel(): JSX.Element {
         </div>
 
         <UserPanelButton
+          tooltip="Network Center"
+          onClick={() => navigate('/network-center')}
+        >
+          <Wifi className="h-[18px] w-[18px]" />
+        </UserPanelButton>
+
+        <UserPanelButton
           tooltip="User Settings"
           motion="settings"
           onClick={() => navigate('/settings')}

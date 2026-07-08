@@ -4,6 +4,17 @@
  * right image without a flash of fallback initials.
  */
 import { create } from 'zustand'
+import { useIdentityStore } from './identity.store'
+
+async function reregisterHostedServers(): Promise<void> {
+  const identity = useIdentityStore.getState().identity
+  if (!identity) return
+  await window.api.server.reregisterMine({
+    selfUserId: identity.userId,
+    selfUsername: identity.username,
+    selfAvatarColor: (identity as unknown as { avatarPath?: string | null }).avatarPath ?? null
+  }).catch(() => { /* retried on next reconnect */ })
+}
 
 interface ServerAvatarStore {
   byServer: Record<string, string>
@@ -26,6 +37,7 @@ export const useServerAvatarStore = create<ServerAvatarStore>((set) => ({
     const res = await window.api.serverAvatar.pickAndSet(serverId)
     if (res.success && res.dataUrl) {
       set((s) => ({ byServer: { ...s.byServer, [serverId]: res.dataUrl! } }))
+      await reregisterHostedServers()
     }
     return res
   },
@@ -37,6 +49,7 @@ export const useServerAvatarStore = create<ServerAvatarStore>((set) => ({
       delete next[serverId]
       return { byServer: next }
     })
+    await reregisterHostedServers()
   },
 
   setLocal: (serverId, dataUrl) => {

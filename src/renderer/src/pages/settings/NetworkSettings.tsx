@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Wifi, Globe, Shield, Copy, Check, Server, ChevronRight, Link2 } from 'lucide-react'
+import { Wifi, Globe, Shield, Copy, Check, Server, ChevronRight, Link2, Router } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { useSettingsStore } from '@/stores/settings.store'
 import { useIdentityStore } from '@/stores/identity.store'
 import { Toggle } from '@/components/ui/Toggle'
@@ -27,7 +28,24 @@ const strategies = [
   }
 ]
 
+function isPrivateOrCgnatIp(ip: string | null): boolean {
+  if (!ip) return false
+  const [a, b] = ip.split('.').map((n) => parseInt(n, 10))
+  if (a === 10) return true
+  if (a === 192 && b === 168) return true
+  if (a === 172 && b >= 16 && b <= 31) return true
+  if (a === 100 && b >= 64 && b <= 127) return true
+  return false
+}
+
+function normalizePort(value: string | number | null | undefined): number {
+  const raw = typeof value === 'number' ? value : parseInt(String(value ?? ''), 10)
+  if (!Number.isFinite(raw)) return 3000
+  return Math.min(65535, Math.max(1, Math.floor(raw)))
+}
+
 function NetworkSettings(): JSX.Element {
+  const navigate = useNavigate()
   const network = useSettingsStore((s) => s.network)
   const updateNetwork = useSettingsStore((s) => s.updateNetwork)
 
@@ -49,6 +67,7 @@ function NetworkSettings(): JSX.Element {
   } | null>(null)
   const [scanning, setScanning] = useState(false)
   const [urlDraft, setUrlDraft] = useState(network.signalingUrl)
+  const [hostPortDraft, setHostPortDraft] = useState(String(normalizePort(network.hostPort)))
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -57,6 +76,10 @@ function NetworkSettings(): JSX.Element {
   useEffect(() => {
     setUrlDraft(network.signalingUrl)
   }, [network.signalingUrl])
+
+  useEffect(() => {
+    if (!hostStatus.running) setHostPortDraft(String(normalizePort(network.hostPort)))
+  }, [network.hostPort, hostStatus.running])
 
   useEffect(() => {
     let cancelled = false
@@ -121,19 +144,41 @@ function NetworkSettings(): JSX.Element {
 
   const toggleHost = async (enabled: boolean): Promise<void> => {
     if (enabled) {
-      const res = await window.api.signalingHost.start({ port: 3000 })
+      const port = normalizePort(hostPortDraft || network.hostPort)
+      const res = await window.api.signalingHost.start({ port })
       if (!res.success) {
         setHostStatus((s) => ({ ...s, error: res.error || 'Failed to start' }))
         return
       }
-      const url = 'http://localhost:3000'
-      updateNetwork({ hostSignaling: true, signalingUrl: url })
+      const url = `http://localhost:${port}`
+      updateNetwork({ hostSignaling: true, hostPort: port, signalingUrl: url })
+      setHostStatus((s) => ({ ...s, running: true, port, error: null }))
+      setHostPortDraft(String(port))
       setUrlDraft(url)
       await reconnectSignaling(url)
     } else {
       await window.api.signalingHost.stop()
+      setHostStatus((s) => ({ ...s, running: false, error: null }))
       updateNetwork({ hostSignaling: false })
     }
+    setHostStatus(await window.api.signalingHost.status())
+  }
+
+  const applyHostPort = async (): Promise<void> => {
+    const port = normalizePort(hostPortDraft)
+    setHostPortDraft(String(port))
+    updateNetwork({ hostPort: port })
+    if (!hostStatus.running) return
+    const res = await window.api.signalingHost.start({ port })
+    if (!res.success) {
+      setHostStatus((s) => ({ ...s, error: res.error || 'Failed to switch port' }))
+      return
+    }
+    const url = `http://localhost:${port}`
+    updateNetwork({ hostSignaling: true, hostPort: port, signalingUrl: url })
+    setHostStatus((s) => ({ ...s, running: true, port, error: null }))
+    setUrlDraft(url)
+    await reconnectSignaling(url)
     setHostStatus(await window.api.signalingHost.status())
   }
 
@@ -163,7 +208,7 @@ function NetworkSettings(): JSX.Element {
     setTimeout(() => setSaved(false), 1500)
   }
 
-  const hostedPort = hostStatus.port || 3000
+  const hostedPort = hostStatus.running ? normalizePort(hostStatus.port || network.hostPort) : normalizePort(hostPortDraft || network.hostPort)
   // Bucket detected IPs by scope so we can render each group separately.
   const grouped: Record<IpScope, DetectedIp[]> = { home: [], isp: [], public: [] }
   for (const ip of hostStatus.localIps) grouped[ip.scope].push(ip)
@@ -194,6 +239,23 @@ function NetworkSettings(): JSX.Element {
       <p className="text-xs text-mesh-text-muted mb-6">
         One person hosts, everyone else joins with their address. That&apos;s it.
       </p>
+
+      <div className="mb-4 rounded-xl border border-mesh-border bg-mesh-bg-secondary p-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-mesh-border/70 bg-mesh-bg-primary text-mesh-green">
+              <Router className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-mesh-text-primary">Network Center</div>
+              <div className="mt-0.5 text-xs text-mesh-text-muted">Use the simple page for hosting, joining, relays, and share links.</div>
+            </div>
+          </div>
+          <Button size="sm" variant="secondary" onClick={() => navigate('/network-center')}>
+            Open
+          </Button>
+        </div>
+      </div>
 
       {/* Status strip — one line, no jargon */}
       <div className="flex items-center gap-2.5 rounded-lg bg-mesh-bg-secondary border border-mesh-border px-4 py-3 mb-4">
@@ -229,15 +291,45 @@ function NetworkSettings(): JSX.Element {
 
         {network.hostSignaling && (
           <div className="mt-4">
+            <div className="mb-3 rounded-lg border border-mesh-border/60 bg-mesh-bg-tertiary px-3 py-2.5">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-mesh-text-muted">Host port</div>
+                  <div className="mt-0.5 text-[11px] text-mesh-text-muted">All hosted MESH servers share this port.</div>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <input
+                    value={hostPortDraft}
+                    onChange={(e) => setHostPortDraft(e.target.value.replace(/[^\d]/g, '').slice(0, 5))}
+                    onBlur={() => setHostPortDraft(String(normalizePort(hostPortDraft)))}
+                    inputMode="numeric"
+                    className="h-8 w-20 rounded-md border border-mesh-border bg-mesh-bg-primary px-2 text-right font-mono text-xs text-mesh-text-primary outline-none focus:border-mesh-green/60"
+                  />
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={normalizePort(hostPortDraft) === hostedPort}
+                    onClick={applyHostPort}
+                  >
+                    Restart
+                  </Button>
+                </div>
+              </div>
+              <p className="text-[11px] leading-relaxed text-mesh-text-muted">
+                Your primary port — every community you host lives here. To run a
+                second, separate network on another port at the same time, open
+                Network Center → Additional host ports.
+              </p>
+            </div>
             {primaryAddr ? (
               <>
                 <p className="text-[11px] font-semibold text-mesh-text-secondary uppercase tracking-wide mb-1.5">
-                  Share this address
+                  Same-Wi-Fi address
                 </p>
                 <CopyRow addr={primaryAddr} />
                 <p className="text-[11px] text-mesh-text-muted mt-2">
-                  Works for friends on the same Wi-Fi or network as you. Friend somewhere
-                  else? Open <span className="text-mesh-text-secondary">Advanced</span> below for more addresses.
+                  Works only for friends on your same router/LAN. For internet sharing,
+                  use Network Center&apos;s reachability check.
                 </p>
               </>
             ) : (
@@ -292,15 +384,15 @@ function NetworkSettings(): JSX.Element {
 
       {showAdvanced && (
         <div className="flex flex-col gap-4">
-          {/* All host addresses by scope */}
+          {/* Host address diagnostics */}
           {network.hostSignaling && (
             <div className="rounded-xl bg-mesh-bg-secondary border border-mesh-border p-5">
               <h3 className="text-xs font-semibold text-mesh-text-secondary uppercase tracking-wide mb-3">
-                All your addresses
+                Connection details
               </h3>
               <p className="text-xs text-mesh-text-muted mb-3">
-                Pick by where your friend is: same Wi-Fi → Home, same internet provider → ISP,
-                anywhere else → Public.
+                Home addresses work only on the same router. Router/private ISP
+                addresses are diagnostics. Public IP works only when port {hostedPort} is open.
               </p>
               {scopeOrder.map((scope) => {
                 const items = grouped[scope]
@@ -325,10 +417,23 @@ function NetworkSettings(): JSX.Element {
                   {netSig.signature.routerWanIp && (
                     <div className="mb-3">
                       <p className="text-[11px] font-semibold text-mesh-text-secondary uppercase tracking-wide mb-1.5">
-                        ISP address (from your router)
+                        {isPrivateOrCgnatIp(netSig.signature.routerWanIp) ? 'Router/ISP private address' : 'Router public address'}
                       </p>
-                      <CopyRow addr={`http://${netSig.signature.routerWanIp}:${hostedPort}`} tag="upnp" />
-                      <p className="text-[11px] text-mesh-text-muted mt-1">For friends on the same internet provider.</p>
+                      {isPrivateOrCgnatIp(netSig.signature.routerWanIp) ? (
+                        <div className="rounded-lg bg-mesh-warning/5 border border-mesh-warning/30 px-3 py-2.5">
+                          <code className="block truncate text-sm text-mesh-warning font-mono">
+                            http://{netSig.signature.routerWanIp}:{hostedPort}
+                          </code>
+                          <p className="text-[11px] text-mesh-text-muted mt-1">
+                            Diagnostic only. Do not share this with friends.
+                          </p>
+                        </div>
+                      ) : (
+                        <>
+                          <CopyRow addr={`http://${netSig.signature.routerWanIp}:${hostedPort}`} tag="upnp" />
+                          <p className="text-[11px] text-mesh-text-muted mt-1">Useful only when port {hostedPort} is open.</p>
+                        </>
+                      )}
                     </div>
                   )}
                   {netSig.signature.publicIp && (
@@ -338,7 +443,9 @@ function NetworkSettings(): JSX.Element {
                       </p>
                       <CopyRow addr={`http://${netSig.signature.publicIp}:${hostedPort}`} tag="ipify" />
                       <p className="text-[11px] text-mesh-text-muted mt-1">
-                        For friends anywhere — needs port {hostedPort} forwarded on your router.
+                        {netSig.interpretation.behindCgnat
+                          ? 'Seen by websites, but not directly reachable because your router is behind ISP NAT.'
+                          : `For friends outside your Wi-Fi after port ${hostedPort} is open.`}
                       </p>
                     </div>
                   )}

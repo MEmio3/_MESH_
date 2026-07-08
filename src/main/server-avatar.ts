@@ -30,6 +30,13 @@ function toDataUrl(png: Buffer): string {
   return `data:image/png;base64,${png.toString('base64')}`
 }
 
+function normalizeImageBuffer(buf: Buffer): Buffer | null {
+  if (buf.byteLength > MAX_BYTES) return null
+  const img = nativeImage.createFromBuffer(buf)
+  if (img.isEmpty()) return null
+  return img.resize({ width: SIZE, height: SIZE, quality: 'good' }).toPNG()
+}
+
 /** Open a file picker and save the chosen image as the avatar for `serverId`. */
 export async function pickAndSetServerAvatar(
   serverId: string
@@ -56,6 +63,23 @@ export function getServerAvatarDataUrl(serverId: string): string | null {
   const buf = readFileSync(p)
   if (buf.byteLength === 0) return null
   return toDataUrl(buf)
+}
+
+export function saveServerAvatarDataUrl(
+  serverId: string,
+  dataUrl: string
+): { success: boolean; error?: string; dataUrl?: string } {
+  if (!serverId) return { success: false, error: 'missing-server-id' }
+  const match = dataUrl.match(/^data:image\/(?:png|jpe?g);base64,([a-z0-9+/=]+)$/i)
+  if (!match) return { success: false, error: 'unsupported-image-data' }
+  try {
+    const png = normalizeImageBuffer(Buffer.from(match[1], 'base64'))
+    if (!png) return { success: false, error: 'Unsupported image' }
+    writeFileSync(serverAvatarPath(serverId), png)
+    return { success: true, dataUrl: toDataUrl(png) }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
 }
 
 /** Snapshot of every server avatar currently on disk, keyed by serverId. */

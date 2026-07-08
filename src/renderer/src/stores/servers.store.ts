@@ -3,6 +3,7 @@ import type { Server, ServerMember, ServerRoleDef } from '@/types/server'
 import type { Message, FileAttachment } from '@/types/messages'
 import { useIdentityStore } from './identity.store'
 import { useAvatarStore } from './avatar.store'
+import { useServerAvatarStore } from './serverAvatar.store'
 import { useChannelsStore } from './channels.store'
 import { PERM, effectivePermissions, hasPerm, resolveChannelPerm } from '../../../shared/permissions'
 import { normalizeReactions } from './messages.store'
@@ -562,6 +563,7 @@ export const useServersStore = create<ServersStore>((set, get) => ({
         serverId: string
         name: string
         iconColor: string
+        avatarDataUrl?: string | null
         textChannelName: string
         voiceRoomName: string
         hostUserId: string
@@ -578,6 +580,7 @@ export const useServersStore = create<ServersStore>((set, get) => ({
           id: string
           name: string
           iconColor: string
+          avatarDataUrl?: string | null
           textChannelName: string
           voiceRoomName: string
           hostUserId: string
@@ -597,6 +600,7 @@ export const useServersStore = create<ServersStore>((set, get) => ({
                 id: raw.serverId!,
                 name: raw.name!,
                 iconColor: raw.iconColor!,
+                avatarDataUrl: raw.avatarDataUrl ?? null,
                 textChannelName: raw.textChannelName!,
                 voiceRoomName: raw.voiceRoomName!,
                 hostUserId: raw.hostUserId!,
@@ -622,6 +626,9 @@ export const useServersStore = create<ServersStore>((set, get) => ({
           ...nested,
           roles: (raw as { roles?: unknown[] }).roles
         })
+        if (nested.server.avatarDataUrl) {
+          useServerAvatarStore.getState().setLocal(nested.server.id, nested.server.avatarDataUrl)
+        }
         // Adopt the host's channel layout (incl. role gates) before reload so
         // the tree renders the authoritative structure, not our stale copy.
         const layout = (raw as { layout?: unknown }).layout

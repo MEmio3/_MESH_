@@ -31,8 +31,8 @@ const settingsGroups: SettingsGroup[] = [
   {
     title: 'Network',
     items: [
-      { id: 'relay', label: 'Relay Settings' },
-      { id: 'connection', label: 'Connection' },
+      { id: 'connection', label: 'Connection Details' },
+      { id: 'relay', label: 'Relay Details' },
     ],
   },
   {

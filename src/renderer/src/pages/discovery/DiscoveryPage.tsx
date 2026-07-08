@@ -8,6 +8,7 @@ import {
   Lock,
   Plus,
   RefreshCw,
+  Router,
   Server,
   Trash2,
   Users,
@@ -18,6 +19,7 @@ import { cn } from '@/lib/utils'
 import { useIdentityStore } from '@/stores/identity.store'
 import { useServersStore } from '@/stores/servers.store'
 import { type KnownNetwork, useSettingsStore } from '@/stores/settings.store'
+import { useServerAvatarStore } from '@/stores/serverAvatar.store'
 
 type DiscoveryNetwork = KnownNetwork & { current?: boolean }
 
@@ -25,6 +27,7 @@ interface DiscoveredServer {
   id: string
   name: string
   iconColor: string
+  avatarDataUrl: string | null
   textChannelName: string
   voiceRoomName: string
   hostUserId: string
@@ -62,6 +65,8 @@ function DiscoveryPage(): JSX.Element {
   const updateNetwork = useSettingsStore((s) => s.updateNetwork)
   const joinServer = useServersStore((s) => s.joinServer)
   const joinedServers = useServersStore((s) => s.servers)
+  const serverAvatars = useServerAvatarStore((s) => s.byServer)
+  const setServerAvatarLocal = useServerAvatarStore((s) => s.setLocal)
 
   const [draftName, setDraftName] = useState('')
   const [draftUrl, setDraftUrl] = useState('')
@@ -99,6 +104,9 @@ function DiscoveryPage(): JSX.Element {
       [key]: { success: false, url: normalizeNetworkUrl(net.url), latencyMs: null, servers: s[key]?.servers ?? [], loading: true }
     }))
     const result = await window.api.networkDiscovery.fetchServers({ url: net.url })
+    for (const server of result.servers) {
+      if (server.avatarDataUrl) setServerAvatarLocal(server.id, server.avatarDataUrl)
+    }
     setResults((s) => ({ ...s, [key]: { ...result, loading: false } }))
   }
 
@@ -163,6 +171,7 @@ function DiscoveryPage(): JSX.Element {
     setNotice(null)
     try {
       const targetUrl = normalizeNetworkUrl(net.url)
+      if (server.avatarDataUrl) setServerAvatarLocal(server.id, server.avatarDataUrl)
       if (targetUrl !== activeUrl) {
         updateNetwork({ signalingUrl: targetUrl })
         await window.api.signaling.connect(targetUrl, identity.userId)
@@ -196,10 +205,16 @@ function DiscoveryPage(): JSX.Element {
               </div>
             </div>
           </div>
-          <Button variant="secondary" onClick={refreshAll}>
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Refresh
-          </Button>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button variant="secondary" onClick={() => navigate('/network-center')}>
+              <Router className="mr-2 h-4 w-4" />
+              Network
+            </Button>
+            <Button variant="secondary" onClick={refreshAll}>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Refresh
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -316,6 +331,7 @@ function DiscoveryPage(): JSX.Element {
                 const rowKey = `${networkKey(net)}:${server.id}`
                 const isJoined = knownServerIds.has(server.id)
                 const isJoining = joining === rowKey
+                const avatarSrc = server.avatarDataUrl || serverAvatars[server.id]
                 return (
                   <div
                     key={rowKey}
@@ -323,10 +339,19 @@ function DiscoveryPage(): JSX.Element {
                   >
                     <div className="flex items-start gap-3">
                       <div
-                        className="grid h-12 w-12 shrink-0 place-items-center rounded-lg text-base font-bold text-white"
-                        style={{ backgroundColor: server.iconColor }}
+                        className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-lg text-base font-bold text-white"
+                        style={avatarSrc ? undefined : { backgroundColor: server.iconColor }}
                       >
-                        {server.name.slice(0, 1).toUpperCase()}
+                        {avatarSrc ? (
+                          <img
+                            src={avatarSrc}
+                            alt={server.name}
+                            className="h-full w-full object-cover"
+                            draggable={false}
+                          />
+                        ) : (
+                          server.name.slice(0, 1).toUpperCase()
+                        )}
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">

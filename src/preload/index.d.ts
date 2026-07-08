@@ -305,13 +305,15 @@ interface NetworkScanAPI {
 
 interface SignalingHostAPI {
   start: (p?: { port?: number }) => Promise<{ success: boolean; error?: string; port?: number }>
-  stop: () => Promise<{ success: boolean }>
+  stop: (p?: { port?: number }) => Promise<{ success: boolean }>
   status: () => Promise<{
     running: boolean
     port: number
+    ports: number[]
     localIps: Array<{ address: string; scope: 'home' | 'isp' | 'public'; label: string; iface: string }>
     error: string | null
   }>
+  list: () => Promise<number[]>
 }
 
 interface NotificationsAPI {
@@ -375,6 +377,7 @@ interface DiscoveredServer {
   id: string
   name: string
   iconColor: string
+  avatarDataUrl: string | null
   textChannelName: string
   voiceRoomName: string
   hostUserId: string

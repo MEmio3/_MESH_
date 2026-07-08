@@ -468,13 +468,17 @@ const api = {
   signalingHost: {
     start: (payload?: { port?: number }): Promise<{ success: boolean; error?: string; port?: number }> =>
       ipcRenderer.invoke('signaling-host:start', payload),
-    stop: (): Promise<{ success: boolean }> => ipcRenderer.invoke('signaling-host:stop'),
+    // Omit port to stop every hosted port; pass one to stop just that instance.
+    stop: (payload?: { port?: number }): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('signaling-host:stop', payload),
     status: (): Promise<{
       running: boolean
       port: number
+      ports: number[]
       localIps: Array<{ address: string; scope: 'home' | 'isp' | 'public'; label: string; iface: string }>
       error: string | null
-    }> => ipcRenderer.invoke('signaling-host:status')
+    }> => ipcRenderer.invoke('signaling-host:status'),
+    list: (): Promise<number[]> => ipcRenderer.invoke('signaling-host:list')
   },
 
   notifications: {
@@ -567,6 +571,7 @@ const api = {
         id: string
         name: string
         iconColor: string
+        avatarDataUrl: string | null
         textChannelName: string
         voiceRoomName: string
         hostUserId: string

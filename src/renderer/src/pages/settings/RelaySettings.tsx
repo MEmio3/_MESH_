@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Radio, Trash2, Plus } from 'lucide-react'
+import { Radio, Trash2, Plus, Router } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { useSettingsStore } from '@/stores/settings.store'
 import { SettingRow } from '@/components/settings/SettingRow'
 import { Button } from '@/components/ui/Button'
@@ -26,6 +27,7 @@ interface RelayStatus {
 }
 
 function RelaySettings(): JSX.Element {
+  const navigate = useNavigate()
   const network = useSettingsStore((s) => s.network)
   const { addCustomRelay, removeCustomRelay } = useSettingsStore()
   const [newRelay, setNewRelay] = useState('')
@@ -87,7 +89,27 @@ function RelaySettings(): JSX.Element {
 
   return (
     <div className="max-w-2xl mx-auto py-6 px-6">
-      <h2 className="text-lg font-bold text-mesh-text-primary mb-6">Relay Settings</h2>
+      <h2 className="text-lg font-bold text-mesh-text-primary mb-1">Relay Details</h2>
+      <p className="mb-6 text-xs text-mesh-text-muted">
+        Advanced relay controls. Use Network Center for the simple on/off flow.
+      </p>
+
+      <div className="mb-6 rounded-xl border border-mesh-border bg-mesh-bg-secondary p-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-mesh-border/70 bg-mesh-bg-primary text-mesh-green">
+              <Router className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-mesh-text-primary">Network Center</div>
+              <div className="mt-0.5 text-xs text-mesh-text-muted">Start hosting, connect to hosts, and turn relay on from one place.</div>
+            </div>
+          </div>
+          <Button size="sm" variant="secondary" onClick={() => navigate('/network-center')}>
+            Open
+          </Button>
+        </div>
+      </div>
 
       {/* Registered Relays */}
       <div className="mb-8">
@@ -116,7 +138,7 @@ function RelaySettings(): JSX.Element {
                         relay.scope === 'global' ? 'bg-mesh-info/20 text-mesh-info' : 'bg-mesh-green/20 text-mesh-green'
                       }`}
                     >
-                      {relay.scope === 'global' ? 'GLOBAL' : 'ISP-LOCAL'}
+                      {relay.scope === 'global' ? 'GLOBAL' : 'NEARBY'}
                     </span>
                   </div>
                   <span className="text-xs text-mesh-text-muted">
@@ -195,7 +217,7 @@ function RelaySettings(): JSX.Element {
               <div className="rounded-lg bg-mesh-bg-tertiary p-3">
                 <span className="text-mesh-text-muted block mb-1">Scope</span>
                 <span className="text-mesh-text-primary font-semibold">
-                  {status.scope === 'global' ? 'Global' : 'ISP-Local'}
+                  {status.scope === 'global' ? 'Global' : 'Nearby'}
                 </span>
               </div>
               <div className="rounded-lg bg-mesh-bg-tertiary p-3">
@@ -234,7 +256,7 @@ function RelaySettings(): JSX.Element {
               onChange={(e) => setRelayScope(e.target.value as 'isp-local' | 'global')}
               className="h-8 px-2 rounded bg-mesh-bg-tertiary border border-mesh-border text-xs text-mesh-text-primary focus:outline-none focus:ring-2 focus:ring-mesh-green"
             >
-              <option value="isp-local">ISP-Local</option>
+              <option value="isp-local">Nearby</option>
               <option value="global">Global</option>
             </select>
           </div>

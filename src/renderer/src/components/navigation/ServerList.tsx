@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { Compass, Plus } from 'lucide-react'
+import { Compass, Plus, Router } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { Tooltip } from '@/components/ui/Tooltip'
@@ -18,6 +18,7 @@ function ServerList(): JSX.Element {
 
   const activeServerId = location.pathname.match(/^\/channels\/(?!@me)([^/]+)/)?.[1] || null
   const isDiscover = location.pathname.startsWith('/discover')
+  const isNetworkCenter = location.pathname.startsWith('/network-center')
 
   return (
     <>
@@ -101,6 +102,33 @@ function ServerList(): JSX.Element {
               )}
             >
               <Compass className="h-[18px] w-[18px]" strokeWidth={1.75} />
+            </button>
+          </div>
+        </Tooltip>
+
+        <Tooltip content="Network Center" side="right">
+          <div className="relative flex items-center justify-center w-full group">
+            {isNetworkCenter ? (
+              <motion.div
+                layoutId="server-pill"
+                className="mesh-active-indicator absolute left-0 w-[2px] rounded-r-full bg-mesh-green"
+                initial={{ height: 8 }}
+                animate={{ height: 24 }}
+                transition={meshSpring}
+              />
+            ) : (
+              <div className="absolute left-0 w-[2px] rounded-r-full bg-mesh-text-muted opacity-0 h-0 group-hover:opacity-100 group-hover:h-3 transition-all duration-150" />
+            )}
+            <button
+              onClick={() => navigate('/network-center')}
+              className={cn(
+                'mesh-pressable mesh-hover-lift flex h-10 w-10 items-center justify-center rounded-lg border transition-colors duration-150',
+                isNetworkCenter
+                  ? 'border-mesh-green/45 bg-mesh-green/12 text-mesh-green'
+                  : 'border-transparent text-mesh-text-muted hover:border-mesh-border/70 hover:bg-mesh-bg-secondary hover:text-mesh-text-primary'
+              )}
+            >
+              <Router className="h-[18px] w-[18px]" strokeWidth={1.75} />
             </button>
           </div>
         </Tooltip>
