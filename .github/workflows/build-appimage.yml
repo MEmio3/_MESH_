@@ -28,7 +28,8 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y fakeroot build-essential libarchive-tools
+          sudo apt-get install -y fakeroot build-essential libarchive-tools ruby ruby-dev rpm squashfs-tools
+          sudo gem install --no-document fpm
 
       - name: Install Node dependencies
         run: npm install --legacy-peer-deps
