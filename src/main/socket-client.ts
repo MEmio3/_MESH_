@@ -52,6 +52,8 @@ const serverEvents = [
   'server:voice-joined',
   'server:voice-left',
   'server:voice-join-denied',
+  'server:stream-start',
+  'server:stream-stop',
   'server:error'
 ]
 
@@ -97,10 +99,18 @@ function routeForEvent(event: string, args: unknown[]): { url: string; userId: s
       : undefined
     return hostedRouteForServer(typeof payload?.serverId === 'string' ? payload.serverId : null, forcedPort)
   }
+  if (event === 'join-room' || event === 'leave-room') {
+    const roomId = typeof args[0] === 'string' ? args[0] : ''
+    const parts = roomId.split(':')
+    return parts[0] === 'voice' ? hostedRouteForServer(parts[1] ?? null) : null
+  }
   if (event.startsWith('media:')) {
     const roomId = typeof args[0] === 'string' ? args[0] : ''
     const parts = roomId.split(':')
     return parts[0] === 'voice' ? hostedRouteForServer(parts[1] ?? null) : null
+  }
+  if (event === 'stream:start' || event === 'stream:stop') {
+    return hostedRouteForServer(typeof args[0] === 'string' ? args[0] : null)
   }
   return null
 }
@@ -111,6 +121,12 @@ function attachAuxiliaryHandlers(aux: Socket, userId: string): void {
   })
   aux.on('connect_error', (err) => {
     console.warn('[socket-client] auxiliary connection failed:', err.message)
+  })
+  aux.on('user-joined', (joinedUserId: string, socketId: string, roomId?: string) => {
+    sendToRenderer('signaling:user-joined', joinedUserId, socketId, roomId)
+  })
+  aux.on('user-left', (leftUserId: string, socketId: string, roomId?: string) => {
+    sendToRenderer('signaling:user-left', leftUserId, socketId, roomId)
   })
   aux.on('media:audio', (fromUserId: string, meta: unknown, payload: unknown) => {
     sendToRenderer('signaling:media:audio', fromUserId, meta, payload)
@@ -214,12 +230,12 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
   })
 
   // Forward signaling events to renderer
-  socket.on('user-joined', (userId: string, socketId: string) => {
-    sendToRenderer('signaling:user-joined', userId, socketId)
+  socket.on('user-joined', (userId: string, socketId: string, roomId?: string) => {
+    sendToRenderer('signaling:user-joined', userId, socketId, roomId)
   })
 
-  socket.on('user-left', (userId: string, socketId: string) => {
-    sendToRenderer('signaling:user-left', userId, socketId)
+  socket.on('user-left', (userId: string, socketId: string, roomId?: string) => {
+    sendToRenderer('signaling:user-left', userId, socketId, roomId)
   })
 
   socket.on('offer', (fromSocketId: string, offer: unknown, fromUserId: string) => {
@@ -264,6 +280,10 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
 
   socket.on('call-end', (fromUserId: string) => {
     sendToRenderer('signaling:call-end', fromUserId)
+  })
+
+  socket.on('call-video-state', (fromUserId: string, payload: unknown) => {
+    sendToRenderer('signaling:call-video-state', fromUserId, payload)
   })
 
   // Host-relayed media frames (voice/video) — hot path, forwarded verbatim.

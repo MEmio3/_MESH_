@@ -297,13 +297,18 @@ function NetworkCenterPage(): JSX.Element {
     }
     setReconnectState('connecting')
     setNotice(null)
+    const wasHosting = hostStatus.running || network.hostSignaling
     try {
       updateNetwork(keepHostMode ? { signalingUrl: url, hostSignaling: true } : { signalingUrl: url })
       await window.api.signaling.disconnect().catch(() => {})
       await window.api.signaling.connect(url, identity.userId)
+      if (wasHosting) await reregisterHostedServers()
       setIsConnected(true)
       setReconnectState('connected')
-      setNotice(`Connected to ${hostFromUrl(url)}.`)
+      setNotice(wasHosting && !isLocalNetworkUrl(url)
+        ? `Connected to ${hostFromUrl(url)}. Your local host is still running.`
+        : `Connected to ${hostFromUrl(url)}.`
+      )
     } catch (err) {
       setReconnectState('failed')
       setNotice(err instanceof Error ? err.message : 'Could not connect.')

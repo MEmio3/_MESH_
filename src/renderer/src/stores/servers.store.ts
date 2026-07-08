@@ -1013,6 +1013,28 @@ export const useServersStore = create<ServersStore>((set, get) => ({
       })
     }))
 
+    unsubs.push(window.api.signaling.onServerEvent('stream-start', async (payload) => {
+      const p = payload as { serverId?: string; userId?: string; channelId?: string }
+      if (!p.serverId || !p.userId) return
+      const { useVoiceStore } = await import('./voice.store')
+      const vs = useVoiceStore.getState()
+      const currentChannel = vs.currentChannelId ?? 'legacy'
+      if (vs.isConnected && vs.currentServerId === p.serverId && (!p.channelId || p.channelId === currentChannel)) {
+        vs.setStreaming(p.userId, true)
+      }
+    }))
+
+    unsubs.push(window.api.signaling.onServerEvent('stream-stop', async (payload) => {
+      const p = payload as { serverId?: string; userId?: string; channelId?: string }
+      if (!p.serverId || !p.userId) return
+      const { useVoiceStore } = await import('./voice.store')
+      const vs = useVoiceStore.getState()
+      const currentChannel = vs.currentChannelId ?? 'legacy'
+      if (vs.isConnected && vs.currentServerId === p.serverId && (!p.channelId || p.channelId === currentChannel)) {
+        vs.clearRemoteVideoStream(p.userId)
+      }
+    }))
+
     return () => { for (const u of unsubs) u() }
   },
 

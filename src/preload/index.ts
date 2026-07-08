@@ -148,13 +148,13 @@ const api = {
       ipcRenderer.on('signaling:media:pong', h)
       return () => ipcRenderer.removeListener('signaling:media:pong', h)
     },
-    onUserJoined: (cb: (userId: string, socketId: string) => void): (() => void) => {
-      const h = (_e: Electron.IpcRendererEvent, userId: string, socketId: string): void => cb(userId, socketId)
+    onUserJoined: (cb: (userId: string, socketId: string, roomId?: string) => void): (() => void) => {
+      const h = (_e: Electron.IpcRendererEvent, userId: string, socketId: string, roomId?: string): void => cb(userId, socketId, roomId)
       ipcRenderer.on('signaling:user-joined', h)
       return () => ipcRenderer.removeListener('signaling:user-joined', h)
     },
-    onUserLeft: (cb: (userId: string, socketId: string) => void): (() => void) => {
-      const h = (_e: Electron.IpcRendererEvent, userId: string, socketId: string): void => cb(userId, socketId)
+    onUserLeft: (cb: (userId: string, socketId: string, roomId?: string) => void): (() => void) => {
+      const h = (_e: Electron.IpcRendererEvent, userId: string, socketId: string, roomId?: string): void => cb(userId, socketId, roomId)
       ipcRenderer.on('signaling:user-left', h)
       return () => ipcRenderer.removeListener('signaling:user-left', h)
     },
@@ -215,6 +215,11 @@ const api = {
       const h = (_e: Electron.IpcRendererEvent, fromUserId: string): void => cb(fromUserId)
       ipcRenderer.on('signaling:call-end', h)
       return () => ipcRenderer.removeListener('signaling:call-end', h)
+    },
+    onCallVideoState: (cb: (fromUserId: string, payload: { enabled: boolean }) => void): (() => void) => {
+      const h = (_e: Electron.IpcRendererEvent, fromUserId: string, payload: { enabled: boolean }): void => cb(fromUserId, payload)
+      ipcRenderer.on('signaling:call-video-state', h)
+      return () => ipcRenderer.removeListener('signaling:call-video-state', h)
     },
     onFriendRequestIncoming: (cb: (payload: unknown) => void): (() => void) => {
       const h = (_e: Electron.IpcRendererEvent, payload: unknown): void => cb(payload)

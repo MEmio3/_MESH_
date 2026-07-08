@@ -183,8 +183,8 @@ interface SignalingAPI {
   onReconnectStatus: (cb: (payload: { state: 'reconnecting' | 'connected' | 'failed'; attempt?: number; max?: number | null }) => void) => () => void
   onDisconnected: (cb: (reason: string) => void) => () => void
   onError: (cb: (message: string) => void) => () => void
-  onUserJoined: (cb: (userId: string, socketId: string) => void) => () => void
-  onUserLeft: (cb: (userId: string, socketId: string) => void) => () => void
+  onUserJoined: (cb: (userId: string, socketId: string, roomId?: string) => void) => () => void
+  onUserLeft: (cb: (userId: string, socketId: string, roomId?: string) => void) => () => void
   onOffer: (cb: (fromSocketId: string, offer: RTCSessionDescriptionInit, fromUserId: string) => void) => () => void
   onAnswer: (cb: (fromSocketId: string, answer: RTCSessionDescriptionInit) => void) => () => void
   onIceCandidate: (cb: (fromSocketId: string, candidate: RTCIceCandidateInit) => void) => () => void
@@ -196,6 +196,7 @@ interface SignalingAPI {
   onCallAccept: (cb: (fromUserId: string) => void) => () => void
   onCallReject: (cb: (fromUserId: string) => void) => () => void
   onCallEnd: (cb: (fromUserId: string) => void) => () => void
+  onCallVideoState: (cb: (fromUserId: string, payload: { enabled: boolean }) => void) => () => void
   onFriendRequestIncoming: (cb: (payload: FriendRequestIncomingPayload) => void) => () => void
   onFriendRequestAccepted: (cb: (payload: FriendRequestAcceptedPayload) => void) => () => void
   onFriendRequestRejected: (cb: (payload: FriendRequestRejectedPayload) => void) => () => void

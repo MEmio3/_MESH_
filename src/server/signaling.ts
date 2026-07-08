@@ -314,6 +314,16 @@ function parseVoiceRoom(roomId: string): { serverId: string; channelId: string }
   return { serverId: parts[1], channelId: parts.length > 2 ? parts[2] : 'legacy' }
 }
 
+function activeVoiceRoomForSocket(socketId: string, serverId: string): { roomId: string; channelId: string } | null {
+  const rooms = socketVoiceRooms.get(socketId)
+  if (!rooms) return null
+  for (const roomId of rooms) {
+    const voice = parseVoiceRoom(roomId)
+    if (voice?.serverId === serverId) return { roomId, channelId: voice.channelId }
+  }
+  return null
+}
+
 /**
  * Register a socket as the live holder of a user's voice-room seat.
  * If another socket is already holding the seat for this userId, it is
@@ -890,17 +900,23 @@ io.on('connection', (socket) => {
       }
     }
 
+    const voice = parseVoiceRoom(roomId)
+    const existingVoiceMembers = voice ? voiceRoomMembers.get(roomId) : null
     socket.join(roomId)
     socket.data.roomId = roomId
+    if (existingVoiceMembers && socket.data.userId) {
+      for (const [userId, socketId] of existingVoiceMembers) {
+        if (userId !== socket.data.userId) socket.emit('user-joined', userId, socketId, roomId)
+      }
+    }
     // Notify others in the room
-    socket.to(roomId).emit('user-joined', socket.data.userId, socket.id)
+    socket.to(roomId).emit('user-joined', socket.data.userId, socket.id, roomId)
     console.log(`[socket] ${socket.data.userId} joined room: ${roomId}`)
 
     // Broadcast voice channel participation.
     // registerVoiceMember evicts any stale entry for this userId first
     // (and emits server:voice-left for the old seat) so clients never end
     // up with a ghost duplicate after a host disconnect + fast reconnect.
-    const voice = parseVoiceRoom(roomId)
     if (voice && socket.data.userId) {
       registerVoiceMember(roomId, socket.data.userId, socket.id)
       io.to(roomName(voice.serverId)).emit('server:voice-joined', {
@@ -911,10 +927,10 @@ io.on('connection', (socket) => {
     }
   })
 
-  socket.on('leave-room', () => {
-    if (socket.data.roomId) {
-      const roomId = socket.data.roomId
-      socket.to(roomId).emit('user-left', socket.data.userId, socket.id)
+  socket.on('leave-room', (targetRoomId?: unknown) => {
+    const roomId = typeof targetRoomId === 'string' ? targetRoomId : socket.data.roomId
+    if (roomId && socket.rooms.has(roomId)) {
+      socket.to(roomId).emit('user-left', socket.data.userId, socket.id, roomId)
       socket.leave(roomId)
       console.log(`[socket] ${socket.data.userId} left room: ${roomId}`)
 
@@ -928,8 +944,32 @@ io.on('connection', (socket) => {
           })
         }
       }
-      socket.data.roomId = null
+      if (socket.data.roomId === roomId) socket.data.roomId = null
     }
+  })
+
+  // Voice stream state (screen/camera). Media frames are relayed below, but
+  // the UI needs an explicit stop signal because a canvas capture stream can
+  // remain "live" after the sender stops producing frames.
+  socket.on('stream:start', (serverId: string, payload: { userId?: string; kind?: 'screen' | 'window' | 'camera' }) => {
+    const voice = activeVoiceRoomForSocket(socket.id, serverId)
+    if (!voice || !socket.rooms.has(voice.roomId)) return
+    io.to(roomName(serverId)).emit('server:stream-start', {
+      serverId,
+      channelId: voice.channelId,
+      userId: socket.data.userId,
+      kind: payload?.kind
+    })
+  })
+
+  socket.on('stream:stop', (serverId: string, payload: { userId?: string }) => {
+    const voice = activeVoiceRoomForSocket(socket.id, serverId)
+    if (!voice || !socket.rooms.has(voice.roomId)) return
+    io.to(roomName(serverId)).emit('server:stream-stop', {
+      serverId,
+      channelId: voice.channelId,
+      userId: socket.data.userId
+    })
   })
 
   // ── Media relay (host-routed voice/video — no WebRTC, no peer-to-peer) ──
@@ -1040,11 +1080,20 @@ io.on('connection', (socket) => {
     }
   })
 
+  socket.on('call-video-state', (targetUserId: string, payload: { enabled?: boolean }) => {
+    const targetSocketId = userSockets.get(targetUserId)
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('call-video-state', socket.data.userId, {
+        enabled: Boolean(payload?.enabled)
+      })
+    }
+  })
+
   socket.on('disconnect', () => {
     // Notify room if in one
     if (socket.data.roomId) {
       const roomId = socket.data.roomId
-      socket.to(roomId).emit('user-left', socket.data.userId, socket.id)
+      socket.to(roomId).emit('user-left', socket.data.userId, socket.id, roomId)
     }
     // Scrub this socket from EVERY voice room it was in — not just
     // `socket.data.roomId`, which only tracks the most-recently-joined

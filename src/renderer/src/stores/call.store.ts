@@ -9,15 +9,16 @@
  *   Either end → emits call-end → stops media → status 'idle'
  *   B declines → emits call-reject → A status 'ended' briefly → 'idle'
  *
- * Media flows through the existing WebRTC peer connections established by the
- * signaling join-room / offer / answer plumbing (unchanged). We piggy-back on
- * the DM room (`dm:dm_<peerId>`) to share a peer connection with the other user.
+ * Media is host-relayed through MeshMediaEngine. Both peers join one canonical
+ * `call:<userA>:<userB>` room, and audio/video packets move over the active
+ * signaling host instead of WebRTC.
  */
 
 import { create } from 'zustand'
 import { mediaEngine } from '@/lib/media-engine'
 import { useIdentityStore } from './identity.store'
 import { useAudioPrefsStore } from './audioPrefs.store'
+import { useVoiceStore } from './voice.store'
 import {
   startIncomingRing,
   stopIncomingRing,
@@ -36,6 +37,8 @@ interface CallState {
   kind: 'voice' | 'video'
   isMuted: boolean
   isCameraOn: boolean
+  isLocalSpeaking: boolean
+  isRemoteSpeaking: boolean
   startedAt: number | null
   remoteStream: MediaStream | null
   localStream: MediaStream | null
@@ -58,18 +61,23 @@ interface CallState {
   setCameraDevice: (deviceId: string | null) => Promise<void>
   setSpeakerDevice: (deviceId: string | null) => void
   _setRemoteStream: (stream: MediaStream | null) => void
+  _clearRemoteVideo: () => void
+  _setLocalSpeaking: (speaking: boolean) => void
+  _setRemoteSpeaking: (speaking: boolean) => void
 }
 
 /**
- * Canonical 1-to-1 call room. Both peers must land in the SAME signaling room
- * so the server's onUserJoined handler can pair them up for WebRTC offer/
- * answer exchange. DM rooms are per-user (each peer's DM room is named after
- * the OTHER user) so they cannot be reused here — they'd put the two peers
- * into different rooms and no peer connection would ever form.
+ * Canonical 1-to-1 call room. DM rooms are per-user (each peer's DM room is
+ * named after the OTHER user), so calls need their own shared room.
  */
 function callRoomFor(selfId: string, peerId: string): string {
   const [a, b] = [selfId, peerId].sort()
   return `call:${a}:${b}`
+}
+
+function leaveVoiceBeforeCall(): void {
+  const voice = useVoiceStore.getState()
+  if (voice.isConnected) voice.leaveRoom()
 }
 
 function navigateToDm(peerId: string): void {
@@ -130,6 +138,8 @@ export const useCallStore = create<CallState>((set, get) => ({
   kind: 'voice',
   isMuted: false,
   isCameraOn: false,
+  isLocalSpeaking: false,
+  isRemoteSpeaking: false,
   startedAt: null,
   remoteStream: null,
   localStream: null,
@@ -146,6 +156,8 @@ export const useCallStore = create<CallState>((set, get) => ({
       kind,
       isMuted: false,
       isCameraOn: kind === 'video',
+      isLocalSpeaking: false,
+      isRemoteSpeaking: false,
       startedAt: null,
       remoteStream: null,
       localStream: null
@@ -167,6 +179,8 @@ export const useCallStore = create<CallState>((set, get) => ({
       kind,
       isMuted: false,
       isCameraOn: kind === 'video',
+      isLocalSpeaking: false,
+      isRemoteSpeaking: false,
       startedAt: null,
       remoteStream: null,
       localStream: null
@@ -181,28 +195,22 @@ export const useCallStore = create<CallState>((set, get) => ({
     if (!selfId) return
     stopIncomingRing()
     playCallConnect()
+    leaveVoiceBeforeCall()
     window.api.signaling.emit('call-accept', peerId)
     navigateToDm(peerId)
     try {
       const prefs = useAudioPrefsStore.getState()
       mediaEngine.setInputGain(prefs.inputVolume / 100)
       const { cameraDeviceId } = get()
-      // IMPORTANT: acquire local media BEFORE joining the signaling room.
-      // The initiator side of useSignaling.onUserJoined builds the peer
-      // connection and immediately calls createOffer(). If local tracks are
-      // not yet attached, the first SDP has no audio/video m-lines and the
-      // renegotiation that follows startAudio() is unreliable on some
-      // platforms — producing a silent call. Starting media first guarantees
-      // that when our peer connection is created, the tracks get added
-      // inside webrtc.ts (if (this.localAudioStream) pc.addTrack(...)) so
-      // the very first offer already carries the tracks.
       const local = await startMedia(kind, prefs.inputDeviceId, cameraDeviceId)
-      set({ status: 'active', startedAt: Date.now(), localStream: local })
+      const cameraOn = local.getVideoTracks().some((t) => t.readyState === 'live')
+      set({ status: 'active', startedAt: Date.now(), localStream: local, isCameraOn: cameraOn })
       // Both peers sit in the SAME signaling room; the host relays media
       // packets between everyone in it.
       const room = callRoomFor(selfId, peerId)
       mediaEngine.joinRoom(room)
       window.api.signaling.emit('join-room', room)
+      window.api.signaling.emit('call-video-state', peerId, { enabled: cameraOn })
     } catch (err) {
       console.error('Failed to start call media:', err)
       get().end(true)
@@ -222,7 +230,9 @@ export const useCallStore = create<CallState>((set, get) => ({
       remoteStream: null,
       localStream: null,
       isMuted: false,
-      isCameraOn: false
+      isCameraOn: false,
+      isLocalSpeaking: false,
+      isRemoteSpeaking: false
     })
   },
 
@@ -232,18 +242,19 @@ export const useCallStore = create<CallState>((set, get) => ({
     const selfId = useIdentityStore.getState().identity?.userId
     if (!selfId) return
     playCallConnect()
+    leaveVoiceBeforeCall()
     navigateToDm(peerId)
     try {
       const prefs = useAudioPrefsStore.getState()
       mediaEngine.setInputGain(prefs.inputVolume / 100)
       const { cameraDeviceId } = get()
-      // See note in accept(): acquire local media BEFORE joining the
-      // signaling room so the first offer already carries tracks.
       const local = await startMedia(kind, prefs.inputDeviceId, cameraDeviceId)
-      set({ status: 'active', startedAt: Date.now(), localStream: local })
+      const cameraOn = local.getVideoTracks().some((t) => t.readyState === 'live')
+      set({ status: 'active', startedAt: Date.now(), localStream: local, isCameraOn: cameraOn })
       const room = callRoomFor(selfId, peerId)
       mediaEngine.joinRoom(room)
       window.api.signaling.emit('join-room', room)
+      window.api.signaling.emit('call-video-state', peerId, { enabled: cameraOn })
     } catch (err) {
       console.error('Failed to start call media:', err)
       get().end(true)
@@ -264,7 +275,9 @@ export const useCallStore = create<CallState>((set, get) => ({
           remoteStream: null,
           localStream: null,
           isMuted: false,
-          isCameraOn: false
+          isCameraOn: false,
+          isLocalSpeaking: false,
+          isRemoteSpeaking: false
         })
       }
     }, 1800)
@@ -273,6 +286,8 @@ export const useCallStore = create<CallState>((set, get) => ({
   end: (notifyPeer = true) => {
     const { peerId, status } = get()
     if (status === 'idle') return
+    const selfId = useIdentityStore.getState().identity?.userId
+    const room = selfId && peerId ? callRoomFor(selfId, peerId) : null
     stopIncomingRing()
     // Only play disconnect if the call was actually active or outgoing.
     if (status === 'active' || status === 'outgoing') playCallDisconnect()
@@ -280,7 +295,8 @@ export const useCallStore = create<CallState>((set, get) => ({
     try {
       get().localStream?.getTracks().forEach((t) => t.stop())
       mediaEngine.leaveRoom()
-      window.api.signaling.emit('leave-room')
+      if (room) window.api.signaling.emit('leave-room', room)
+      else window.api.signaling.emit('leave-room')
     } catch { /* ignore */ }
     set({
       status: 'idle',
@@ -290,22 +306,27 @@ export const useCallStore = create<CallState>((set, get) => ({
       remoteStream: null,
       localStream: null,
       isMuted: false,
-      isCameraOn: false
+      isCameraOn: false,
+      isLocalSpeaking: false,
+      isRemoteSpeaking: false
     })
   },
 
   toggleMute: () => {
     const next = !get().isMuted
     mediaEngine.setMicEnabled(!next)
-    set({ isMuted: next })
+    set({ isMuted: next, isLocalSpeaking: next ? false : get().isLocalSpeaking })
   },
 
   toggleCamera: async () => {
-    const { isCameraOn, cameraDeviceId, localStream } = get()
+    const { isCameraOn, cameraDeviceId, localStream, peerId, status } = get()
     if (isCameraOn) {
       mediaEngine.stopVideo()
       localStream?.getVideoTracks().forEach((t) => t.stop())
       set({ isCameraOn: false, localStream: new MediaStream() })
+      if (peerId && status === 'active') {
+        window.api.signaling.emit('call-video-state', peerId, { enabled: false })
+      }
     } else {
       try {
         const cam = await navigator.mediaDevices.getUserMedia({
@@ -313,6 +334,9 @@ export const useCallStore = create<CallState>((set, get) => ({
         })
         await mediaEngine.attachVideoStream(cam, 'camera', 2_500_000)
         set({ isCameraOn: true, kind: 'video', localStream: cam })
+        if (peerId && status === 'active') {
+          window.api.signaling.emit('call-video-state', peerId, { enabled: true })
+        }
       } catch (err) {
         console.warn('Failed to start camera:', err)
       }
@@ -355,7 +379,18 @@ export const useCallStore = create<CallState>((set, get) => ({
     set({ speakerDeviceId: deviceId })
   },
 
-  _setRemoteStream: (stream) => set({ remoteStream: stream })
+  _setRemoteStream: (stream) => set({ remoteStream: stream }),
+  _clearRemoteVideo: () => set((s) => {
+    const existing = s.remoteStream
+    if (!existing) return { remoteStream: null }
+    for (const track of existing.getVideoTracks()) {
+      try { track.stop() } catch { /* ignore */ }
+    }
+    const audioTracks = existing.getAudioTracks().filter((track) => track.readyState === 'live')
+    return { remoteStream: audioTracks.length > 0 ? new MediaStream(audioTracks) : null }
+  }),
+  _setLocalSpeaking: (speaking) => set({ isLocalSpeaking: speaking }),
+  _setRemoteSpeaking: (speaking) => set({ isRemoteSpeaking: speaking })
 }))
 
 // Compose with any prior onRemoteStream handler (voice.store also uses this)
@@ -392,3 +427,18 @@ mediaEngine.onParticipantLeft = (userId) => {
   }
 }
 
+const prevCallLocalVoiceActivity = mediaEngine.onLocalVoiceActivity
+mediaEngine.onLocalVoiceActivity = (active) => {
+  try { prevCallLocalVoiceActivity?.(active) } catch { /* ignore */ }
+  const state = useCallStore.getState()
+  state._setLocalSpeaking(active && state.status === 'active' && !state.isMuted)
+}
+
+const prevCallRemoteVoiceActivity = mediaEngine.onParticipantVoiceActivity
+mediaEngine.onParticipantVoiceActivity = (userId, active) => {
+  try { prevCallRemoteVoiceActivity?.(userId, active) } catch { /* ignore */ }
+  const state = useCallStore.getState()
+  if (state.peerId === userId && state.status === 'active') {
+    state._setRemoteSpeaking(active)
+  }
+}

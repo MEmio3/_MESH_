@@ -67,6 +67,7 @@ interface VoiceStore {
   addParticipant: (participant: VoiceParticipant) => void
   removeParticipant: (userId: string) => void
   setRemoteStream: (userId: string, stream: MediaStream) => void
+  clearRemoteVideoStream: (userId: string) => void
   setParticipantSpeaking: (userId: string, speaking: boolean) => void
   toggleMute: () => void
   toggleDeafen: () => void
@@ -82,6 +83,11 @@ interface VoiceStore {
   closeStreamViewer: () => void
   hidePreview: () => void
   showPreview: () => void
+}
+
+function voiceRoomId(serverId: string | null, channelId: string | null): string | null {
+  if (!serverId) return null
+  return `voice:${serverId}:${channelId ?? 'legacy'}`
 }
 
 export const useVoiceStore = create<VoiceStore>((set, get) => ({
@@ -112,12 +118,25 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     if (state.isConnected && state.currentServerId === serverId && state.currentChannelId === nextChannelId) {
       return
     }
+    // The media engine holds ONE active room. If a 1-to-1 call is live, end it
+    // before entering voice so call media can't leak into the voice room
+    // (mirror of call.store leaving voice before a call). Lazy import avoids a
+    // circular dependency with call.store.
+    try {
+      const { useCallStore } = await import('./call.store')
+      if (useCallStore.getState().status !== 'idle') useCallStore.getState().end(true)
+    } catch { /* call store unavailable — nothing to end */ }
 
     // Switching within the same server? Hop rooms without tearing down audio.
     const isSwitching = state.isConnected && state.currentServerId === serverId
+    if (state.isConnected && (state.isScreenSharing || state.isCameraOn)) {
+      get().stopStream()
+    }
     if (isSwitching) {
       mediaEngine.resetPeers()
-      window.api.signaling.emit('leave-room')
+      const previousRoomId = voiceRoomId(state.currentServerId, state.currentChannelId)
+      if (previousRoomId) window.api.signaling.emit('leave-room', previousRoomId)
+      else window.api.signaling.emit('leave-room')
       // Give the signaling server time to fan out `server:voice-left` to
       // remote peers BEFORE we emit the new join. Without this delay the
       // new voice-joined races ahead of the leave on other clients,
@@ -127,7 +146,9 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     } else if (state.isConnected) {
       // Joining a different server — do a full leave first.
       mediaEngine.leaveRoom()
-      window.api.signaling.emit('leave-room')
+      const previousRoomId = voiceRoomId(state.currentServerId, state.currentChannelId)
+      if (previousRoomId) window.api.signaling.emit('leave-room', previousRoomId)
+      else window.api.signaling.emit('leave-room')
       await new Promise((r) => setTimeout(r, 500))
     }
 
@@ -200,7 +221,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     // separate rooms (users in #gaming don't hear users in #voice-lounge).
     // `legacy` bucket keeps pre-channels callers (ServerVoiceRoom without a
     // channelId) on a shared room so existing behavior is unchanged.
-    const roomId = `voice:${serverId}:${nextChannelId ?? 'legacy'}`
+    const roomId = voiceRoomId(serverId, nextChannelId) ?? `voice:${serverId}:legacy`
     mediaEngine.joinRoom(roomId)
     window.api.signaling.emit('join-room', roomId)
     // Only play the self-join chime on a fresh join; room-hopping within the
@@ -209,11 +230,17 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   },
 
   leaveRoom: () => {
-    const wasConnected = get().isConnected
+    const state = get()
+    const wasConnected = state.isConnected
+    const roomId = voiceRoomId(state.currentServerId, state.currentChannelId)
+    if (state.isScreenSharing || state.isCameraOn) {
+      get().stopStream()
+    }
     mediaEngine.setAudioBitrate(null)
     get().localMediaStream?.getTracks().forEach((t) => t.stop())
     mediaEngine.leaveRoom()
-    window.api.signaling.emit('leave-room')
+    if (roomId) window.api.signaling.emit('leave-room', roomId)
+    else window.api.signaling.emit('leave-room')
     if (wasConnected) playVoiceSelfLeave()
     set({
       isConnected: false,
@@ -282,6 +309,31 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
         streamingUsers.add(userId)
       }
       return { remoteStreams, streamingUsers }
+    })
+  },
+
+  clearRemoteVideoStream: (userId) => {
+    set((s) => {
+      const remoteStreams = new Map(s.remoteStreams)
+      const existing = remoteStreams.get(userId)
+      if (existing) {
+        for (const track of existing.getVideoTracks()) {
+          try { track.stop() } catch { /* ignore */ }
+        }
+        const audioTracks = existing.getAudioTracks().filter((track) => track.readyState === 'live')
+        if (audioTracks.length > 0) {
+          remoteStreams.set(userId, new MediaStream(audioTracks))
+        } else {
+          remoteStreams.delete(userId)
+        }
+      }
+
+      const streamingUsers = new Set(s.streamingUsers)
+      streamingUsers.delete(userId)
+      const participants = s.participants.map((p) =>
+        p.userId === userId ? { ...p, isScreenSharing: false, isCameraOn: false } : p
+      )
+      return { remoteStreams, streamingUsers, participants }
     })
   },
 
@@ -422,10 +474,13 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     }
 
     // Notify peers so they can render a LIVE badge even before media tracks arrive
-    window.api.signaling.emit('stream:start', get().currentServerId, {
-      userId: selfId,
-      kind: source.kind
-    })
+    const serverId = get().currentServerId
+    if (serverId && selfId) {
+      window.api.signaling.emit('stream:start', serverId, {
+        userId: selfId,
+        kind: source.kind
+      })
+    }
     playStreamStart()
   },
 
@@ -441,7 +496,10 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       localMediaStream: null
     })
     if (selfId) get().setStreaming(selfId, false)
-    window.api.signaling.emit('stream:stop', get().currentServerId, { userId: selfId })
+    const serverId = get().currentServerId
+    if (serverId && selfId) {
+      window.api.signaling.emit('stream:stop', serverId, { userId: selfId })
+    }
     if (wasStreaming) playStreamStop()
   },
 
@@ -466,6 +524,7 @@ function resolveQuality(q: StreamQuality): { width: number; height: number; fram
  *  roster when we have it. Exported for useSignaling's user-joined hook. */
 export function addVoiceParticipant(userId: string): void {
   const vs = useVoiceStore.getState()
+  if (!vs.isConnected) return
   if (vs.participants.find((p) => p.userId === userId)) return
   const serverId = vs.currentServerId
   const member = serverId
@@ -488,7 +547,9 @@ export function addVoiceParticipant(userId: string): void {
 const prevVoiceRemoteStream = mediaEngine.onRemoteStream
 mediaEngine.onRemoteStream = (userId, stream) => {
   try { prevVoiceRemoteStream?.(userId, stream) } catch { /* ignore */ }
-  useVoiceStore.getState().setRemoteStream(userId, stream)
+  const vs = useVoiceStore.getState()
+  if (!vs.isConnected) return
+  vs.setRemoteStream(userId, stream)
 }
 
 const prevVoiceActive = mediaEngine.onParticipantVoice
@@ -509,8 +570,10 @@ mediaEngine.onLocalVoiceActivity = (active) => {
 const prevParticipantVoiceActivity = mediaEngine.onParticipantVoiceActivity
 mediaEngine.onParticipantVoiceActivity = (userId, active) => {
   try { prevParticipantVoiceActivity?.(userId, active) } catch { /* ignore */ }
+  const vs = useVoiceStore.getState()
+  if (!vs.isConnected) return
   if (active) addVoiceParticipant(userId)
-  useVoiceStore.getState().setParticipantSpeaking(userId, active)
+  vs.setParticipantSpeaking(userId, active)
 }
 
 const prevVoiceLeft = mediaEngine.onParticipantLeft

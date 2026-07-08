@@ -230,9 +230,11 @@ function NetworkSettings(): JSX.Element {
   const handleSaveUrl = async (): Promise<void> => {
     const url = urlDraft.trim()
     if (!url) return
+    const wasHosting = hostStatus.running || network.hostSignaling
     setSaving(true)
     updateNetwork({ signalingUrl: url })
     await reconnectSignaling(url)
+    if (wasHosting) await reregisterHostedServers()
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 1500)

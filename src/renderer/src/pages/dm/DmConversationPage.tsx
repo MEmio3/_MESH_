@@ -117,12 +117,13 @@ function DmConversationPage(): JSX.Element {
   // exceeded" React crash. We only need `normalizedId` for correctness.
   useEffect(() => {
     if (!normalizedId) return
+    const roomId = `dm:${normalizedId}`
     setActiveConversation(normalizedId)
     markAsRead(normalizedId)
-    window.api.signaling.emit('join-room', `dm:${normalizedId}`)
+    window.api.signaling.emit('join-room', roomId)
     return () => {
       setActiveConversation(null)
-      window.api.signaling.emit('leave-room')
+      window.api.signaling.emit('leave-room', roomId)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [normalizedId])

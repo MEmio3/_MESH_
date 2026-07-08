@@ -15,7 +15,7 @@ export interface SignalingState {
   connect: (serverUrl: string) => Promise<void>
   disconnect: () => Promise<void>
   joinRoom: (roomId: string) => void
-  leaveRoom: () => void
+  leaveRoom: (roomId?: string) => void
   sendOffer: (targetSocketId: string, offer: RTCSessionDescriptionInit) => void
   sendAnswer: (targetSocketId: string, answer: RTCSessionDescriptionInit) => void
   sendIceCandidate: (targetSocketId: string, candidate: RTCIceCandidateInit) => void
@@ -36,8 +36,8 @@ export function useSignaling(callbacks?: {
   onConnected?: () => void
   onDisconnected?: (reason: string) => void
   onError?: (message: string) => void
-  onUserJoined?: (userId: string, socketId: string) => void
-  onUserLeft?: (userId: string, socketId: string) => void
+  onUserJoined?: (userId: string, socketId: string, roomId?: string) => void
+  onUserLeft?: (userId: string, socketId: string, roomId?: string) => void
   onDmMessage?: (fromUserId: string, message: string) => void
   onCallInvite?: (fromUserId: string, callData: unknown) => void
   onCallAccept?: (fromUserId: string) => void
@@ -67,16 +67,27 @@ export function useSignaling(callbacks?: {
     // User join/leave in rooms. No peer connections anymore — media flows
     // through the host relay — so joining just means "show them and expect
     // their packets".
-    cleanups.push(window.api.signaling.onUserJoined(async (userId: string, socketId: string) => {
-      callbacksRef.current?.onUserJoined?.(userId, socketId)
-      if (useVoiceStore.getState().isConnected) {
+    const isCurrentVoiceRoom = (roomId?: string): boolean => {
+      if (!roomId?.startsWith('voice:')) return false
+      const [, serverId, channelId = 'legacy'] = roomId.split(':')
+      const voice = useVoiceStore.getState()
+      return voice.isConnected
+        && voice.currentServerId === serverId
+        && (voice.currentChannelId ?? 'legacy') === channelId
+    }
+
+    cleanups.push(window.api.signaling.onUserJoined(async (userId: string, socketId: string, roomId?: string) => {
+      callbacksRef.current?.onUserJoined?.(userId, socketId, roomId)
+      if (isCurrentVoiceRoom(roomId)) {
         addVoiceParticipant(userId)
       }
     }))
 
-    cleanups.push(window.api.signaling.onUserLeft((userId: string, _socketId: string) => {
-      callbacksRef.current?.onUserLeft?.(userId, _socketId)
-      mediaEngine.handleUserLeft(userId)
+    cleanups.push(window.api.signaling.onUserLeft((userId: string, _socketId: string, roomId?: string) => {
+      callbacksRef.current?.onUserLeft?.(userId, _socketId, roomId)
+      if (isCurrentVoiceRoom(roomId) || roomId?.startsWith('call:')) {
+        mediaEngine.handleUserLeft(userId)
+      }
     }))
 
     // DM message via signaling relay (fallback when no data channel)
@@ -132,8 +143,9 @@ export function useSignaling(callbacks?: {
     window.api.signaling.emit('join-room', roomId)
   }, [])
 
-  const leaveRoom = useCallback(() => {
-    window.api.signaling.emit('leave-room')
+  const leaveRoom = useCallback((roomId?: string) => {
+    if (roomId) window.api.signaling.emit('leave-room', roomId)
+    else window.api.signaling.emit('leave-room')
     mediaEngine.leaveRoom()
   }, [])
 
