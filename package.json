@@ -1,6 +1,6 @@
 {
   "name": "@memio3/mesh",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Decentralized, privacy-first communication platform",
   "main": "./out/main/index.js",
   "author": "MEmio3",

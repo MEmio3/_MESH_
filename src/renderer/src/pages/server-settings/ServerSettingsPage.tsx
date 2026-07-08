@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { X, Search, ChevronLeft, Copy, Check, Trash2, Pencil, UserPlus } from 'lucide-react'
+import { X, Search, ChevronLeft, Copy, Check, Trash2, Pencil, UserPlus, Router, Wifi } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -11,6 +11,7 @@ import { useServersStore } from '@/stores/servers.store'
 import { useIdentityStore } from '@/stores/identity.store'
 import { useAvatarStore } from '@/stores/avatar.store'
 import { useServerAvatarStore } from '@/stores/serverAvatar.store'
+import { useSettingsStore, type ServerHostAssignment } from '@/stores/settings.store'
 import { resolveRoleNames, DEFAULT_ROLE_NAMES } from '@/lib/roleNames'
 import { PERM, PERMISSION_GROUPS, effectivePermissions, hasPerm } from '../../../../shared/permissions'
 import type { ServerMember, ServerRoleDef } from '@/types/server'
@@ -18,6 +19,12 @@ import type { ServerMember, ServerRoleDef } from '@/types/server'
 const ROLE_COLORS = ['#e5484d', '#e0af68', '#2f9e6e', '#7aa2f7', '#b48ead', '#d08770', '#8fbcbb', '#9b9ba3']
 
 type Section = 'overview' | 'roles' | 'members'
+
+function normalizePort(value: string | number | null | undefined): number {
+  const raw = typeof value === 'number' ? value : parseInt(String(value ?? ''), 10)
+  if (!Number.isFinite(raw)) return 3000
+  return Math.min(65535, Math.max(1, Math.floor(raw)))
+}
 
 /**
  * Full-screen server settings, Discord-style: sidebar navigation on the left,
@@ -159,6 +166,9 @@ function OverviewSection({ serverId, canEditServer }: { serverId: string; canEdi
   const serverAvatar = useServerAvatarStore((s) => s.byServer[serverId])
   const uploadServerAvatar = useServerAvatarStore((s) => s.uploadForServer)
   const clearServerAvatar = useServerAvatarStore((s) => s.clearForServer)
+  const identity = useIdentityStore((s) => s.identity)
+  const network = useSettingsStore((s) => s.network)
+  const updateNetwork = useSettingsStore((s) => s.updateNetwork)
 
   const labels = resolveRoleNames(server?.roleNames)
   const [host, setHost] = useState(labels.host)
@@ -166,11 +176,79 @@ function OverviewSection({ serverId, canEditServer }: { serverId: string; canEdi
   const [member, setMember] = useState(labels.member)
   const [savingNames, setSavingNames] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [copiedInvite, setCopiedInvite] = useState(false)
+  const [routeSaving, setRouteSaving] = useState(false)
+  const [hostStatus, setHostStatus] = useState<{
+    running: boolean
+    port: number
+    ports: number[]
+    localIps: Array<{ address: string; scope: 'home' | 'isp' | 'public'; label: string; iface: string }>
+    error: string | null
+  } | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    window.api.signalingHost.status()
+      .then((status) => {
+        if (!cancelled) setHostStatus(status)
+      })
+      .catch(() => {
+        if (!cancelled) setHostStatus(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   if (!server) return <></>
 
   const namesDirty = host !== labels.host || moderator !== labels.moderator || member !== labels.member
   const clamp = (v: string): string => v.trim().slice(0, 24)
+  const hostedPorts = [...new Set([network.hostPort, ...network.extraHostPorts].map(normalizePort))].sort((a, b) => a - b)
+  const localIps = hostStatus?.localIps ?? []
+  const defaultAddress = localIps.find((ip) => ip.scope === 'home')?.address ?? localIps[0]?.address ?? 'localhost'
+  const savedAssignment = network.serverHostAssignments[serverId]
+  const assignedPort = hostedPorts.includes(normalizePort(savedAssignment?.port))
+    ? normalizePort(savedAssignment?.port)
+    : normalizePort(network.hostPort)
+  const assignedAddress = savedAssignment?.address || defaultAddress
+  const inviteAddress = `http://${assignedAddress}:${assignedPort}`
+
+  const saveHostAssignment = async (partial: Partial<ServerHostAssignment>): Promise<void> => {
+    if (server.role !== 'host' || routeSaving) return
+    const previous = { port: assignedPort, address: assignedAddress }
+    const next: ServerHostAssignment = {
+      port: normalizePort(partial.port ?? assignedPort),
+      address: String(partial.address ?? assignedAddress).trim() || defaultAddress
+    }
+
+    setRouteSaving(true)
+    try {
+      if (!(hostStatus?.ports ?? []).includes(next.port)) {
+        const start = await window.api.signalingHost.start({ port: next.port })
+        if (!start.success) return
+      }
+      if (previous.port !== next.port) {
+        window.api.signaling.emit('server:unregister', { serverId, port: previous.port })
+      }
+      updateNetwork({
+        serverHostAssignments: {
+          ...network.serverHostAssignments,
+          [serverId]: next
+        }
+      })
+      if (identity) {
+        await window.api.server.reregisterMine({
+          selfUserId: identity.userId,
+          selfUsername: identity.username,
+          selfAvatarColor: (identity as unknown as { avatarPath?: string | null }).avatarPath ?? null
+        })
+      }
+      setHostStatus(await window.api.signalingHost.status())
+    } finally {
+      setRouteSaving(false)
+    }
+  }
 
   return (
     <div className="flex flex-col gap-8">
@@ -228,6 +306,71 @@ function OverviewSection({ serverId, canEditServer }: { serverId: string; canEdi
           </button>
         </div>
       </div>
+
+      {canEditServer && server.role === 'host' && (
+        <div>
+          <span className="block text-[11px] font-semibold uppercase tracking-wide text-mesh-text-secondary mb-1.5">
+            Hosting route
+          </span>
+          <p className="text-xs text-mesh-text-muted mb-3 max-w-md">
+            Choose which local host port and share IP this community uses.
+          </p>
+          <div className="grid grid-cols-2 gap-3 max-w-md">
+            <label className="flex flex-col gap-1">
+              <span className="text-[10px] text-mesh-text-muted uppercase">Port</span>
+              <select
+                value={assignedPort}
+                disabled={routeSaving}
+                onChange={(e) => saveHostAssignment({ port: normalizePort(e.target.value) })}
+                className="h-9 rounded-md border border-mesh-border bg-mesh-bg-secondary px-3 text-sm text-mesh-text-primary outline-none focus:border-mesh-green/60 disabled:opacity-70"
+              >
+                {hostedPorts.map((port) => (
+                  <option key={port} value={port}>
+                    {port}{port === normalizePort(network.hostPort) ? ' - primary' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-[10px] text-mesh-text-muted uppercase">Share IP</span>
+              <select
+                value={assignedAddress}
+                disabled={routeSaving}
+                onChange={(e) => saveHostAssignment({ address: e.target.value })}
+                className="h-9 rounded-md border border-mesh-border bg-mesh-bg-secondary px-3 text-sm text-mesh-text-primary outline-none focus:border-mesh-green/60 disabled:opacity-70"
+              >
+                <option value="localhost">localhost - this computer</option>
+                {localIps.map((ip) => (
+                  <option key={`${ip.iface}-${ip.address}`} value={ip.address}>
+                    {ip.address} - {ip.scope === 'home' ? 'same Wi-Fi' : ip.scope}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="mt-3 flex max-w-md items-center gap-2 rounded-lg border border-mesh-border bg-mesh-bg-secondary px-3 py-2.5">
+            <Router className="h-4 w-4 shrink-0 text-mesh-green" />
+            <code className="min-w-0 flex-1 truncate font-mono text-sm text-mesh-green">
+              {inviteAddress} / {server.id}
+            </code>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(`${inviteAddress} / ${server.id}`)
+                setCopiedInvite(true)
+                setTimeout(() => setCopiedInvite(false), 1500)
+              }}
+              className="shrink-0 h-7 w-7 rounded flex items-center justify-center text-mesh-text-muted hover:text-mesh-text-primary hover:bg-mesh-bg-hover transition-colors"
+              title="Copy invite"
+            >
+              {copiedInvite ? <Check className="h-3.5 w-3.5 text-mesh-green" /> : <Copy className="h-3.5 w-3.5" />}
+            </button>
+          </div>
+          <div className="mt-2 flex items-center gap-2 text-[11px] text-mesh-text-muted">
+            <Wifi className="h-3.5 w-3.5" />
+            <span>{routeSaving ? 'Updating route...' : `Running ports: ${(hostStatus?.ports ?? []).join(', ') || 'none'}`}</span>
+          </div>
+        </div>
+      )}
 
       {/* Tier names */}
       {canEditServer && (

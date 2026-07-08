@@ -91,7 +91,12 @@ export interface KnownNetwork {
   url: string
 }
 
-interface NetworkSettings {
+export interface ServerHostAssignment {
+  port: number
+  address: string
+}
+
+export interface NetworkSettings {
   preferredIceStrategy: 'p2p-first' | 'relay-fallback' | 'relay-only'
   customRelays: string[]
   knownNetworks: KnownNetwork[]
@@ -102,6 +107,8 @@ interface NetworkSettings {
   /** Additional independent host ports to run alongside the primary
    *  (multi-hosting: separate isolated MESH networks on one machine). */
   extraHostPorts: number[]
+  /** Host route per community server. Address is the share/invite IP. */
+  serverHostAssignments: Record<string, ServerHostAssignment>
   /** URL of the signaling server to connect to (own when hosting, else peer's). */
   signalingUrl: string
 }
@@ -158,12 +165,40 @@ const DEFAULT_NETWORK: NetworkSettings = {
   hostSignaling: false,
   hostPort: 3000,
   extraHostPorts: [],
+  serverHostAssignments: {},
   signalingUrl: 'http://localhost:3000'
 }
 
 const DEFAULT_PRIVACY: PrivacySettings = {
   hideFromDiscovery: false,
   invisibleMode: false
+}
+
+function normalizeNetworkSettings(network: NetworkSettings): NetworkSettings {
+  const hostPort = normalizePort(network.hostPort)
+  const extraHostPorts = Array.isArray(network.extraHostPorts)
+    ? [...new Set(network.extraHostPorts.map(normalizePort))]
+        .filter((p) => p !== hostPort)
+        .sort((a, b) => a - b)
+    : []
+  const allowedPorts = new Set([hostPort, ...extraHostPorts])
+  const rawAssignments =
+    network.serverHostAssignments && typeof network.serverHostAssignments === 'object'
+      ? network.serverHostAssignments
+      : {}
+  const serverHostAssignments: Record<string, ServerHostAssignment> = {}
+
+  for (const [serverId, assignment] of Object.entries(rawAssignments)) {
+    if (!serverId || !assignment || typeof assignment !== 'object') continue
+    const port = normalizePort((assignment as ServerHostAssignment).port)
+    const address = String((assignment as ServerHostAssignment).address || 'localhost').trim() || 'localhost'
+    serverHostAssignments[serverId] = {
+      port: allowedPorts.has(port) ? port : hostPort,
+      address
+    }
+  }
+
+  return { ...network, hostPort, extraHostPorts, serverHostAssignments }
 }
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
@@ -180,11 +215,9 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       window.api.db.settings.get('privacy')
     ])
 
-    const network = networkRaw ? { ...DEFAULT_NETWORK, ...JSON.parse(networkRaw) } : { ...DEFAULT_NETWORK }
-    network.hostPort = normalizePort(network.hostPort)
-    network.extraHostPorts = Array.isArray(network.extraHostPorts)
-      ? [...new Set(network.extraHostPorts.map(normalizePort))].filter((p) => p !== network.hostPort)
-      : []
+    const network = normalizeNetworkSettings(
+      networkRaw ? { ...DEFAULT_NETWORK, ...JSON.parse(networkRaw) } : { ...DEFAULT_NETWORK }
+    )
     const privacy = privacyRaw ? { ...DEFAULT_PRIVACY, ...JSON.parse(privacyRaw) } : { ...DEFAULT_PRIVACY }
 
     const appearance: AppearanceSettings = appearanceRaw
@@ -230,8 +263,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   updateNetwork: (partial) => {
     set((s) => {
-      const updated = { ...s.network, ...partial }
-      updated.hostPort = normalizePort(updated.hostPort)
+      const updated = normalizeNetworkSettings({ ...s.network, ...partial })
       window.api.db.settings.set('network', JSON.stringify(updated))
       // Re-apply ICE config when the strategy (or relay list impact) changes
       applyIceConfig(updated)

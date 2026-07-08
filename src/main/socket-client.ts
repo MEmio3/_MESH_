@@ -1,5 +1,6 @@
 import { io, Socket } from 'socket.io-client'
 import { BrowserWindow } from 'electron'
+import { getServer, getSetting } from './database'
 
 let socket: Socket | null = null
 let mainWindow: BrowserWindow | null = null
@@ -8,6 +9,7 @@ let reconnectAttempts: number = 0
 let currentUrl: string = ''
 let currentUserId: string = ''
 let isConnecting = false
+const auxiliarySockets = new Map<string, Socket>()
 
 // Outbound events emitted while the socket was down. socket.io's own send
 // buffer dies with the socket object, and our reconnect creates a NEW socket
@@ -25,6 +27,131 @@ function sendToRenderer(channel: string, ...args: unknown[]): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(channel, ...args)
   }
+}
+
+const serverEvents = [
+  'server:join-ack',
+  'server:join-denied',
+  'server:member-joined',
+  'server:member-left',
+  'server:message',
+  'server:message-edit',
+  'server:message-delete',
+  'server:message-reaction',
+  'server:member-muted',
+  'server:member-kicked',
+  'server:member-banned',
+  'server:member-role-changed',
+  'server:you-were-kicked',
+  'server:you-were-banned',
+  'server:host-online',
+  'server:layout',
+  'server:role-names',
+  'server:roles',
+  'server:member-roles',
+  'server:voice-joined',
+  'server:voice-left',
+  'server:voice-join-denied',
+  'server:error'
+]
+
+function normalizeUrl(url: string): string {
+  return url.replace(/\/+$/, '')
+}
+
+function normalizePort(value: unknown): number {
+  const raw = typeof value === 'number' ? value : parseInt(String(value ?? ''), 10)
+  if (!Number.isFinite(raw)) return 3000
+  return Math.min(65535, Math.max(1, Math.floor(raw)))
+}
+
+function hostedRouteForServer(serverId: string | null, forcedPort?: number): { url: string; userId: string } | null {
+  if (!serverId) return null
+  const server = getServer(serverId)
+  if (!server || server.role !== 'host') return null
+
+  let network: {
+    hostPort?: number
+    serverHostAssignments?: Record<string, { port?: number }>
+  } | null = null
+  try {
+    const raw = getSetting('network')
+    network = raw ? JSON.parse(raw) : null
+  } catch {
+    network = null
+  }
+
+  const primaryPort = normalizePort(network?.hostPort)
+  const assignedPort = normalizePort(forcedPort ?? network?.serverHostAssignments?.[serverId]?.port ?? primaryPort)
+  return {
+    url: `http://localhost:${assignedPort}`,
+    userId: server.hostUserId
+  }
+}
+
+function routeForEvent(event: string, args: unknown[]): { url: string; userId: string } | null {
+  if (event.startsWith('server:')) {
+    const payload = args[0] as { serverId?: unknown } | undefined
+    const forcedPort = event === 'server:unregister' && typeof (payload as { port?: unknown })?.port === 'number'
+      ? (payload as { port: number }).port
+      : undefined
+    return hostedRouteForServer(typeof payload?.serverId === 'string' ? payload.serverId : null, forcedPort)
+  }
+  if (event.startsWith('media:')) {
+    const roomId = typeof args[0] === 'string' ? args[0] : ''
+    const parts = roomId.split(':')
+    return parts[0] === 'voice' ? hostedRouteForServer(parts[1] ?? null) : null
+  }
+  return null
+}
+
+function attachAuxiliaryHandlers(aux: Socket, userId: string): void {
+  aux.on('connect', () => {
+    aux.emit('register-user', userId)
+  })
+  aux.on('connect_error', (err) => {
+    console.warn('[socket-client] auxiliary connection failed:', err.message)
+  })
+  aux.on('media:audio', (fromUserId: string, meta: unknown, payload: unknown) => {
+    sendToRenderer('signaling:media:audio', fromUserId, meta, payload)
+  })
+  aux.on('media:video', (fromUserId: string, meta: unknown, payload: unknown) => {
+    sendToRenderer('signaling:media:video', fromUserId, meta, payload)
+  })
+  aux.on('media:pong', (sentAt: unknown) => {
+    sendToRenderer('signaling:media:pong', sentAt)
+  })
+  for (const evt of serverEvents) {
+    aux.on(evt, (payload: unknown) => {
+      sendToRenderer(`signaling:${evt}`, payload)
+    })
+  }
+}
+
+function auxiliarySocketFor(serverUrl: string, userId: string): Socket {
+  const url = normalizeUrl(serverUrl)
+  const existing = auxiliarySockets.get(url)
+  if (existing && existing.connected) return existing
+  if (existing) {
+    existing.removeAllListeners()
+    existing.disconnect()
+  }
+
+  const aux = io(url, {
+    transports: ['websocket'],
+    reconnection: false
+  })
+  auxiliarySockets.set(url, aux)
+  attachAuxiliaryHandlers(aux, userId)
+  return aux
+}
+
+function emitOnSocket(target: Socket, event: string, args: unknown[]): void {
+  if (target.connected) {
+    target.emit(event, ...args)
+    return
+  }
+  target.once('connect', () => target.emit(event, ...args))
 }
 
 export function connectToSignaling(serverUrl: string, userId: string): Promise<void> {
@@ -184,29 +311,6 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
   })
 
   // Community server events
-  const serverEvents = [
-    'server:join-ack',
-    'server:join-denied',
-    'server:member-joined',
-    'server:member-left',
-    'server:message',
-    'server:message-edit',
-    'server:message-delete',
-    'server:message-reaction',
-    'server:member-muted',
-    'server:member-kicked',
-    'server:member-banned',
-    'server:member-role-changed',
-    'server:you-were-kicked',
-    'server:you-were-banned',
-    'server:host-online',
-    'server:layout',
-    'server:role-names',
-    'server:roles',
-    'server:member-roles',
-    'server:voice-join-denied',
-    'server:error'
-  ]
   for (const evt of serverEvents) {
     socket.on(evt, (payload: unknown) => {
       // Log join-ack for debugging
@@ -258,6 +362,17 @@ export function disconnectFromSignaling(): void {
 }
 
 export function emitSignaling(event: string, ...args: unknown[]): void {
+  const route = routeForEvent(event, args)
+  if (route) {
+    const routeUrl = normalizeUrl(route.url)
+    if (socket?.connected && normalizeUrl(currentUrl) === routeUrl && currentUserId === route.userId) {
+      socket.emit(event, ...args)
+      return
+    }
+    emitOnSocket(auxiliarySocketFor(routeUrl, route.userId), event, args)
+    return
+  }
+
   if (socket?.connected) {
     socket.emit(event, ...args)
     return

@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button'
 import { Toggle } from '@/components/ui/Toggle'
 import { cn } from '@/lib/utils'
 import { useIdentityStore } from '@/stores/identity.store'
-import { useSettingsStore, type KnownNetwork } from '@/stores/settings.store'
+import { useSettingsStore, type KnownNetwork, type ServerHostAssignment } from '@/stores/settings.store'
 import { useServersStore } from '@/stores/servers.store'
 import { useServerAvatarStore } from '@/stores/serverAvatar.store'
 
@@ -137,6 +137,17 @@ function NetworkCenterPage(): JSX.Element {
   const hostPort = hostStatus.running ? normalizePort(hostStatus.port || savedHostPort) : selectedHostPort
   const sameWifiAddress = primaryIp ? `http://${primaryIp.address}:${hostPort}` : `http://localhost:${hostPort}`
   const publicAddress = netSig?.signature.publicIp ? `http://${netSig.signature.publicIp}:${hostPort}` : null
+  const hostPorts = useMemo(() => {
+    return [...new Set([savedHostPort, ...network.extraHostPorts, ...(hostStatus.ports ?? [])].map(normalizePort))]
+      .sort((a, b) => a - b)
+  }, [savedHostPort, network.extraHostPorts, hostStatus.ports])
+  const hostAddressOptions = useMemo(() => {
+    const ips = hostStatus.localIps.map((ip) => ({
+      value: ip.address,
+      label: `${ip.address} - ${ip.scope === 'home' ? 'same Wi-Fi' : ip.scope}`
+    }))
+    return [{ value: 'localhost', label: 'localhost - this computer' }, ...ips]
+  }, [hostStatus.localIps])
   const relayAddress = relayStatus?.advertisedAddress ?? (relayStatus?.running ? `turn:localhost:${relayStatus.port}` : null)
   const canSharePublic = Boolean(publicAddress && netSig && !netSig.interpretation.behindCgnat)
   const sharePlan = (() => {
@@ -350,9 +361,74 @@ function NetworkCenterPage(): JSX.Element {
 
   async function removeExtraHost(port: number): Promise<void> {
     await window.api.signalingHost.stop({ port })
-    updateNetwork({ extraHostPorts: network.extraHostPorts.filter((p) => p !== port) })
+    const reassigned = Object.fromEntries(
+      Object.entries(network.serverHostAssignments).map(([serverId, assignment]) => [
+        serverId,
+        normalizePort(assignment.port) === port
+          ? { ...assignment, port: savedHostPort }
+          : assignment
+      ])
+    )
+    updateNetwork({
+      extraHostPorts: network.extraHostPorts.filter((p) => p !== port),
+      serverHostAssignments: reassigned
+    })
+    if (identity) {
+      await window.api.server.reregisterMine({
+        selfUserId: identity.userId,
+        selfUsername: identity.username,
+        selfAvatarColor: (identity as unknown as { avatarPath?: string | null }).avatarPath ?? null
+      })
+    }
     await refreshStatus()
     setNotice(`Stopped hosting on port ${port}.`)
+  }
+
+  function defaultServerHostAssignment(serverId: string): ServerHostAssignment {
+    const saved = network.serverHostAssignments[serverId]
+    const fallbackAddress = primaryIp?.address ?? 'localhost'
+    const port = hostPorts.includes(normalizePort(saved?.port)) ? normalizePort(saved?.port) : savedHostPort
+    return {
+      port,
+      address: saved?.address || fallbackAddress
+    }
+  }
+
+  async function saveServerHostAssignment(serverId: string, partial: Partial<ServerHostAssignment>): Promise<void> {
+    const current = defaultServerHostAssignment(serverId)
+    const next: ServerHostAssignment = {
+      port: normalizePort(partial.port ?? current.port),
+      address: String(partial.address ?? current.address).trim() || 'localhost'
+    }
+    if (!hostPorts.includes(next.port)) return
+
+    if (!(hostStatus.ports ?? []).includes(next.port)) {
+      const res = await window.api.signalingHost.start({ port: next.port })
+      if (!res.success) {
+        setNotice(res.error ?? `Could not start host on port ${next.port}.`)
+        return
+      }
+    }
+
+    if (current.port !== next.port) {
+      window.api.signaling.emit('server:unregister', { serverId, port: current.port })
+    }
+
+    updateNetwork({
+      serverHostAssignments: {
+        ...network.serverHostAssignments,
+        [serverId]: next
+      }
+    })
+    if (identity) {
+      await window.api.server.reregisterMine({
+        selfUserId: identity.userId,
+        selfUsername: identity.username,
+        selfAvatarColor: (identity as unknown as { avatarPath?: string | null }).avatarPath ?? null
+      })
+    }
+    await refreshStatus()
+    setNotice(`Updated hosting route for this server to ${next.address}:${next.port}.`)
   }
 
   async function toggleRelay(enabled: boolean): Promise<void> {
@@ -412,6 +488,11 @@ function NetworkCenterPage(): JSX.Element {
     : isConnected
       ? 'Connected'
       : 'Offline'
+  const connectionTone = reconnectState === 'connecting'
+    ? 'busy'
+    : isConnected
+      ? 'online'
+      : 'offline'
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-mesh-bg-primary">
@@ -419,12 +500,13 @@ function NetworkCenterPage(): JSX.Element {
         <div className="flex items-center justify-between gap-4">
           <div className="min-w-0">
             <div className="flex items-center gap-3">
-              <div className="grid h-10 w-10 place-items-center rounded-lg border border-mesh-border/70 bg-mesh-bg-secondary text-mesh-green">
+              <div className="grid h-10 w-10 place-items-center rounded-lg border border-mesh-border/70 bg-mesh-bg-secondary text-mesh-green transition-all duration-200 hover:-translate-y-0.5 hover:scale-105 hover:border-mesh-green/50">
                 <Router className="h-5 w-5" />
               </div>
               <div className="min-w-0">
                 <h1 className="truncate text-xl font-bold text-mesh-text-primary">Network Center</h1>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-mesh-text-muted">
+                  <StatusDot tone={connectionTone} />
                   <span>{connectionLabel}</span>
                   <span className="h-1 w-1 rounded-full bg-mesh-text-muted/60" />
                   <span className="font-mono">{hostFromUrl(activeUrl)}</span>
@@ -679,7 +761,7 @@ function NetworkCenterPage(): JSX.Element {
                         const live = (hostStatus.ports ?? []).includes(p)
                         return (
                           <div key={p} className="flex items-center gap-2.5 rounded-md border border-mesh-border/60 bg-mesh-bg-tertiary/50 px-3 py-1.5">
-                            <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', live ? 'bg-mesh-green' : 'bg-mesh-text-muted')} />
+                            <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', live ? 'bg-mesh-green' : 'bg-mesh-danger')} />
                             <span className="font-mono text-xs text-mesh-text-primary">:{p}</span>
                             <span className="text-[11px] text-mesh-text-muted">{live ? 'running' : 'stopped'}</span>
                             <button
@@ -746,33 +828,64 @@ function NetworkCenterPage(): JSX.Element {
               tone={hostedServers.length > 0 ? 'online' : 'offline'}
             />
             <p className="mt-3 text-xs leading-relaxed text-mesh-text-muted">
-              These are communities inside your one network host. They all use the same selected address and port.
+              Choose which local host port and share IP each community uses.
             </p>
             <div className="mt-4 space-y-2">
               {hostedServers.length === 0 ? (
                 <EmptyLine text="Servers you host will show their active IP and share action here." />
               ) : hostedServers.map((server) => {
                 const avatar = serverAvatars[server.id]
-                const inviteAddress = sharePlan.address ?? sameWifiAddress
+                const assignment = defaultServerHostAssignment(server.id)
+                const inviteAddress = `http://${assignment.address}:${assignment.port}`
+                const live = (hostStatus.ports ?? []).includes(assignment.port)
                 return (
-                  <div key={server.id} className="flex items-center gap-3 rounded-lg border border-mesh-border/60 bg-mesh-bg-primary/65 p-3">
-                    <div
-                      className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-lg text-sm font-bold text-white"
-                      style={avatar ? undefined : { backgroundColor: server.iconColor }}
-                    >
-                      {avatar ? <img src={avatar} alt={server.name} className="h-full w-full object-cover" draggable={false} /> : server.name[0]?.toUpperCase()}
+                  <div key={server.id} className="rounded-lg border border-mesh-border/60 bg-mesh-bg-primary/65 p-3">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-lg text-sm font-bold text-white"
+                        style={avatar ? undefined : { backgroundColor: server.iconColor }}
+                      >
+                        {avatar ? <img src={avatar} alt={server.name} className="h-full w-full object-cover" draggable={false} /> : server.name[0]?.toUpperCase()}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-semibold text-mesh-text-primary">{server.name}</div>
+                        <div className="truncate font-mono text-[11px] text-mesh-text-muted">{inviteAddress}</div>
+                        <div className="mt-0.5 flex items-center gap-2 text-[11px] text-mesh-text-muted">
+                          <StatusDot tone={live ? 'online' : 'offline'} />
+                          <span>{server.memberCount} members</span>
+                        </div>
+                      </div>
+                      <Button size="sm" variant="secondary" onClick={() => copyToClipboard(`${inviteAddress} / ${server.id}`, setCopied)}>
+                        Copy
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => navigate(`/channels/${server.id}`)}>
+                        Open
+                      </Button>
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-semibold text-mesh-text-primary">{server.name}</div>
-                      <div className="truncate font-mono text-[11px] text-mesh-text-muted">{inviteAddress}</div>
-                      <div className="mt-0.5 text-[11px] text-mesh-text-muted">{server.memberCount} members</div>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <select
+                        value={assignment.port}
+                        onChange={(e) => saveServerHostAssignment(server.id, { port: normalizePort(e.target.value) })}
+                        className="h-8 rounded-md border border-mesh-border bg-mesh-bg-tertiary px-2 text-xs text-mesh-text-primary outline-none focus:border-mesh-green/60"
+                      >
+                        {hostPorts.map((port) => (
+                          <option key={port} value={port}>
+                            Port {port}{port === savedHostPort ? ' - primary' : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={assignment.address}
+                        onChange={(e) => saveServerHostAssignment(server.id, { address: e.target.value })}
+                        className="h-8 rounded-md border border-mesh-border bg-mesh-bg-tertiary px-2 text-xs text-mesh-text-primary outline-none focus:border-mesh-green/60"
+                      >
+                        {hostAddressOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
                     </div>
-                    <Button size="sm" variant="secondary" onClick={() => copyToClipboard(`${inviteAddress} / ${server.id}`, setCopied)}>
-                      Copy
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => navigate(`/channels/${server.id}`)}>
-                      Open
-                    </Button>
                   </div>
                 )
               })}
@@ -799,10 +912,12 @@ function PanelHeader({
   children?: React.ReactNode
 }): JSX.Element {
   return (
-    <div className="flex items-start justify-between gap-4">
+    <div className="group/header flex items-start justify-between gap-4">
       <div className="flex min-w-0 items-start gap-3">
-        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-mesh-border/60 bg-mesh-bg-primary text-mesh-green">
-          {icon}
+        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-mesh-border/60 bg-mesh-bg-primary text-mesh-green transition-all duration-200 group-hover/header:-translate-y-0.5 group-hover/header:scale-105 group-hover/header:border-mesh-green/50 group-hover/header:shadow-[0_0_18px_rgba(45,212,191,0.14)]">
+          <span className="transition-transform duration-200 group-hover/header:rotate-6">
+            {icon}
+          </span>
         </div>
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -824,7 +939,7 @@ function StatusDot({ tone }: { tone: 'online' | 'offline' | 'busy' }): JSX.Eleme
         'mt-1 inline-flex h-2 w-2 shrink-0 rounded-full',
         tone === 'online' && 'bg-mesh-green',
         tone === 'busy' && 'animate-pulse bg-mesh-warning',
-        tone === 'offline' && 'bg-mesh-text-muted'
+        tone === 'offline' && 'bg-mesh-danger'
       )}
     />
   )

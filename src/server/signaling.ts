@@ -606,6 +606,20 @@ io.on('connection', (socket) => {
     io.emit('server:host-online', { serverId: payload.serverId })
   })
 
+  socket.on('server:unregister', (payload: { serverId: string }) => {
+    const entry = servers.get(payload.serverId)
+    if (!entry) return
+    const userId = socket.data.userId as string | undefined
+    if (entry.hostSocketId !== socket.id && entry.hostUserId !== userId) return
+    servers.delete(payload.serverId)
+    socket.leave(roomName(payload.serverId))
+    io.to(roomName(payload.serverId)).emit('server:error', {
+      serverId: payload.serverId,
+      reason: 'Host moved this server to another port.'
+    })
+    console.log(`[server] unregistered: ${payload.serverId}`)
+  })
+
   /** Is this socket a member with the given permission (host always passes)? */
   function socketPermitted(entry: ServerEntry, perm: number): boolean {
     const userId = socket.data.userId as string | undefined
