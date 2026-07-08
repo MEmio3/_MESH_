@@ -445,7 +445,16 @@ io.on('connection', (socket) => {
       hidden: !!payload.hidden
     }
     presence.set(userId, entry)
+    // Tell everyone about this user (they now see us).
     io.emit('presence:changed', entry)
+    // AND push the full current roster back to us, so announcing ourselves
+    // also makes us see everyone already present. This makes discovery
+    // symmetric without depending on the fragile presence:list ack — the
+    // previous cause of "they saw me but I couldn't see them".
+    const snapshot = [...presence.values()]
+      .filter((e) => !e.hidden && e.userId !== userId)
+      .map((e) => ({ userId: e.userId, username: e.username, avatarColor: e.avatarColor }))
+    socket.emit('presence:snapshot', snapshot)
   })
 
   // ── Status (Task 6) ──

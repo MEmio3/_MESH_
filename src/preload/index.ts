@@ -262,6 +262,11 @@ const api = {
       ipcRenderer.on('signaling:presence:changed', h)
       return () => ipcRenderer.removeListener('signaling:presence:changed', h)
     },
+    onPresenceSnapshot: (cb: (list: Array<{ userId: string; username: string; avatarColor: string | null }>) => void): (() => void) => {
+      const h = (_e: Electron.IpcRendererEvent, list: Array<{ userId: string; username: string; avatarColor: string | null }>): void => cb(list)
+      ipcRenderer.on('signaling:presence:snapshot', h)
+      return () => ipcRenderer.removeListener('signaling:presence:snapshot', h)
+    },
     onStatusChanged: (cb: (payload: unknown) => void): (() => void) => {
       const h = (_e: Electron.IpcRendererEvent, payload: unknown): void => cb(payload)
       ipcRenderer.on('signaling:status:changed', h)

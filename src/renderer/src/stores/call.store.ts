@@ -131,6 +131,16 @@ async function startMedia(
 
 const persisted = readPersistedDevices()
 
+// Auto-give-up timer for an outgoing invite that never gets answered (e.g. the
+// callee isn't on the same host, so the invite was never delivered).
+let outgoingTimer: ReturnType<typeof setTimeout> | null = null
+const clearOutgoingTimer = (): void => {
+  if (outgoingTimer) {
+    clearTimeout(outgoingTimer)
+    outgoingTimer = null
+  }
+}
+
 export const useCallStore = create<CallState>((set, get) => ({
   status: 'idle',
   peerId: null,
@@ -164,6 +174,17 @@ export const useCallStore = create<CallState>((set, get) => ({
     })
     window.api.signaling.emit('call-invite', peerId, { kind })
     playOutgoingDial()
+    // Calls only work between two people on the SAME host — the invite is
+    // relayed via userSockets on the host and simply doesn't reach anyone
+    // who isn't connected to it. Rather than ring forever, give up after 30s
+    // (the callee never got it, or isn't reachable).
+    if (outgoingTimer) clearTimeout(outgoingTimer)
+    outgoingTimer = setTimeout(() => {
+      const st = get()
+      if (st.status === 'outgoing' && st.peerId === peerId) {
+        st.remoteRejected() // reuses the "call didn't connect" toast + reset
+      }
+    }, 30_000)
   },
 
   receiveIncoming: (peerId, peerName, kind) => {
@@ -237,6 +258,7 @@ export const useCallStore = create<CallState>((set, get) => ({
   },
 
   remoteAccepted: async () => {
+    clearOutgoingTimer()
     const { peerId, kind, status } = get()
     if (!peerId || status !== 'outgoing') return
     const selfId = useIdentityStore.getState().identity?.userId
@@ -262,6 +284,7 @@ export const useCallStore = create<CallState>((set, get) => ({
   },
 
   remoteRejected: () => {
+    clearOutgoingTimer()
     playCallReject()
     set({ status: 'declined' })
     // Auto-clear after a short toast
@@ -284,6 +307,7 @@ export const useCallStore = create<CallState>((set, get) => ({
   },
 
   end: (notifyPeer = true) => {
+    clearOutgoingTimer()
     const { peerId, status } = get()
     if (status === 'idle') return
     const selfId = useIdentityStore.getState().identity?.userId

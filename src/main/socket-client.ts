@@ -315,6 +315,10 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
     sendToRenderer('signaling:presence:changed', payload)
   })
 
+  socket.on('presence:snapshot', (payload: unknown) => {
+    sendToRenderer('signaling:presence:snapshot', payload)
+  })
+
   socket.on('status:changed', (payload: unknown) => {
     sendToRenderer('signaling:status:changed', payload)
   })

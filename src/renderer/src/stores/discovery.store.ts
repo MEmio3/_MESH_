@@ -48,6 +48,23 @@ export const useDiscoveryStore = create<DiscoveryStore>((set, get) => ({
 
   subscribe: () => {
     const unsubs: Array<() => void> = []
+    // Full roster pushed by the host whenever we announce ourselves — the
+    // reliable way to see everyone already present (no fragile ack round-trip).
+    unsubs.push(
+      window.api.signaling.onPresenceSnapshot(async (list) => {
+        const selfId = useIdentityStore.getState().identity?.userId
+        const blocked = await window.api.block.list().catch(() => [])
+        const blockedIds = new Set(blocked.map((b) => b.userId))
+        const clean = list.filter((u) => u.userId !== selfId && !blockedIds.has(u.userId))
+        set((s) => {
+          const byId = new Map(s.nearby.map((u) => [u.userId, u]))
+          for (const u of clean) {
+            byId.set(u.userId, { userId: u.userId, username: u.username, avatarColor: u.avatarColor ?? null })
+          }
+          return { nearby: [...byId.values()] }
+        })
+      })
+    )
     unsubs.push(
       window.api.signaling.onPresenceChanged(async (p) => {
         const payload = p as { userId: string; username?: string; avatarColor?: string | null; hidden?: boolean; removed?: true }

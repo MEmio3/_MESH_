@@ -205,6 +205,7 @@ interface SignalingAPI {
   onMessageRequestMessage: (cb: (payload: { messageId: string; fromUserId: string; fromUsername: string; toUserId: string; content: string; timestamp: number; isReply: boolean }) => void) => () => void
   onServerEvent: (event: string, cb: (payload: unknown) => void) => () => void
   onPresenceChanged: (cb: (payload: { userId: string; username?: string; avatarColor?: string | null; hidden?: boolean; removed?: true }) => void) => () => void
+  onPresenceSnapshot: (cb: (list: Array<{ userId: string; username: string; avatarColor: string | null }>) => void) => () => void
   onStatusChanged: (cb: (payload: { userId: string; status: 'online' | 'idle' | 'offline'; lastSeen: number }) => void) => () => void
   onStatusSnapshot: (cb: (payload: Array<{ userId: string; status: 'online' | 'idle' | 'offline'; lastSeen: number }>) => void) => () => void
 }
