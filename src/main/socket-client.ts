@@ -9,10 +9,6 @@ let reconnectAttempts: number = 0
 let currentUrl: string = ''
 let currentUserId: string = ''
 let isConnecting = false
-// Set when the user explicitly logs out / goes offline. Suppresses the
-// automatic reconnect loop so "log out" actually stays offline until the user
-// chooses to go online again (which calls connectToSignaling and clears this).
-let manualOffline = false
 const auxiliarySockets = new Map<string, Socket>()
 
 // Outbound events emitted while the socket was down. socket.io's own send
@@ -186,8 +182,6 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
     return Promise.resolve()
   }
 
-  // An explicit connect (e.g. "Go Online") overrides a prior manual logout.
-  manualOffline = false
   isConnecting = true
   currentUrl = serverUrl
   currentUserId = userId
@@ -360,7 +354,6 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
 }
 
 function tryReconnect(): void {
-  if (manualOffline) return
   if (!currentUrl || !currentUserId) return
   // Collapse concurrent triggers (disconnect + connect_error) into one timer.
   if (reconnectTimer) {
@@ -384,19 +377,11 @@ function tryReconnect(): void {
 }
 
 export function disconnectFromSignaling(): void {
-  // Mark manual so the socket's own 'disconnect' handler doesn't immediately
-  // schedule a reconnect and drag us back online.
-  manualOffline = true
   if (reconnectTimer) {
     clearTimeout(reconnectTimer)
     reconnectTimer = null
   }
   reconnectAttempts = 0
-  // Also drop auxiliary (hosted-server) sockets so logging out fully goes dark.
-  for (const aux of auxiliarySockets.values()) {
-    try { aux.removeAllListeners(); aux.disconnect() } catch { /* ignore */ }
-  }
-  auxiliarySockets.clear()
   socket?.disconnect()
   socket = null
 }

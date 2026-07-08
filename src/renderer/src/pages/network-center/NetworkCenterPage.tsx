@@ -830,21 +830,28 @@ function NetworkCenterPage(): JSX.Element {
               </button>
               {showDiagnostics && (
                 <div className="space-y-1.5 rounded-lg border border-mesh-border/60 bg-mesh-bg-primary/50 p-3">
-                  <CopyRow label="Same Wi-Fi only" value={sameWifiAddress} tag={primaryIp?.iface} copied={copied} onCopy={setCopied} />
+                  {/* Every shareable address gets its own MESH code — you'll
+                      send the internet one to friends outside your Wi-Fi, so it
+                      must be obfuscated too, not just the same-Wi-Fi one. */}
+                  <ShareCodeRow label="Same Wi-Fi only" address={sameWifiAddress} tag={primaryIp?.iface} copied={copied} onCopy={setCopied} />
                   {netSig?.signature.routerWanIp && (
-                    <DiagnosticRow
+                    <ShareCodeRow
                       label={isPrivateOrCgnatIp(netSig.signature.routerWanIp) ? 'Router/ISP private address' : 'Router public address'}
-                      value={`http://${netSig.signature.routerWanIp}:${hostPort}`}
+                      address={`http://${netSig.signature.routerWanIp}:${hostPort}`}
                       muted={isPrivateOrCgnatIp(netSig.signature.routerWanIp)}
-                      note={isPrivateOrCgnatIp(netSig.signature.routerWanIp) ? 'Diagnostic only. Do not share this with friends.' : `Useful only if port ${hostPort} is open.`}
+                      note={isPrivateOrCgnatIp(netSig.signature.routerWanIp) ? 'Behind ISP NAT — usually only reachable if the router forwards this port.' : `Useful only if port ${hostPort} is open.`}
+                      copied={copied}
+                      onCopy={setCopied}
                     />
                   )}
                   {publicAddress && (
-                    <DiagnosticRow
+                    <ShareCodeRow
                       label={netSig?.interpretation.behindCgnat ? 'Website-visible public IP' : 'Public internet address'}
-                      value={publicAddress}
+                      address={publicAddress}
                       muted={Boolean(netSig?.interpretation.behindCgnat)}
-                      note={netSig?.interpretation.behindCgnat ? 'Not directly reachable because your router is behind ISP NAT.' : `Share this only after port ${hostPort} is reachable.`}
+                      note={netSig?.interpretation.behindCgnat ? 'Not directly reachable because your router is behind ISP NAT.' : `Share this after port ${hostPort} is reachable.`}
+                      copied={copied}
+                      onCopy={setCopied}
                     />
                   )}
                   <button
@@ -1025,17 +1032,28 @@ function CopyRow({
   )
 }
 
-function DiagnosticRow({
+/** A shareable host address rendered as a MESH invite code (with the raw
+ *  address kept as a small caption for reference). Copying yields the code, so
+ *  the IP is never what gets pasted around — for any of the addresses, not
+ *  just same-Wi-Fi. */
+function ShareCodeRow({
   label,
-  value,
+  address,
   note,
-  muted
+  tag,
+  muted,
+  copied,
+  onCopy
 }: {
   label: string
-  value: string
-  note: string
-  muted: boolean
+  address: string
+  note?: string
+  tag?: string
+  muted?: boolean
+  copied: string | null
+  onCopy: (value: string | null) => void
 }): JSX.Element {
+  const code = encodeConnectionCode(address)
   return (
     <div className={cn(
       'rounded-lg border px-3 py-2.5',
@@ -1043,11 +1061,24 @@ function DiagnosticRow({
         ? 'border-mesh-warning/30 bg-mesh-warning/5'
         : 'border-mesh-border/60 bg-mesh-bg-primary/70'
     )}>
-      <div className="text-[10px] font-semibold uppercase tracking-wide text-mesh-text-muted">{label}</div>
-      <div className={cn('mt-0.5 truncate font-mono text-[11px]', muted ? 'text-mesh-warning' : 'text-mesh-text-primary')}>
-        {value}
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-mesh-text-muted">{label}</span>
+            {tag && <span className="rounded border border-mesh-border px-1.5 py-0.5 text-[9px] text-mesh-text-muted">{tag}</span>}
+          </div>
+          <div className="mt-0.5 break-all font-mono text-[11px] text-mesh-green">{code}</div>
+          <div className="mt-0.5 truncate font-mono text-[10px] text-mesh-text-muted/70">{address}</div>
+        </div>
+        <button
+          onClick={() => copyToClipboard(code, onCopy)}
+          className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-mesh-text-muted hover:bg-mesh-bg-tertiary hover:text-mesh-text-primary"
+          title="Copy invite code"
+        >
+          {copied === code ? <Check className="h-3.5 w-3.5 text-mesh-green" /> : <Copy className="h-3.5 w-3.5" />}
+        </button>
       </div>
-      <div className="mt-1 text-[11px] leading-relaxed text-mesh-text-muted">{note}</div>
+      {note && <div className="mt-1 text-[11px] leading-relaxed text-mesh-text-muted">{note}</div>}
     </div>
   )
 }

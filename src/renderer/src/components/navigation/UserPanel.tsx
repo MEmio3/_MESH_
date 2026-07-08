@@ -1,4 +1,4 @@
-import { Mic, MicOff, Headphones, HeadphoneOff, Settings, PhoneOff, Wifi, Monitor, Camera, CameraOff, ChevronUp, Moon, EyeOff, Circle, LogOut, Power } from 'lucide-react'
+import { Mic, MicOff, Headphones, HeadphoneOff, Settings, PhoneOff, Wifi, Monitor, Camera, CameraOff, ChevronUp, Moon, EyeOff, Circle } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
@@ -178,9 +178,6 @@ function UserPanel(): JSX.Element {
   const selfStatus = useStatusStore((s) => s.self)
   const chooseStatus = useStatusStore((s) => s.chooseStatus)
   const applyInvisibleChange = useStatusStore((s) => s.applyInvisibleChange)
-  const loggedOut = useStatusStore((s) => s.loggedOut)
-  const logOut = useStatusStore((s) => s.logOut)
-  const goOnline = useStatusStore((s) => s.goOnline)
   const invisibleMode = useSettingsStore((s) => s.privacy.invisibleMode)
   const updatePrivacy = useSettingsStore((s) => s.updatePrivacy)
   const [statusMenuOpen, setStatusMenuOpen] = useState(false)
@@ -197,14 +194,12 @@ function UserPanel(): JSX.Element {
     return () => document.removeEventListener('mousedown', close)
   }, [statusMenuOpen])
 
-  const statusLabel = loggedOut ? 'Offline' : invisibleMode ? 'Invisible' : selfStatus === 'idle' ? 'Idle' : 'Online'
-  const statusDotClass = loggedOut
+  const statusLabel = invisibleMode ? 'Invisible' : selfStatus === 'idle' ? 'Idle' : 'Online'
+  const statusDotClass = invisibleMode
     ? 'bg-[#80848e]'
-    : invisibleMode
-      ? 'bg-[#80848e]'
-      : selfStatus === 'idle'
-        ? 'bg-[#f0b232]'
-        : 'bg-[#23a559]'
+    : selfStatus === 'idle'
+      ? 'bg-[#f0b232]'
+      : 'bg-[#23a559]'
 
   const pickStatus = (kind: 'online' | 'idle' | 'invisible'): void => {
     if (kind === 'invisible') {
@@ -306,28 +301,6 @@ function UserPanel(): JSX.Element {
               />
               <p className="px-3 pt-1.5 pb-0.5 text-[10px] leading-snug text-mesh-text-muted">
                 Invisible: you appear offline to everyone but keep receiving everything.
-              </p>
-
-              <div className="my-1 h-px bg-mesh-border/60" />
-              {loggedOut ? (
-                <button
-                  onClick={() => { goOnline(); setStatusMenuOpen(false) }}
-                  className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left text-[13px] text-mesh-green hover:bg-mesh-bg-tertiary transition-colors"
-                >
-                  <span className="shrink-0 inline-flex w-4 justify-center"><Power className="h-3.5 w-3.5" /></span>
-                  <span className="flex-1">Go Online</span>
-                </button>
-              ) : (
-                <button
-                  onClick={() => { logOut(); setStatusMenuOpen(false) }}
-                  className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left text-[13px] text-mesh-danger hover:bg-mesh-bg-tertiary transition-colors"
-                >
-                  <span className="shrink-0 inline-flex w-4 justify-center"><LogOut className="h-3.5 w-3.5" /></span>
-                  <span className="flex-1">Log Out</span>
-                </button>
-              )}
-              <p className="px-3 pt-1 pb-1 text-[10px] leading-snug text-mesh-text-muted">
-                Log Out goes offline but keeps your identity — you stay {username}.
               </p>
             </div>
           )}
