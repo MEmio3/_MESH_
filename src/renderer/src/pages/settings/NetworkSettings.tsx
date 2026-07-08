@@ -44,6 +44,22 @@ function normalizePort(value: string | number | null | undefined): number {
   return Math.min(65535, Math.max(1, Math.floor(raw)))
 }
 
+function normalizeNetworkUrl(input: string): string {
+  const trimmed = input.trim()
+  if (!trimmed) return ''
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`
+  return withScheme.replace(/\/+$/, '')
+}
+
+function isLocalNetworkUrl(url: string): boolean {
+  try {
+    const hostname = new URL(normalizeNetworkUrl(url)).hostname.toLowerCase()
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1'
+  } catch {
+    return false
+  }
+}
+
 function NetworkSettings(): JSX.Element {
   const navigate = useNavigate()
   const network = useSettingsStore((s) => s.network)
@@ -142,6 +158,16 @@ function NetworkSettings(): JSX.Element {
     }
   }
 
+  const reregisterHostedServers = async (): Promise<void> => {
+    const identity = useIdentityStore.getState().identity
+    if (!identity) return
+    await window.api.server.reregisterMine({
+      selfUserId: identity.userId,
+      selfUsername: identity.username,
+      selfAvatarColor: (identity as unknown as { avatarPath?: string | null }).avatarPath ?? null
+    })
+  }
+
   const toggleHost = async (enabled: boolean): Promise<void> => {
     if (enabled) {
       const port = normalizePort(hostPortDraft || network.hostPort)
@@ -151,11 +177,13 @@ function NetworkSettings(): JSX.Element {
         return
       }
       const url = `http://localhost:${port}`
-      updateNetwork({ hostSignaling: true, hostPort: port, signalingUrl: url })
+      const keepActiveRemote = isConnected && !isLocalNetworkUrl(network.signalingUrl)
+      updateNetwork({ hostSignaling: true, hostPort: port, signalingUrl: keepActiveRemote ? network.signalingUrl : url })
       setHostStatus((s) => ({ ...s, running: true, port, error: null }))
       setHostPortDraft(String(port))
-      setUrlDraft(url)
-      await reconnectSignaling(url)
+      setUrlDraft(keepActiveRemote ? network.signalingUrl : url)
+      if (keepActiveRemote) await reregisterHostedServers()
+      else await reconnectSignaling(url)
     } else {
       await window.api.signalingHost.stop()
       setHostStatus((s) => ({ ...s, running: false, error: null }))
@@ -175,10 +203,12 @@ function NetworkSettings(): JSX.Element {
       return
     }
     const url = `http://localhost:${port}`
-    updateNetwork({ hostSignaling: true, hostPort: port, signalingUrl: url })
+    const keepActiveRemote = isConnected && !isLocalNetworkUrl(network.signalingUrl)
+    updateNetwork({ hostSignaling: true, hostPort: port, signalingUrl: keepActiveRemote ? network.signalingUrl : url })
     setHostStatus((s) => ({ ...s, running: true, port, error: null }))
-    setUrlDraft(url)
-    await reconnectSignaling(url)
+    setUrlDraft(keepActiveRemote ? network.signalingUrl : url)
+    if (keepActiveRemote) await reregisterHostedServers()
+    else await reconnectSignaling(url)
     setHostStatus(await window.api.signalingHost.status())
   }
 
@@ -218,6 +248,15 @@ function NetworkSettings(): JSX.Element {
   // on the same Wi-Fi / LAN. Everything else lives under Advanced.
   const primaryIp = grouped.home[0] ?? hostStatus.localIps[0] ?? null
   const primaryAddr = primaryIp ? `http://${primaryIp.address}:${hostedPort}` : null
+  const connectionStatusText = reconnectState?.state === 'reconnecting'
+    ? `Reconnecting... (attempt ${reconnectState.attempt ?? 1})`
+    : isConnected
+      ? network.hostSignaling
+        ? isLocalNetworkUrl(network.signalingUrl)
+          ? 'Connected - you are the host'
+          : 'Connected - hosting locally too'
+        : 'Connected'
+      : 'Not connected'
 
   const CopyRow = ({ addr, tag }: { addr: string; tag?: string }): JSX.Element => (
     <div className="flex items-center gap-2 rounded-lg bg-mesh-bg-tertiary border border-mesh-border px-3 py-2.5">
@@ -260,7 +299,7 @@ function NetworkSettings(): JSX.Element {
       {/* Status strip — one line, no jargon */}
       <div className="flex items-center gap-2.5 rounded-lg bg-mesh-bg-secondary border border-mesh-border px-4 py-3 mb-4">
         <div className={cn('h-2 w-2 rounded-full shrink-0', isConnected ? 'bg-mesh-green' : reconnectState?.state === 'reconnecting' ? 'bg-mesh-warning animate-pulse' : 'bg-mesh-text-muted')} />
-        <span className="text-sm text-mesh-text-primary flex-1 min-w-0 truncate">
+        <span className="text-sm text-mesh-text-primary flex-1 min-w-0 truncate" title={connectionStatusText}>
           {reconnectState?.state === 'reconnecting'
             ? `Reconnecting… (attempt ${reconnectState.attempt ?? 1})`
             : isConnected
@@ -345,9 +384,8 @@ function NetworkSettings(): JSX.Element {
         )}
       </div>
 
-      {/* Card: Join a friend (hidden while hosting — your address is set automatically) */}
-      {!network.hostSignaling && (
-        <div className="rounded-xl bg-mesh-bg-secondary border border-mesh-border p-5 mb-4">
+      {/* Card: Join a friend */}
+      <div className="rounded-xl bg-mesh-bg-secondary border border-mesh-border p-5 mb-4">
           <div className="flex items-center gap-2 mb-1">
             <Link2 className="h-4 w-4 text-mesh-text-secondary" />
             <h3 className="text-sm font-semibold text-mesh-text-primary">Join a friend</h3>
@@ -370,8 +408,7 @@ function NetworkSettings(): JSX.Element {
           <p className="text-[11px] text-mesh-text-muted mt-2">
             Remembered for next launch — you only do this once.
           </p>
-        </div>
-      )}
+      </div>
 
       {/* Advanced — everything network-nerdy lives behind this */}
       <button

@@ -83,6 +83,15 @@ function hostFromUrl(url: string): string {
   }
 }
 
+function isLocalNetworkUrl(url: string): boolean {
+  try {
+    const hostname = new URL(normalizeNetworkUrl(url)).hostname.toLowerCase()
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1'
+  } catch {
+    return false
+  }
+}
+
 function copyToClipboard(value: string, setCopied: (value: string | null) => void): void {
   navigator.clipboard.writeText(value)
   setCopied(value)
@@ -267,6 +276,15 @@ function NetworkCenterPage(): JSX.Element {
     }
   }, [activeUrl])
 
+  async function reregisterHostedServers(): Promise<void> {
+    if (!identity) return
+    await window.api.server.reregisterMine({
+      selfUserId: identity.userId,
+      selfUsername: identity.username,
+      selfAvatarColor: (identity as unknown as { avatarPath?: string | null }).avatarPath ?? null
+    })
+  }
+
   async function connectTo(urlInput: string, keepHostMode = false): Promise<void> {
     if (!identity) {
       setNotice('Create your profile first, then connect.')
@@ -280,11 +298,7 @@ function NetworkCenterPage(): JSX.Element {
     setReconnectState('connecting')
     setNotice(null)
     try {
-      if (!keepHostMode && hostStatus.running) {
-        await window.api.signalingHost.stop().catch(() => {})
-        setHostStatus((s) => ({ ...s, running: false, error: null }))
-      }
-      updateNetwork({ signalingUrl: url, hostSignaling: keepHostMode })
+      updateNetwork(keepHostMode ? { signalingUrl: url, hostSignaling: true } : { signalingUrl: url })
       await window.api.signaling.disconnect().catch(() => {})
       await window.api.signaling.connect(url, identity.userId)
       setIsConnected(true)
@@ -306,9 +320,16 @@ function NetworkCenterPage(): JSX.Element {
         setHostStatus(await window.api.signalingHost.status())
         return
       }
-      updateNetwork({ hostSignaling: true, hostPort: port, signalingUrl: `http://localhost:${port}` })
+      const localUrl = `http://localhost:${port}`
+      const keepActiveRemote = isConnected && !isLocalNetworkUrl(activeUrl)
+      updateNetwork({ hostSignaling: true, hostPort: port, signalingUrl: keepActiveRemote ? activeUrl : localUrl })
       setHostStatus((s) => ({ ...s, running: true, port, error: null }))
-      await connectTo(`http://localhost:${port}`, true)
+      if (keepActiveRemote) {
+        await reregisterHostedServers()
+        setNotice(`Hosting on port ${port}; still connected to ${hostFromUrl(activeUrl)}.`)
+      } else {
+        await connectTo(localUrl, true)
+      }
     } else {
       await window.api.signalingHost.stop()
       setHostStatus((s) => ({ ...s, running: false, error: null }))
@@ -331,9 +352,15 @@ function NetworkCenterPage(): JSX.Element {
       await refreshStatus()
       return
     }
-    updateNetwork({ hostSignaling: true, hostPort: port, signalingUrl: `http://localhost:${port}` })
+    const localUrl = `http://localhost:${port}`
+    const keepActiveRemote = isConnected && !isLocalNetworkUrl(activeUrl)
+    updateNetwork({ hostSignaling: true, hostPort: port, signalingUrl: keepActiveRemote ? activeUrl : localUrl })
     setHostStatus((s) => ({ ...s, running: true, port, error: null }))
-    await connectTo(`http://localhost:${port}`, true)
+    if (keepActiveRemote) {
+      await reregisterHostedServers()
+    } else {
+      await connectTo(localUrl, true)
+    }
     await refreshStatus()
     setNotice(`Hosting moved to port ${port}.`)
   }
