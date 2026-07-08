@@ -530,10 +530,14 @@ export function addVoiceParticipant(userId: string): void {
   const member = serverId
     ? useServersStore.getState().serverMembers[serverId]?.find((m) => m.userId === userId)
     : undefined
+  // Fall back to the server-authoritative voice occupancy identity when the
+  // member roster hasn't synced this user yet — avoids the "Peer usr_…"
+  // placeholder and name-flicker.
+  const occ = serverId ? useServersStore.getState().serverVoiceStates[serverId]?.[userId] : undefined
   vs.addParticipant({
     userId,
-    username: member?.username ?? `Peer ${userId.slice(0, 6)}`,
-    avatarColor: member?.avatarColor ?? null,
+    username: member?.username ?? occ?.username ?? `Peer ${userId.slice(0, 6)}`,
+    avatarColor: member?.avatarColor ?? occ?.avatarColor ?? null,
     isMuted: false,
     isDeafened: false,
     isSpeaking: false,

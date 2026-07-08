@@ -81,6 +81,13 @@ export function useSignaling(callbacks?: {
       if (isCurrentVoiceRoom(roomId)) {
         addVoiceParticipant(userId)
       }
+      // Someone new can now receive our media. If we're streaming video, push
+      // a keyframe right away so their decoder starts immediately instead of
+      // waiting up to ~2s for the next periodic one (fixes "stream is live but
+      // I can't see it"). Covers both server voice rooms and 1-1 call rooms.
+      if (isCurrentVoiceRoom(roomId) || roomId?.startsWith('call:')) {
+        mediaEngine.forceKeyframe()
+      }
     }))
 
     cleanups.push(window.api.signaling.onUserLeft((userId: string, _socketId: string, roomId?: string) => {

@@ -17,10 +17,13 @@ import {
 import { useVoiceStore } from '@/stores/voice.store'
 import { useIdentityStore } from '@/stores/identity.store'
 import { useAvatarStore } from '@/stores/avatar.store'
-import { useServersStore } from '@/stores/servers.store'
+import { useServersStore, type VoiceOccupant } from '@/stores/servers.store'
 import { ChannelSettingsModal } from '@/components/server/ChannelSettingsModal'
 import { VoiceDetectionRing } from '@/components/voice/VoiceDetectionRing'
 import { resolveChannelPerm, type ChannelPermKey } from '../../../../shared/permissions'
+
+/** Stable empty map so channels with no occupants don't churn selectors. */
+const EMPTY_OCCUPANTS: Record<string, VoiceOccupant> = {}
 
 interface ChannelTreeProps {
   serverId: string
@@ -76,6 +79,9 @@ export function ChannelTree({
   const avatarsByUser = useAvatarStore((s) => s.byUser)
   const customRoles = useServersStore((s) => s.serverRoles[serverId]) ?? []
   const serverMembers = useServersStore((s) => s.serverMembers[serverId])
+  // Server-authoritative voice occupancy (who is in which channel), so we can
+  // show occupants under EVERY voice channel — not just the one we joined.
+  const voiceOccupants = useServersStore((s) => s.serverVoiceStates[serverId])
   const selfMemberEntry = serverMembers?.find((m) => m.userId === selfId)
   const selfRoleIds = selfMemberEntry?.roleIds ?? []
 
@@ -214,33 +220,51 @@ export function ChannelTree({
           )}
         </button>
 
-        {/* Voice participants rendered only under the channel we're actually in. */}
-        {isJoinedVoice && participants.length > 0 && (
-          <div className="ml-[20px] mt-1 mb-1 flex flex-col gap-0.5 border-l border-mesh-border/35 pl-7">
-            {participants.map((p) => {
-              const isLive = streamingUsers.has(p.userId)
-              return (
-                <div
-                  key={p.userId}
-                  className="mesh-reveal-in flex items-center gap-2 rounded-lg border border-transparent py-1 pl-2 pr-1.5 text-mesh-text-secondary transition-colors hover:border-mesh-border/35 hover:bg-mesh-bg-tertiary/45"
-                >
-                  <span className="relative isolate shrink-0">
-                    {p.isSpeaking && <VoiceDetectionRing bars={false} size="xs" />}
-                    <Avatar fallback={p.username} size="xs" status="online" src={p.userId === selfId ? selfAvatar : avatarsByUser[p.userId]} />
-                  </span>
-                  <span className="truncate text-xs font-medium text-mesh-text-secondary">{p.username}</span>
-                  {isLive && (
-                    <span className="ml-auto inline-flex items-center gap-1 rounded-full border border-red-400/25 bg-red-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase leading-none text-red-300">
-                      <span className="h-1 w-1 rounded-full bg-white" />
-                      Live
+        {/* Occupants under EVERY voice channel, from the server's authoritative
+            occupancy map — visible whether or not we've joined. For the channel
+            we're actually in, live participant state (speaking/mute) is merged. */}
+        {!isText && (() => {
+          const occ = voiceOccupants ?? EMPTY_OCCUPANTS
+          const occupantIds = Object.keys(occ).filter((uid) => occ[uid].channelId === ch.id)
+          if (occupantIds.length === 0) return null
+          return (
+            <div className="ml-[20px] mt-1 mb-1 flex flex-col gap-0.5 border-l border-mesh-border/35 pl-7">
+              {occupantIds.map((uid) => {
+                // Live voice state only exists for the channel we're joined to.
+                const live = isJoinedVoice ? participants.find((p) => p.userId === uid) : undefined
+                // Server-authoritative name wins; the live list may still hold
+                // a "Peer usr_…" placeholder from a pre-roster-sync join.
+                const username =
+                  occ[uid].username ??
+                  serverMembers?.find((m) => m.userId === uid)?.username ??
+                  live?.username ??
+                  `Peer ${uid.slice(0, 6)}`
+                const isSpeaking = live?.isSpeaking ?? false
+                const isMuted = live?.isMuted ?? false
+                const isLive = streamingUsers.has(uid)
+                return (
+                  <div
+                    key={uid}
+                    className="mesh-reveal-in flex items-center gap-2 rounded-lg border border-transparent py-1 pl-2 pr-1.5 text-mesh-text-secondary transition-colors hover:border-mesh-border/35 hover:bg-mesh-bg-tertiary/45"
+                  >
+                    <span className="relative isolate shrink-0">
+                      {isSpeaking && <VoiceDetectionRing bars={false} size="xs" />}
+                      <Avatar fallback={username} size="xs" status="online" src={uid === selfId ? selfAvatar : avatarsByUser[uid]} />
                     </span>
-                  )}
-                  {p.isMuted && !isLive && <MicOff className="h-3 w-3 text-red-400 shrink-0 ml-auto" />}
-                </div>
-              )
-            })}
-          </div>
-        )}
+                    <span className="truncate text-xs font-medium text-mesh-text-secondary">{username}</span>
+                    {isLive && (
+                      <span className="ml-auto inline-flex items-center gap-1 rounded-full border border-red-400/25 bg-red-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase leading-none text-red-300">
+                        <span className="h-1 w-1 rounded-full bg-white" />
+                        Live
+                      </span>
+                    )}
+                    {isMuted && !isLive && <MicOff className="h-3 w-3 text-red-400 shrink-0 ml-auto" />}
+                  </div>
+                )
+              })}
+            </div>
+          )
+        })()}
       </div>
     )
   }

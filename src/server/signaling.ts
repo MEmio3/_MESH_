@@ -325,6 +325,46 @@ function activeVoiceRoomForSocket(socketId: string, serverId: string): { roomId:
 }
 
 /**
+ * Resolve a user's display name/color for voice payloads. The server member
+ * roster is authoritative; fall back to global presence, then to null so the
+ * client can render a placeholder. Carrying identity in the voice events means
+ * clients never have to race a separate roster sync (which produced the
+ * "Peer usr_xxxx" placeholder + name-flicker bug).
+ */
+function identityFor(serverId: string, userId: string): { username: string | null; avatarColor: string | null } {
+  const member = servers.get(serverId)?.members.get(userId)
+  if (member) return { username: member.username, avatarColor: member.avatarColor }
+  const p = presence.get(userId)
+  if (p) return { username: p.username, avatarColor: p.avatarColor }
+  return { username: null, avatarColor: null }
+}
+
+/**
+ * Authoritative snapshot of who is in which voice channel for a server, with
+ * identity attached. Used to bring a freshly-subscribed client in sync — the
+ * live voice-joined/voice-left deltas only cover changes AFTER you subscribe,
+ * so without this snapshot a later-joiner never sees people already sitting in
+ * a channel (the "one side sees the other but not vice-versa" bug).
+ */
+function voiceOccupantsForServer(serverId: string): Array<{
+  userId: string
+  channelId: string
+  username: string | null
+  avatarColor: string | null
+}> {
+  const out: Array<{ userId: string; channelId: string; username: string | null; avatarColor: string | null }> = []
+  for (const [roomId, members] of voiceRoomMembers) {
+    const voice = parseVoiceRoom(roomId)
+    if (!voice || voice.serverId !== serverId) continue
+    for (const userId of members.keys()) {
+      const id = identityFor(serverId, userId)
+      out.push({ userId, channelId: voice.channelId, username: id.username, avatarColor: id.avatarColor })
+    }
+  }
+  return out
+}
+
+/**
  * Register a socket as the live holder of a user's voice-room seat.
  * If another socket is already holding the seat for this userId, it is
  * kicked out first — both from our tracking map and from the underlying
@@ -612,6 +652,12 @@ io.on('connection', (socket) => {
     entry.members.clear()
     for (const m of payload.members) entry.members.set(m.userId, m)
     socket.join(roomName(payload.serverId))
+    // Sync the (re)connecting host with any voice occupants that persisted
+    // across the reconnect.
+    socket.emit('server:voice-occupants', {
+      serverId: entry.id,
+      occupants: voiceOccupantsForServer(entry.id)
+    })
     // Share the host's channel layout with current members so custom
     // channels (and their role gates) exist on every client, not just the
     // host's machine.
@@ -774,6 +820,14 @@ io.on('connection', (socket) => {
     entry.members.set(payload.userId, member)
     socket.join(roomName(payload.serverId))
 
+    // Bring the joiner in sync with who's already sitting in voice channels.
+    // The live voice-joined deltas only cover changes from here on, so without
+    // this snapshot a later-joiner never sees existing occupants.
+    socket.emit('server:voice-occupants', {
+      serverId: entry.id,
+      occupants: voiceOccupantsForServer(entry.id)
+    })
+
     // Send joiner the current state. `onlineUserIds` is computed from the
     // live socket registry — the members list is a roster snapshot and its
     // `status` fields must never be used for presence dots.
@@ -928,10 +982,13 @@ io.on('connection', (socket) => {
     // up with a ghost duplicate after a host disconnect + fast reconnect.
     if (voice && socket.data.userId) {
       registerVoiceMember(roomId, socket.data.userId, socket.id)
+      const id = identityFor(voice.serverId, socket.data.userId)
       io.to(roomName(voice.serverId)).emit('server:voice-joined', {
         userId: socket.data.userId,
         channelId: voice.channelId,
-        serverId: voice.serverId
+        serverId: voice.serverId,
+        username: id.username,
+        avatarColor: id.avatarColor
       })
     }
   })

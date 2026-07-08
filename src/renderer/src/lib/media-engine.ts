@@ -96,6 +96,11 @@ class MeshMediaEngine {
   private videoSeq = 0
   private videoKind: 'camera' | 'screen' = 'screen'
   private videoBitrate = 2_500_000
+  // When set, the next encoded video frame is forced to be a keyframe. Used so
+  // a viewer who joins mid-stream can start decoding immediately instead of
+  // waiting up to KEYFRAME_INTERVAL frames for the next periodic keyframe
+  // (VP8 deltas are useless without a reference frame).
+  private forceKeyframeNext = false
 
   // ── Incoming state (per remote user) ──
   private peers = new Map<string, PeerState>()
@@ -151,6 +156,13 @@ class MeshMediaEngine {
    *  local mic/video pipelines running. */
   resetPeers(): void {
     for (const userId of [...this.peers.keys()]) this.dropPeer(userId)
+  }
+
+  /** Force the next outgoing video frame to be a keyframe. Called when a new
+   *  viewer joins the room so they can begin decoding immediately. No-op if
+   *  we aren't currently sending video. */
+  forceKeyframe(): void {
+    if (this.videoEncoder) this.forceKeyframeNext = true
   }
 
   /** A room member left (signaling user-left) — release their decoders. */
@@ -406,7 +418,9 @@ class MeshMediaEngine {
           if (this.videoEncoder === encoder && this.roomId) {
             // Drop frames if the encoder is backlogged — realtime beats complete.
             if (encoder.encodeQueueSize <= 2) {
-              encoder.encode(value, { keyFrame: frameCount % KEYFRAME_INTERVAL === 0 })
+              const wantKey = this.forceKeyframeNext || frameCount % KEYFRAME_INTERVAL === 0
+              this.forceKeyframeNext = false
+              encoder.encode(value, { keyFrame: wantKey })
               frameCount++
             }
           }

@@ -10,11 +10,19 @@ import { normalizeReactions } from './messages.store'
 import { notify } from '@/lib/notify'
 import { playServerMessage } from '@/lib/sounds'
 
+/** Who is sitting in which voice channel, with identity carried inline so the
+ *  sidebar never has to race a separate roster sync to render a name. */
+export interface VoiceOccupant {
+  channelId: string
+  username: string | null
+  avatarColor: string | null
+}
+
 interface ServersStore {
   servers: Server[]
   serverMembers: Record<string, ServerMember[]>
   serverMessages: Record<string, Message[]>
-  serverVoiceStates: Record<string, Record<string, string>> // serverId -> { userId: channelId }
+  serverVoiceStates: Record<string, Record<string, VoiceOccupant>> // serverId -> { userId: occupant }
   /**
    * LIVE presence per server: userIds with an active signaling socket right
    * now. The DB member rows are a roster — their persisted `status` says
@@ -987,16 +995,35 @@ export const useServersStore = create<ServersStore>((set, get) => ({
     }))
 
     unsubs.push(window.api.signaling.onServerEvent('voice-joined', async (payload) => {
-      const p = payload as { serverId: string; userId: string; channelId: string }
+      const p = payload as { serverId: string; userId: string; channelId: string; username?: string | null; avatarColor?: string | null }
       set((s) => {
         const sr = s.serverVoiceStates[p.serverId] || {}
         return {
           serverVoiceStates: {
             ...s.serverVoiceStates,
-            [p.serverId]: { ...sr, [p.userId]: p.channelId }
+            [p.serverId]: {
+              ...sr,
+              [p.userId]: { channelId: p.channelId, username: p.username ?? null, avatarColor: p.avatarColor ?? null }
+            }
           }
         }
       })
+    }))
+
+    // Authoritative occupancy snapshot pushed when we (re)subscribe to a
+    // server — replaces our per-server voice map so a later-joiner sees
+    // everyone already in a channel (fixes asymmetric/invisible occupancy).
+    unsubs.push(window.api.signaling.onServerEvent('voice-occupants', async (payload) => {
+      const p = payload as {
+        serverId: string
+        occupants: Array<{ userId: string; channelId: string; username?: string | null; avatarColor?: string | null }>
+      }
+      if (!p.serverId || !Array.isArray(p.occupants)) return
+      const map: Record<string, VoiceOccupant> = {}
+      for (const o of p.occupants) {
+        map[o.userId] = { channelId: o.channelId, username: o.username ?? null, avatarColor: o.avatarColor ?? null }
+      }
+      set((s) => ({ serverVoiceStates: { ...s.serverVoiceStates, [p.serverId]: map } }))
     }))
 
     unsubs.push(window.api.signaling.onServerEvent('voice-left', async (payload) => {

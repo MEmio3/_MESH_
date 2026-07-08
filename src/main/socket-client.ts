@@ -51,6 +51,7 @@ const serverEvents = [
   'server:member-roles',
   'server:voice-joined',
   'server:voice-left',
+  'server:voice-occupants',
   'server:voice-join-denied',
   'server:stream-start',
   'server:stream-stop',
