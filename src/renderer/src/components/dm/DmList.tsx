@@ -14,6 +14,7 @@ function DmList(): JSX.Element {
   const location = useLocation()
   const conversations = useMessagesStore((s) => s.conversations)
   const messageRequests = useFriendsStore((s) => s.messageRequests)
+  const friends = useFriendsStore((s) => s.friends)
   const [search, setSearch] = useState('')
 
   // Build a set of conversation-peer ids so a message request that has already
@@ -41,8 +42,13 @@ function DmList(): JSX.Element {
   )
 
   // Sort by last message time (most recent first)
+  const friendNamesById = useMemo(
+    () => new Map(friends.map((friend) => [friend.userId, friend.username])),
+    [friends]
+  )
+  const term = search.toLowerCase()
   const sorted = [...conversations]
-    .filter((c) => c.recipientName.toLowerCase().includes(search.toLowerCase()))
+    .filter((c) => (friendNamesById.get(c.recipientId) || c.recipientName).toLowerCase().includes(term))
     .sort((a, b) => {
       const aTime = a.lastMessage?.timestamp ?? 0
       const bTime = b.lastMessage?.timestamp ?? 0

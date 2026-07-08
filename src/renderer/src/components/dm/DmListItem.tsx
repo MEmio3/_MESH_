@@ -4,6 +4,7 @@ import { UserAvatar } from '@/components/ui/UserAvatar'
 import { X } from 'lucide-react'
 import { useLiveStatus } from '@/lib/useLiveStatus'
 import { useMessagesStore } from '@/stores/messages.store'
+import { useFriendsStore } from '@/stores/friends.store'
 import type { Conversation } from '@/types/messages'
 
 interface DmListItemProps {
@@ -28,7 +29,9 @@ function formatRelativeTime(timestamp: number): string {
 function DmListItem({ conversation, isActive, onClick }: DmListItemProps): JSX.Element {
   const navigate = useNavigate()
   const closeConversation = useMessagesStore((s) => s.closeConversation)
+  const friend = useFriendsStore((s) => s.friends.find((f) => f.userId === conversation.recipientId))
   const lastMsg = conversation.lastMessage
+  const displayName = friend?.username || conversation.recipientName
   // Live presence only — the persisted recipientStatus is whatever was true
   // when the row was written (hardcoded 'online' at creation) and must never
   // light the dot on its own.
@@ -51,14 +54,14 @@ function DmListItem({ conversation, isActive, onClick }: DmListItemProps): JSX.E
     >
       <UserAvatar
         userId={conversation.recipientId}
-        fallback={conversation.recipientName}
+        fallback={displayName}
         size="sm"
         status={status}
       />
       <div className="flex-1 min-w-0">
         <div className="flex flex-col">
           <span className={cn("text-sm truncate", isActive ? "text-mesh-text-primary font-medium" : "text-mesh-text-secondary group-hover:text-mesh-text-primary")}>
-            {conversation.recipientName}
+            {displayName}
           </span>
           {lastMsg && (
             <p className="text-xs text-mesh-text-muted truncate">

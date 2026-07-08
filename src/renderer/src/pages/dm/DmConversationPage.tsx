@@ -64,7 +64,7 @@ function DmConversationPage(): JSX.Element {
       ? { ...conversation, recipientName: friend.username }
       : conversation
   }, [conversation, friends])
-  const [autoCreateTried, setAutoCreateTried] = useState(false)
+  const autoCreateTriedRef = useRef<string | null>(null)
 
   // Find a pending message request for this user (only used when no conversation exists).
   const request = otherUserId
@@ -72,10 +72,11 @@ function DmConversationPage(): JSX.Element {
     : undefined
 
   useEffect(() => {
-    if (!normalizedId || conversation || autoCreateTried || request) return
-    setAutoCreateTried(true)
+    if (!normalizedId || conversation || request) return
+    if (autoCreateTriedRef.current === normalizedId) return
+    autoCreateTriedRef.current = normalizedId
     ensureConversationForFriend(normalizedId).catch(() => {})
-  }, [normalizedId, conversation, autoCreateTried, ensureConversationForFriend, request])
+  }, [normalizedId, conversation, ensureConversationForFriend, request])
 
   // ── Reply state ──
   const [replyTarget, setReplyTarget] = useState<Message | null>(null)
@@ -141,11 +142,9 @@ function DmConversationPage(): JSX.Element {
   const [requestError, setRequestError] = useState('')
   const threadScrollRef = useRef<HTMLDivElement>(null)
 
-  // ── Historical message-request messages surfaced inside an established DM ──
-  // When two users exchanged cold messages before becoming friends, those
-  // messages live in the `message_request_messages` table and never migrate
-  // into the DM conversation row. Load them once per conversation and merge
-  // them chronologically into the feed so the thread looks continuous.
+  // Historical request messages are migrated into the real DM table by the
+  // main process. This fallback still renders older rows if a pre-migration
+  // database has not been touched by the promotion path yet.
   const [historyMessages, setHistoryMessages] = useState<Message[]>([])
   useEffect(() => {
     if (!conversation || !otherUserId) {

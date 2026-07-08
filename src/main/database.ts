@@ -78,6 +78,14 @@ function migrateSchema(): void {
     if (!msgNames.has('reactions')) d.exec("ALTER TABLE messages ADD COLUMN reactions TEXT NOT NULL DEFAULT '{}'")
   }
 
+  const convCols = d.prepare("PRAGMA table_info('conversations')").all() as { name: string }[]
+  const convNames = new Set(convCols.map((c) => c.name))
+  if (convCols.length > 0) {
+    if (!convNames.has('is_hidden')) d.exec('ALTER TABLE conversations ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0')
+    normalizeConversationRows()
+    migratePromotedMessageRequestThreads()
+  }
+
   // File attachment columns on server_messages
   const smsgCols = d.prepare("PRAGMA table_info('server_messages')").all() as { name: string }[]
   const smsgNames = new Set(smsgCols.map((c) => c.name))
@@ -198,7 +206,8 @@ function createTables(): void {
       recipient_name TEXT NOT NULL,
       recipient_avatar_color TEXT,
       recipient_status TEXT NOT NULL DEFAULT 'offline',
-      unread_count INTEGER NOT NULL DEFAULT 0
+      unread_count INTEGER NOT NULL DEFAULT 0,
+      is_hidden INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS messages (
@@ -424,14 +433,127 @@ export function insertMessageRequestMessage(m: MessageRequestMessageRow): void {
 
 // ── Conversations ──
 
+type ConversationDbRow = {
+  id: string
+  recipientId: string
+  recipientName: string
+  recipientAvatarColor: string | null
+  recipientStatus: string
+  unreadCount: number
+  isHidden: number
+}
+
+const CONV_COLS = 'id, recipient_id AS recipientId, recipient_name AS recipientName, recipient_avatar_color AS recipientAvatarColor, recipient_status AS recipientStatus, unread_count AS unreadCount, is_hidden AS isHidden'
+
+function canonicalConversationId(recipientId: string): string {
+  return `dm_${recipientId.replace(/^dm_/, '')}`
+}
+
+function normalizeConversationRows(): void {
+  const d = getDb()
+  const rows = d.prepare(`SELECT ${CONV_COLS} FROM conversations ORDER BY id`).all() as ConversationDbRow[]
+  if (rows.length === 0) return
+
+  const tx = d.transaction((items: ConversationDbRow[]) => {
+    for (const row of items) {
+      const recipientId = String(row.recipientId || '').replace(/^dm_/, '')
+      if (!recipientId) continue
+      const canonicalId = canonicalConversationId(recipientId)
+      if (row.id === canonicalId) continue
+
+      const canonical = d.prepare(`SELECT ${CONV_COLS} FROM conversations WHERE id = ?`).get(canonicalId) as ConversationDbRow | undefined
+      if (!canonical) {
+        d.prepare(
+          'INSERT INTO conversations (id, recipient_id, recipient_name, recipient_avatar_color, recipient_status, unread_count, is_hidden) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        ).run(
+          canonicalId,
+          recipientId,
+          row.recipientName || recipientId,
+          row.recipientAvatarColor,
+          row.recipientStatus || 'offline',
+          row.unreadCount || 0,
+          row.isHidden ? 1 : 0
+        )
+      } else {
+        d.prepare(
+          `UPDATE conversations
+           SET recipient_name = CASE WHEN recipient_name = recipient_id AND ? <> '' THEN ? ELSE recipient_name END,
+               recipient_avatar_color = COALESCE(recipient_avatar_color, ?),
+               unread_count = MAX(unread_count, ?),
+               is_hidden = CASE WHEN is_hidden = 0 OR ? = 0 THEN 0 ELSE 1 END
+           WHERE id = ?`
+        ).run(
+          row.recipientName || '',
+          row.recipientName || '',
+          row.recipientAvatarColor,
+          row.unreadCount || 0,
+          row.isHidden ? 1 : 0,
+          canonicalId
+        )
+      }
+
+      d.prepare('UPDATE OR IGNORE messages SET conversation_id = ? WHERE conversation_id = ?').run(canonicalId, row.id)
+      // If a duplicate message id already existed under the canonical row,
+      // UPDATE OR IGNORE leaves the duplicate behind. Remove those leftovers
+      // before deleting the old conversation row.
+      d.prepare('DELETE FROM messages WHERE conversation_id = ?').run(row.id)
+      d.prepare('DELETE FROM conversations WHERE id = ?').run(row.id)
+    }
+  })
+  tx(rows)
+}
+
+function promoteMessageRequestThreadToConversation(otherUserId: string, conversationId = canonicalConversationId(otherUserId)): void {
+  const d = getDb()
+  const count = d.prepare('SELECT COUNT(*) AS count FROM message_request_messages WHERE other_user_id = ?').get(otherUserId) as { count: number } | undefined
+  if (!count || count.count === 0) return
+
+  const exists = d.prepare('SELECT id FROM conversations WHERE id = ?').get(conversationId) as { id: string } | undefined
+  if (!exists) return
+
+  const tx = d.transaction(() => {
+    d.prepare(
+      `INSERT OR IGNORE INTO messages (id, conversation_id, sender_id, sender_name, content, timestamp, status)
+       SELECT id, ?, sender_id, sender_name, content, timestamp, status
+       FROM message_request_messages
+       WHERE other_user_id = ?
+       ORDER BY timestamp ASC`
+    ).run(conversationId, otherUserId)
+    d.prepare('DELETE FROM message_request_messages WHERE other_user_id = ?').run(otherUserId)
+    d.prepare(
+      `DELETE FROM message_requests
+       WHERE (direction = 'incoming' AND from_user_id = ?)
+          OR (direction = 'outgoing' AND to_user_id = ?)`
+    ).run(otherUserId, otherUserId)
+  })
+  tx()
+}
+
+function migratePromotedMessageRequestThreads(): void {
+  const d = getDb()
+  const rows = d.prepare(
+    `SELECT DISTINCT m.other_user_id AS otherUserId
+     FROM message_request_messages m
+     INNER JOIN conversations c ON c.recipient_id = m.other_user_id`
+  ).all() as Array<{ otherUserId: string }>
+  for (const row of rows) {
+    promoteMessageRequestThreadToConversation(row.otherUserId)
+  }
+}
+
 export function getConversations(): ConversationRow[] {
-  return getDb().prepare('SELECT id, recipient_id AS recipientId, recipient_name AS recipientName, recipient_avatar_color AS recipientAvatarColor, recipient_status AS recipientStatus, unread_count AS unreadCount FROM conversations ORDER BY id').all() as ConversationRow[]
+  return getDb().prepare(`SELECT ${CONV_COLS} FROM conversations WHERE is_hidden = 0 ORDER BY id`).all() as ConversationRow[]
 }
 
 export function upsertConversation(c: ConversationRow): void {
-  getDb().prepare(`INSERT INTO conversations (id, recipient_id, recipient_name, recipient_avatar_color, recipient_status, unread_count) VALUES (?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET recipient_name = excluded.recipient_name, recipient_avatar_color = excluded.recipient_avatar_color, recipient_status = excluded.recipient_status, unread_count = excluded.unread_count`
-  ).run(c.id, c.recipientId, c.recipientName, c.recipientAvatarColor, c.recipientStatus, c.unreadCount)
+  const d = getDb()
+  const recipientId = c.recipientId.replace(/^dm_/, '')
+  const conversationId = canonicalConversationId(recipientId)
+  normalizeConversationRows()
+  d.prepare(`INSERT INTO conversations (id, recipient_id, recipient_name, recipient_avatar_color, recipient_status, unread_count, is_hidden) VALUES (?, ?, ?, ?, ?, ?, 0)
+    ON CONFLICT(id) DO UPDATE SET recipient_id = excluded.recipient_id, recipient_name = excluded.recipient_name, recipient_avatar_color = excluded.recipient_avatar_color, recipient_status = excluded.recipient_status, unread_count = excluded.unread_count, is_hidden = 0`
+  ).run(conversationId, recipientId, c.recipientName, c.recipientAvatarColor, c.recipientStatus, c.unreadCount)
+  promoteMessageRequestThreadToConversation(recipientId, conversationId)
 }
 
 export function updateConversationUnread(id: string, unreadCount: number): void {
@@ -443,7 +565,7 @@ export function updateConversationUnread(id: string, unreadCount: number): void 
  * reopening the conversation later restores the full history.
  */
 export function closeConversation(id: string): void {
-  getDb().prepare('DELETE FROM conversations WHERE id = ?').run(id)
+  getDb().prepare('UPDATE conversations SET is_hidden = 1, unread_count = 0 WHERE id = ?').run(id)
 }
 
 export function deleteConversationWith(recipientId: string): void {

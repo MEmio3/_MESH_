@@ -31,6 +31,48 @@ export function normalizeReactions(raw: unknown): Record<string, string[]> {
   return {}
 }
 
+type DbMessageRow = Message & {
+  fileId?: string | null
+  fileName?: string | null
+  fileSize?: number | null
+  fileType?: string | null
+  filePath?: string | null
+  isDeleted?: number | boolean
+  reactions?: unknown
+}
+
+function mapDbMessageRow(row: DbMessageRow): Message {
+  const msg = { ...row } as DbMessageRow
+  if (msg.fileId) {
+    msg.file = {
+      fileId: msg.fileId,
+      fileName: msg.fileName || 'unknown',
+      fileSize: msg.fileSize || 0,
+      fileType: msg.fileType || 'application/octet-stream',
+      filePath: msg.filePath
+    }
+  }
+  msg.isDeleted = Boolean(msg.isDeleted)
+  msg.reactions = normalizeReactions(msg.reactions)
+  return msg as Message
+}
+
+function dedupeMessages(messages: Message[]): Message[] {
+  const byId = new Map<string, Message>()
+  for (const message of messages) byId.set(message.id, message)
+  return Array.from(byId.values()).sort((a, b) => a.timestamp - b.timestamp)
+}
+
+function mergeMessages(persisted: Message[], current: Message[]): { messages: Message[]; lastMessage: Message | null } {
+  const messages = dedupeMessages([...persisted, ...current])
+  return { messages, lastMessage: messages.length > 0 ? messages[messages.length - 1] : null }
+}
+
+async function loadPersistedMessages(conversationId: string): Promise<Message[]> {
+  const rows = await window.api.db.messages.list({ conversationId, limit: 50 })
+  return rows.reverse().map((r) => mapDbMessageRow(r as DbMessageRow))
+}
+
 interface MessagesStore {
   conversations: Conversation[]
   activeConversationId: string | null
@@ -116,21 +158,7 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
 
     // Load recent messages for each conversation to populate lastMessage
     for (const conv of conversations) {
-      const msgs = await window.api.db.messages.list({ conversationId: conv.id, limit: 50 })
-      conv.messages = msgs.reverse().map((r) => {
-        const msg = r as Message & { fileId?: string | null; fileName?: string | null; fileSize?: number | null; fileType?: string | null; filePath?: string | null }
-        if (msg.fileId) {
-          msg.file = {
-            fileId: msg.fileId,
-            fileName: msg.fileName || 'unknown',
-            fileSize: msg.fileSize || 0,
-            fileType: msg.fileType || 'application/octet-stream',
-            filePath: msg.filePath
-          }
-        }
-        msg.reactions = normalizeReactions(msg.reactions)
-        return msg as Message
-      })
+      conv.messages = await loadPersistedMessages(conv.id)
       conv.lastMessage = conv.messages.length > 0 ? conv.messages[conv.messages.length - 1] : null
     }
 
@@ -138,21 +166,7 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
   },
 
   loadMessages: async (conversationId) => {
-    const msgs = await window.api.db.messages.list({ conversationId, limit: 50 })
-    const messages = msgs.reverse().map((r) => {
-      const msg = r as Message & { fileId?: string | null; fileName?: string | null; fileSize?: number | null; fileType?: string | null; filePath?: string | null }
-      if (msg.fileId) {
-        msg.file = {
-          fileId: msg.fileId,
-          fileName: msg.fileName || 'unknown',
-          fileSize: msg.fileSize || 0,
-          fileType: msg.fileType || 'application/octet-stream',
-          filePath: msg.filePath
-        }
-      }
-      msg.reactions = normalizeReactions(msg.reactions)
-      return msg as Message
-    })
+    const messages = await loadPersistedMessages(conversationId)
     set((state) => ({
       conversations: state.conversations.map((conv) =>
         conv.id === conversationId
@@ -197,6 +211,7 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
       unreadCount: 0
     }
     await window.api.db.conversations.upsert(row)
+    const messages = await loadPersistedMessages(row.id)
 
     const conv: Conversation = {
       id: row.id,
@@ -204,11 +219,15 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
       recipientName: row.recipientName,
       recipientAvatarColor: row.recipientAvatarColor,
       recipientStatus: row.recipientStatus as Conversation['recipientStatus'],
-      messages: [],
+      messages,
       unreadCount: 0,
-      lastMessage: null
+      lastMessage: messages.length > 0 ? messages[messages.length - 1] : null
     }
-    set((state) => ({ conversations: [...state.conversations, conv] }))
+    set((state) => ({
+      conversations: state.conversations.some((c) => c.id === conv.id || c.recipientId === conv.recipientId)
+        ? state.conversations.map((c) => (c.id === conv.id || c.recipientId === conv.recipientId ? conv : c))
+        : [...state.conversations, conv]
+    }))
     return conv
   },
 
@@ -414,15 +433,17 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
     }
     const targetConvId = existing?.id ?? conversationId
     msg.conversationId = targetConvId
+    const persistConversation = !existing
+      ? window.api.db.conversations.upsert({
+          id: targetConvId,
+          recipientId: fromUserId,
+          recipientName: fromUsername,
+          recipientAvatarColor: null,
+          recipientStatus: 'online',
+          unreadCount: 1
+        })
+      : Promise.resolve()
     if (!existing) {
-      window.api.db.conversations.upsert({
-        id: targetConvId,
-        recipientId: fromUserId,
-        recipientName: fromUsername,
-        recipientAvatarColor: null,
-        recipientStatus: 'online',
-        unreadCount: 1
-      })
       set((state) => ({
         conversations: [
           ...state.conversations,
@@ -455,7 +476,7 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
     }
 
     // Persist with file info
-    window.api.db.messages.send({
+    const persistMessage = window.api.db.messages.send({
       id: msg.id,
       conversationId: msg.conversationId,
       senderId: msg.senderId,
@@ -469,6 +490,20 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
       fileType: file.fileType,
       filePath: file.filePath || null
     } as import('../../shared/types').MessageRow)
+    if (!existing) {
+      void Promise.all([persistConversation, persistMessage])
+        .then(async () => {
+          const messages = await loadPersistedMessages(targetConvId)
+          set((state) => ({
+            conversations: state.conversations.map((conv) => {
+              if (conv.id !== targetConvId) return conv
+              const merged = mergeMessages(messages, conv.messages)
+              return { ...conv, ...merged }
+            })
+          }))
+        })
+        .catch(console.error)
+    }
 
     // Ack delivery
     sendControlToPeer(fromUserId, { type: 'dm-ack', messageId: msg.id, status: 'delivered' })
@@ -551,15 +586,17 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
     // so messages stay consolidated and no sidebar duplicate appears.
     const targetConvId = existing?.id ?? conversationId
     msg.conversationId = targetConvId
+    const persistConversation = !existing
+      ? window.api.db.conversations.upsert({
+          id: targetConvId,
+          recipientId: fromUserId,
+          recipientName: fromUsername,
+          recipientAvatarColor: null,
+          recipientStatus: 'online',
+          unreadCount: 1
+        })
+      : Promise.resolve()
     if (!existing) {
-      window.api.db.conversations.upsert({
-        id: targetConvId,
-        recipientId: fromUserId,
-        recipientName: fromUsername,
-        recipientAvatarColor: null,
-        recipientStatus: 'online',
-        unreadCount: 1
-      })
       set((state) => ({
         conversations: [
           ...state.conversations,
@@ -592,7 +629,7 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
     }
 
     // Persist
-    window.api.db.messages.send({
+    const persistMessage = window.api.db.messages.send({
       id: msg.id,
       conversationId: msg.conversationId,
       senderId: msg.senderId,
@@ -601,6 +638,20 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
       timestamp: msg.timestamp,
       status: msg.status
     })
+    if (!existing) {
+      void Promise.all([persistConversation, persistMessage])
+        .then(async () => {
+          const messages = await loadPersistedMessages(targetConvId)
+          set((state) => ({
+            conversations: state.conversations.map((conv) => {
+              if (conv.id !== targetConvId) return conv
+              const merged = mergeMessages(messages, conv.messages)
+              return { ...conv, ...merged }
+            })
+          }))
+        })
+        .catch(console.error)
+    }
 
     // Task 9: ack delivery back to the sender.
     sendControlToPeer(fromUserId, {
