@@ -444,7 +444,9 @@ const api = {
     cancelledRemote: (payload: { requestId: string }): Promise<{ success: boolean }> =>
       ipcRenderer.invoke('friend-request:cancelled-remote', payload),
     rejectedRemote: (payload: { requestId: string }): Promise<{ success: boolean }> =>
-      ipcRenderer.invoke('friend-request:rejected-remote', payload)
+      ipcRenderer.invoke('friend-request:rejected-remote', payload),
+    republishPending: (): Promise<{ success: boolean; count: number }> =>
+      ipcRenderer.invoke('friend-request:republish-pending')
   },
 
   messageRequest: {

@@ -388,8 +388,24 @@ export function registerFriendRequestHandlers(): void {
   }) => {
     // Drop if blocked
     if (db.findBlocked(payload.fromUserId)) return { success: false, error: 'blocked' }
-    // Drop if already friends
-    if (db.findFriend(payload.fromUserId)) return { success: false, error: 'already-friend' }
+    // Already friends? The sender is re-publishing an outgoing request they
+    // think is still pending — which happens when our earlier accept never
+    // reached them (it was queued on a host they never rejoined). Heal their
+    // side by re-firing an accept so they flip to friend too, instead of
+    // silently dropping and leaving them stuck forever.
+    if (db.findFriend(payload.fromUserId)) {
+      const self = identity.loadIdentity()
+      if (self) {
+        socketClient.emitSignaling('friend-request:accept', {
+          requestId: payload.id,
+          fromUserId: payload.toUserId,
+          fromUsername: self.username,
+          fromAvatarColor: self.avatarColor,
+          toUserId: payload.fromUserId
+        })
+      }
+      return { success: false, error: 'already-friend' }
+    }
 
     const existing = db.findFriendRequestBetween(payload.fromUserId, payload.toUserId)
     if (existing) {
@@ -413,11 +429,12 @@ export function registerFriendRequestHandlers(): void {
           unreadCount: 0
         })
         db.removeFriendRequest(existing.id)
+        const self = identity.loadIdentity()
         socketClient.emitSignaling('friend-request:accept', {
           requestId: existing.id,
           fromUserId: payload.toUserId,
-          fromUsername: '',
-          fromAvatarColor: null,
+          fromUsername: self?.username ?? '',
+          fromAvatarColor: self?.avatarColor ?? null,
           toUserId: payload.fromUserId
         })
         return {
@@ -490,6 +507,27 @@ export function registerFriendRequestHandlers(): void {
   ipcMain.handle('friend-request:rejected-remote', async (_e, payload: { requestId: string }) => {
     db.removeFriendRequest(payload.requestId)
     return { success: true }
+  })
+
+  // Re-emit every still-pending OUTGOING request. Friend requests are delivered
+  // (or queued) on whichever host the sender was connected to; if the recipient
+  // never joined that host, the request is stranded and the sender's dedup
+  // guard blocks a manual re-send — leaving both sides unable to friend, accept,
+  // or call each other. Re-publishing on every (re)connect means the request is
+  // redelivered the moment both parties share a host, self-healing the state.
+  ipcMain.handle('friend-request:republish-pending', async () => {
+    const outgoing = db.getFriendRequests().filter((r) => r.direction === 'outgoing')
+    for (const r of outgoing) {
+      socketClient.emitSignaling('friend-request:send', {
+        id: r.id,
+        fromUserId: r.fromUserId,
+        fromUsername: r.fromUsername,
+        fromAvatarColor: r.fromAvatarColor,
+        toUserId: r.toUserId,
+        timestamp: r.timestamp
+      })
+    }
+    return { success: true, count: outgoing.length }
   })
 }
 

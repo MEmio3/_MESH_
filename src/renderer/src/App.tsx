@@ -69,6 +69,10 @@ function App(): JSX.Element {
         selfUsername: identity.username,
         selfAvatarColor: (identity as unknown as { avatarPath?: string | null }).avatarPath ?? null
       }).catch(() => { /* retried on next reconnect */ })
+      // Re-deliver any pending outgoing friend requests now that we're on a
+      // host — heals requests that were stranded because the recipient was
+      // never on the host they were originally queued on.
+      window.api.friendRequest.republishPending().catch(() => { /* retried next reconnect */ })
       useStatusStore.getState().publishFriendsSubscription()
       useStatusStore.getState().publishSelf('online')
       // Relays are registered on the signaling server — refresh the ICE

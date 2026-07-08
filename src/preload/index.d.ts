@@ -62,6 +62,8 @@ interface FriendRequestAPI {
   receive: (p: FriendRequestIncomingPayload) => Promise<{ success: boolean; error?: string }>
   acceptedRemote: (p: FriendRequestAcceptedPayload) => Promise<{ success: boolean; error?: string; friend?: { userId: string; username: string; avatarColor: string | null } }>
   cancelledRemote: (p: { requestId: string }) => Promise<{ success: boolean }>
+  rejectedRemote: (p: { requestId: string }) => Promise<{ success: boolean }>
+  republishPending: () => Promise<{ success: boolean; count: number }>
 }
 
 interface MessageRequestShape {

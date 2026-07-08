@@ -17,6 +17,11 @@ interface StatusStore {
   friendStatuses: Record<string, FriendStatus>
   /** True when the user hand-picked a status — pauses idle auto-tracking. */
   manual: boolean
+  /** Live signaling socket state (false while disconnected/reconnecting). */
+  connected: boolean
+  /** True when the user explicitly logged out (went offline) — distinguishes
+   *  an intentional logout from a dropped host connection. */
+  loggedOut: boolean
 
   startTracking: () => () => void
   publishSelf: (status?: StatusValue) => void
@@ -25,6 +30,11 @@ interface StatusStore {
   publishFriendsSubscription: () => void
   subscribe: () => () => void
   applyInvisibleChange: () => void
+  /** Go offline: disconnect from the host but keep our permanent identity.
+   *  There is deliberately no way to change/regenerate the identity. */
+  logOut: () => void
+  /** Re-connect to the host as the same identity. */
+  goOnline: () => void
 }
 
 let idleTimer: ReturnType<typeof setTimeout> | null = null
@@ -38,6 +48,29 @@ export const useStatusStore = create<StatusStore>((set, get) => ({
   self: 'online',
   friendStatuses: {},
   manual: false,
+  connected: true,
+  loggedOut: false,
+
+  logOut: () => {
+    set({ loggedOut: true, connected: false })
+    // Leave any active voice/call so we don't hold a dead media room.
+    import('./voice.store').then(({ useVoiceStore }) => {
+      if (useVoiceStore.getState().isConnected) useVoiceStore.getState().leaveRoom()
+    }).catch(() => {})
+    import('./call.store').then(({ useCallStore }) => {
+      if (useCallStore.getState().status !== 'idle') useCallStore.getState().end(true)
+    }).catch(() => {})
+    window.api.signaling.disconnect().catch(() => {})
+  },
+
+  goOnline: () => {
+    const identity = useIdentityStore.getState().identity
+    if (!identity) return
+    set({ loggedOut: false })
+    const net = useSettingsStore.getState().network
+    const url = net.signalingUrl || 'http://localhost:3000'
+    window.api.signaling.connect(url, identity.userId).catch(() => {})
+  },
 
   chooseStatus: (status) => {
     // Hand-picked Idle sticks until the user changes it; picking Online
@@ -147,6 +180,7 @@ export const useStatusStore = create<StatusStore>((set, get) => ({
     // When signaling reconnects, re-publish self + resubscribe to friends.
     unsubs.push(
       window.api.signaling.onConnected(() => {
+        set({ connected: true, loggedOut: false })
         const identity = useIdentityStore.getState().identity
         if (!identity) return
         get().publishFriendsSubscription()
@@ -164,7 +198,7 @@ export const useStatusStore = create<StatusStore>((set, get) => ({
           for (const [id, st] of Object.entries(s.friendStatuses)) {
             next[id] = { status: 'offline', lastSeen: st.lastSeen }
           }
-          return { friendStatuses: next }
+          return { friendStatuses: next, connected: false }
         })
       })
     )
