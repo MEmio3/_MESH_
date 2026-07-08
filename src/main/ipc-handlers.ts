@@ -301,14 +301,21 @@ export function registerFriendRequestHandlers(): void {
     const all = db.getFriendRequests()
     const req = all.find((r) => r.id === payload.requestId)
     if (!req) return { success: false, error: 'Request not found.' }
-    // Remove the strictly-incoming check: in a mutual collision, the local DB might show it as outgoing.
-    // If the user clicks "Accept" (auto-surfaced GUI), we forcibly resolve the collision into a friendship.
 
-    // Promote to friend + create conversation locally
-    // Promote to friend + create conversation locally
-    const targetUserId = req.direction === 'outgoing' ? req.toUserId : req.fromUserId;
-    const targetUsername = req.direction === 'outgoing' ? (req.toUsername || req.toUserId) : req.fromUsername;
-    const targetAvatar = req.direction === 'outgoing' ? req.toAvatarColor : req.fromAvatarColor;
+    // Only an INCOMING request may be accepted. A sender must never be able to
+    // accept their own outgoing request — doing so used to unilaterally add the
+    // other person as a friend with zero involvement from them, which also
+    // "worked" across hosts (no signaling round-trip needed). A real friendship
+    // requires the recipient — who is on the same signaling host — to accept,
+    // so genuine mutual collisions are already auto-resolved at send time.
+    if (req.direction !== 'incoming') {
+      return { success: false, error: 'You can only accept requests that were sent to you.' }
+    }
+
+    // Promote to friend + create conversation locally.
+    const targetUserId = req.fromUserId
+    const targetUsername = req.fromUsername
+    const targetAvatar = req.fromAvatarColor
 
     db.addFriend({
       userId: targetUserId,
@@ -332,8 +339,7 @@ export function registerFriendRequestHandlers(): void {
       fromUserId: payload.selfUserId,
       fromUsername: payload.selfUsername,
       fromAvatarColor: payload.selfAvatarColor,
-      // If the request was technically outgoing locally, "from" and "to" reversed in the original structure.
-      toUserId: req.direction === 'outgoing' ? req.toUserId : req.fromUserId
+      toUserId: req.fromUserId
     })
     return { success: true, friend: { userId: targetUserId, username: targetUsername, avatarColor: targetAvatar } }
   })
