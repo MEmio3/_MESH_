@@ -3,6 +3,9 @@ import { MessageBubble } from './MessageBubble'
 import { useScrollAnchor } from '@/hooks/useScrollAnchor'
 import { ChevronDown, MessageCircle, Sparkles } from 'lucide-react'
 import { useIdentityStore } from '@/stores/identity.store'
+import { useFriendsStore } from '@/stores/friends.store'
+import { useServersStore } from '@/stores/servers.store'
+import { useMemo } from 'react'
 
 interface MessageFeedProps {
   messages: Message[]
@@ -51,11 +54,35 @@ function isGrouped(current: Message, previous: Message | undefined): boolean {
   return true
 }
 
+function resolveMessagesWithNames(messages: Message[], namesByUserId: Map<string, string>): Message[] {
+  return messages.map((message) => {
+    const resolved = namesByUserId.get(message.senderId)
+    if (!resolved || resolved === message.senderName) return message
+    return { ...message, senderName: resolved }
+  })
+}
+
 function MessageFeed({ messages, recipientName: _recipientName, onEditMessage, onDeleteMessage, onToggleReaction, onReply, canDeleteMessage }: MessageFeedProps): JSX.Element {
   const { containerRef, isAtBottom, scrollToBottom } = useScrollAnchor()
-  const myId = useIdentityStore((s) => s.identity?.userId)
+  const identity = useIdentityStore((s) => s.identity)
+  const friends = useFriendsStore((s) => s.friends)
+  const serverMembers = useServersStore((s) => s.serverMembers)
+  const myId = identity?.userId
+  const namesByUserId = useMemo(() => {
+    const names = new Map<string, string>()
+    if (identity) names.set(identity.userId, identity.username)
+    for (const friend of friends) names.set(friend.userId, friend.username)
+    for (const members of Object.values(serverMembers)) {
+      for (const member of members) names.set(member.userId, member.username)
+    }
+    return names
+  }, [identity, friends, serverMembers])
+  const displayMessages = useMemo(
+    () => resolveMessagesWithNames(messages, namesByUserId),
+    [messages, namesByUserId]
+  )
 
-  if (messages.length === 0) {
+  if (displayMessages.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center px-6">
         <div className="mesh-reveal-in mesh-shimmer relative w-full max-w-sm overflow-hidden rounded-2xl border border-mesh-border/70 bg-mesh-bg-secondary/80 p-6 text-center shadow-[0_18px_48px_rgba(0,0,0,0.22),inset_0_1px_0_rgba(255,255,255,0.04)]">
@@ -82,8 +109,8 @@ function MessageFeed({ messages, recipientName: _recipientName, onEditMessage, o
         ref={containerRef}
         className="h-full overflow-y-auto pb-3"
       >
-        {messages.map((msg, i) => {
-          const prev = i > 0 ? messages[i - 1] : undefined
+        {displayMessages.map((msg, i) => {
+          const prev = i > 0 ? displayMessages[i - 1] : undefined
           const showDate = shouldShowDateDivider(msg, prev)
           const grouped = isGrouped(msg, prev)
 

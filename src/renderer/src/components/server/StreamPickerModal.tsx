@@ -9,6 +9,8 @@ interface StreamPickerModalProps {
   isOpen: boolean
   onClose: () => void
   initialTab?: 'applications' | 'screens' | 'camera'
+  title?: string
+  onShare?: (source: StreamSource, quality: StreamQuality) => Promise<void>
 }
 
 type Tab = 'applications' | 'screens' | 'camera'
@@ -26,7 +28,7 @@ interface CameraDevice {
   label: string
 }
 
-function StreamPickerModal({ isOpen, onClose, initialTab = 'applications' }: StreamPickerModalProps): JSX.Element | null {
+function StreamPickerModal({ isOpen, onClose, initialTab = 'applications', title = 'Share your screen', onShare }: StreamPickerModalProps): JSX.Element | null {
   const [tab, setTab] = useState<Tab>(initialTab)
   const [windows, setWindows] = useState<DesktopSource[]>([])
   const [screens, setScreens] = useState<DesktopSource[]>([])
@@ -36,7 +38,7 @@ function StreamPickerModal({ isOpen, onClose, initialTab = 'applications' }: Str
   const [sharing, setSharing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const startStreamFromSource = useVoiceStore((s) => s.startStreamFromSource)
+  const startVoiceStreamFromSource = useVoiceStore((s) => s.startStreamFromSource)
 
   // Close on Esc
   useEffect(() => {
@@ -95,7 +97,7 @@ function StreamPickerModal({ isOpen, onClose, initialTab = 'applications' }: Str
     setSharing(true)
     setError(null)
     try {
-      await startStreamFromSource(selected, quality)
+      await (onShare ?? startVoiceStreamFromSource)(selected, quality)
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -127,7 +129,7 @@ function StreamPickerModal({ isOpen, onClose, initialTab = 'applications' }: Str
           >
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-mesh-border/60">
-              <h2 className="text-lg font-bold text-mesh-text-primary">Share your screen</h2>
+              <h2 className="text-lg font-bold text-mesh-text-primary">{title}</h2>
               <button
                 onClick={onClose}
                 className="h-8 w-8 rounded-md flex items-center justify-center text-mesh-text-muted hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary transition-colors"

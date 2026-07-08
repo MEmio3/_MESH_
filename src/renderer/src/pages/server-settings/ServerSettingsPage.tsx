@@ -213,6 +213,7 @@ function OverviewSection({ serverId, canEditServer }: { serverId: string; canEdi
     : normalizePort(network.hostPort)
   const assignedAddress = savedAssignment?.address || defaultAddress
   const inviteAddress = `http://${assignedAddress}:${assignedPort}`
+  const invitePayload = `mesh://join?host=${encodeURIComponent(inviteAddress)}&server=${encodeURIComponent(server.id)}`
 
   const saveHostAssignment = async (partial: Partial<ServerHostAssignment>): Promise<void> => {
     if (server.role !== 'host' || routeSaving) return
@@ -305,6 +306,11 @@ function OverviewSection({ serverId, canEditServer }: { serverId: string; canEdi
             {copied ? <Check className="h-3.5 w-3.5 text-mesh-green" /> : <Copy className="h-3.5 w-3.5" />}
           </button>
         </div>
+        {server.role === 'host' && (
+          <p className="mt-2 max-w-md text-xs text-mesh-text-muted">
+            For friends on another device, copy the full join invite from Hosting route.
+          </p>
+        )}
       </div>
 
       {canEditServer && server.role === 'host' && (
@@ -351,16 +357,16 @@ function OverviewSection({ serverId, canEditServer }: { serverId: string; canEdi
           <div className="mt-3 flex max-w-md items-center gap-2 rounded-lg border border-mesh-border bg-mesh-bg-secondary px-3 py-2.5">
             <Router className="h-4 w-4 shrink-0 text-mesh-green" />
             <code className="min-w-0 flex-1 truncate font-mono text-sm text-mesh-green">
-              {inviteAddress} / {server.id}
+              {invitePayload}
             </code>
             <button
               onClick={() => {
-                navigator.clipboard.writeText(`${inviteAddress} / ${server.id}`)
+                navigator.clipboard.writeText(invitePayload)
                 setCopiedInvite(true)
                 setTimeout(() => setCopiedInvite(false), 1500)
               }}
               className="shrink-0 h-7 w-7 rounded flex items-center justify-center text-mesh-text-muted hover:text-mesh-text-primary hover:bg-mesh-bg-hover transition-colors"
-              title="Copy invite"
+              title="Copy join invite"
             >
               {copiedInvite ? <Check className="h-3.5 w-3.5 text-mesh-green" /> : <Copy className="h-3.5 w-3.5" />}
             </button>

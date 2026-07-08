@@ -2,10 +2,12 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   Mic,
   MicOff,
-  Phone,
+  PhoneCall,
   PhoneIncoming,
   PhoneOff,
   PhoneOutgoing,
+  ScreenShare,
+  ScreenShareOff,
   Settings,
   Signal,
   Sparkles,
@@ -22,6 +24,7 @@ import { useNetStatsStore, pingTone } from '@/stores/netstats.store'
 import { useIdentityStore } from '@/stores/identity.store'
 import { UserAvatar } from '@/components/ui/UserAvatar'
 import { VoiceDetectionRing } from '@/components/voice/VoiceDetectionRing'
+import { StreamPickerModal } from '@/components/server/StreamPickerModal'
 import { cn } from '@/lib/utils'
 
 interface DeviceLists {
@@ -92,6 +95,8 @@ function CallOverlay(): JSX.Element | null {
   const kind = useCallStore((s) => s.kind)
   const isMuted = useCallStore((s) => s.isMuted)
   const isCameraOn = useCallStore((s) => s.isCameraOn)
+  const isScreenSharing = useCallStore((s) => s.isScreenSharing)
+  const screenSourceLabel = useCallStore((s) => s.screenSourceLabel)
   const isLocalSpeaking = useCallStore((s) => s.isLocalSpeaking)
   const isRemoteSpeaking = useCallStore((s) => s.isRemoteSpeaking)
   const startedAt = useCallStore((s) => s.startedAt)
@@ -102,6 +107,8 @@ function CallOverlay(): JSX.Element | null {
   const end = useCallStore((s) => s.end)
   const toggleMute = useCallStore((s) => s.toggleMute)
   const toggleCamera = useCallStore((s) => s.toggleCamera)
+  const startScreenShareFromSource = useCallStore((s) => s.startScreenShareFromSource)
+  const stopScreenShare = useCallStore((s) => s.stopScreenShare)
   const self = useIdentityStore((s) => s.identity)
 
   // Mic + speaker come from the global audio prefs (same selection used in
@@ -114,6 +121,7 @@ function CallOverlay(): JSX.Element | null {
   const setCameraDevice = useCallStore((s) => s.setCameraDevice)
 
   const [showSettings, setShowSettings] = useState(false)
+  const [sharePickerOpen, setSharePickerOpen] = useState(false)
   const devices = useMediaDevices(showSettings)
   const peerRtt = useNetStatsStore((s) => s.rttMs)
 
@@ -143,11 +151,16 @@ function CallOverlay(): JSX.Element | null {
 
   useEffect(() => registerAudioSink(audioRef.current), [remoteStream])
 
+  useEffect(() => {
+    if (status !== 'active') setSharePickerOpen(false)
+  }, [status])
+
   if (status === 'idle' || !peerId) return null
 
   const duration = startedAt ? now - startedAt : 0
   const hasRemoteVideo = !!remoteStream && remoteStream.getVideoTracks().some((t) => t.enabled && !t.muted)
   const hasLocalVideo = !!localStream && localStream.getVideoTracks().some((t) => t.enabled && !t.muted)
+  const hasLocalVideoSource = isCameraOn || isScreenSharing
   const showVideoSurface = status === 'active' && kind === 'video'
   const showRemoteVideo = showVideoSurface && hasRemoteVideo
   const callTypeLabel = kind === 'video' ? 'Direct Video' : 'Direct Voice'
@@ -186,20 +199,22 @@ function CallOverlay(): JSX.Element | null {
           </div>
 
           {status === 'incoming' && (
-            <div className="relative mt-7 flex items-center justify-center gap-4">
+            <div className="relative mt-7 grid grid-cols-2 gap-3">
               <button
                 onClick={decline}
-                className="mesh-pressable mesh-icon-button mesh-icon-phone grid h-12 w-12 place-items-center rounded-full bg-mesh-danger text-white shadow-[0_14px_32px_rgba(229,72,77,0.28)] transition hover:opacity-90"
+                className="mesh-pressable mesh-icon-button mesh-icon-phone flex h-12 items-center justify-center gap-2 rounded-full border border-mesh-danger/35 bg-mesh-danger text-sm font-bold text-white shadow-[0_14px_32px_rgba(229,72,77,0.30)] transition hover:opacity-90"
                 title="Decline"
               >
                 <PhoneOff className="h-5 w-5" />
+                Decline
               </button>
               <button
                 onClick={accept}
-                className="mesh-pressable mesh-icon-button mesh-icon-phone grid h-12 w-12 place-items-center rounded-full bg-mesh-green text-white shadow-[0_14px_32px_rgba(35,165,89,0.28)] transition hover:bg-mesh-green-light"
-                title="Accept"
+                className="mesh-pressable mesh-icon-button mesh-icon-phone flex h-12 items-center justify-center gap-2 rounded-full border border-mesh-green/35 bg-mesh-green text-sm font-bold text-white shadow-[0_14px_32px_rgba(35,165,89,0.34)] transition hover:bg-mesh-green-light"
+                title="Receive call"
               >
-                <Phone className="h-5 w-5" />
+                <PhoneCall className="h-5 w-5" />
+                Receive
               </button>
             </div>
           )}
@@ -223,7 +238,8 @@ function CallOverlay(): JSX.Element | null {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-mesh-bg-primary text-mesh-text-primary">
+    <div className="pointer-events-none fixed inset-0 z-50 text-mesh-text-primary">
+      <div className="pointer-events-auto absolute bottom-4 right-4 top-14 flex w-[min(460px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-mesh-border/70 bg-mesh-bg-primary/95 shadow-[0_28px_90px_rgba(0,0,0,0.48),inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-xl">
       <header className="flex h-14 shrink-0 items-center justify-between border-b border-mesh-border/60 bg-mesh-bg-secondary/80 px-4 backdrop-blur">
         <div className="flex min-w-0 items-center gap-3">
           <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-mesh-green/25 bg-mesh-green/12 text-mesh-green">
@@ -308,18 +324,24 @@ function CallOverlay(): JSX.Element | null {
               </div>
             )}
 
-            {isCameraOn && hasLocalVideo && (
+            {hasLocalVideoSource && hasLocalVideo && (
               <div className="mesh-hover-lift absolute bottom-4 right-4 aspect-video w-44 overflow-hidden rounded-xl border border-mesh-border/70 bg-black shadow-[0_18px_46px_rgba(0,0,0,0.35)]">
-                <video ref={localVideoRef} autoPlay playsInline muted className="h-full w-full -scale-x-100 object-cover" />
+                <video
+                  ref={localVideoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className={cn('h-full w-full object-cover', isCameraOn && !isScreenSharing && '-scale-x-100')}
+                />
                 <div className="absolute bottom-2 left-2 rounded-md bg-black/60 px-2 py-0.5 text-[10px] font-semibold text-white">
-                  You
+                  {isScreenSharing ? (screenSourceLabel || 'Screen') : 'You'}
                 </div>
               </div>
             )}
           </div>
         </section>
 
-        <aside className="relative hidden w-72 shrink-0 border-l border-mesh-border/60 bg-mesh-bg-secondary/55 p-4 xl:block">
+        <aside className="relative hidden w-72 shrink-0 border-l border-mesh-border/60 bg-mesh-bg-secondary/55 p-4">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-xs font-bold uppercase tracking-wide text-mesh-text-muted">In call</h3>
             <span className="rounded-full border border-mesh-border/60 bg-mesh-bg-tertiary px-2 py-0.5 text-[10px] font-bold text-mesh-text-muted">
@@ -383,6 +405,17 @@ function CallOverlay(): JSX.Element | null {
           {isCameraOn ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
         </CallControlButton>
         <CallControlButton
+          title={isScreenSharing ? 'Stop sharing' : 'Share screen'}
+          iconMotion="video"
+          active={isScreenSharing}
+          onClick={() => {
+            if (isScreenSharing) stopScreenShare()
+            else setSharePickerOpen(true)
+          }}
+        >
+          {isScreenSharing ? <ScreenShareOff className="h-5 w-5" /> : <ScreenShare className="h-5 w-5" />}
+        </CallControlButton>
+        <CallControlButton
           title="End call"
           iconMotion="phone"
           danger
@@ -395,6 +428,14 @@ function CallOverlay(): JSX.Element | null {
       </footer>
 
       <audio ref={audioRef} autoPlay />
+      </div>
+      <StreamPickerModal
+        isOpen={sharePickerOpen}
+        onClose={() => setSharePickerOpen(false)}
+        initialTab="screens"
+        title="Share in call"
+        onShare={startScreenShareFromSource}
+      />
     </div>
   )
 }

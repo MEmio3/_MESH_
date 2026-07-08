@@ -1,5 +1,5 @@
 import { useParams } from 'react-router-dom'
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { MessageSquare, X, ShieldOff, UserPlus } from 'lucide-react'
 import { useMessagesStore } from '@/stores/messages.store'
 import { useIdentityStore } from '@/stores/identity.store'
@@ -47,6 +47,7 @@ function DmConversationPage(): JSX.Element {
   const replyMessageRequest = useFriendsStore((s) => s.replyMessageRequest)
   const blockFromMessageRequest = useFriendsStore((s) => s.blockFromMessageRequest)
   const sendFriendRequest = useFriendsStore((s) => s.sendFriendRequest)
+  const friends = useFriendsStore((s) => s.friends)
 
   // Accept either a conversation id ("dm_usr_xxx") or a bare friend id ("usr_xxx").
   const normalizedId = dmId
@@ -56,6 +57,13 @@ function DmConversationPage(): JSX.Element {
     : undefined
   const otherUserId = normalizedId ? normalizedId.replace(/^dm_/, '') : undefined
   const conversation = conversations.find((c) => c.id === normalizedId)
+  const displayConversation = useMemo(() => {
+    if (!conversation) return null
+    const friend = friends.find((f) => f.userId === conversation.recipientId)
+    return friend?.username && friend.username !== conversation.recipientName
+      ? { ...conversation, recipientName: friend.username }
+      : conversation
+  }, [conversation, friends])
   const [autoCreateTried, setAutoCreateTried] = useState(false)
 
   // Find a pending message request for this user (only used when no conversation exists).
@@ -306,7 +314,7 @@ function DmConversationPage(): JSX.Element {
     <div className="flex h-full">
       <div className="flex flex-col h-full flex-1 min-w-0">
       <ChatHeader
-        conversation={conversation}
+        conversation={displayConversation ?? conversation}
         profileOpen={showProfile}
         onToggleProfile={() => {
           setShowProfile((v) => {
@@ -317,7 +325,7 @@ function DmConversationPage(): JSX.Element {
       />
       <MessageFeed
         messages={mergedMessages}
-        recipientName={conversation.recipientName}
+        recipientName={(displayConversation ?? conversation).recipientName}
         onEditMessage={(messageId, newContent) => {
           // History messages (from the legacy message-request thread) are
           // read-only — editing is only valid against the DM table entries.
@@ -339,7 +347,7 @@ function DmConversationPage(): JSX.Element {
       {peerTyping && (
         <div className="px-4 pb-1">
           <span className="text-xs italic text-mesh-text-muted inline-flex items-center gap-1">
-            {conversation.recipientName} is typing
+            {(displayConversation ?? conversation).recipientName} is typing
             <span className="inline-flex gap-0.5">
               <span className="h-1 w-1 rounded-full bg-mesh-text-muted inline-block animate-bounce [animation-delay:0ms]" />
               <span className="h-1 w-1 rounded-full bg-mesh-text-muted inline-block animate-bounce [animation-delay:150ms]" />
@@ -365,7 +373,7 @@ function DmConversationPage(): JSX.Element {
       )}
 
       <MessageInput
-        recipientName={conversation.recipientName}
+        recipientName={(displayConversation ?? conversation).recipientName}
         onSend={(content, replyTo) => {
           sendMessage(conversation.id, content, replyTo)
           setReplyTarget(null)
@@ -381,7 +389,7 @@ function DmConversationPage(): JSX.Element {
       {showProfile && (
         <UserProfileCard
           userId={conversation.recipientId}
-          username={conversation.recipientName}
+          username={(displayConversation ?? conversation).recipientName}
           className="h-full w-80 shrink-0 border-l border-mesh-border/50"
         />
       )}

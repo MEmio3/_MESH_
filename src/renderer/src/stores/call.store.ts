@@ -18,14 +18,16 @@ import { create } from 'zustand'
 import { mediaEngine } from '@/lib/media-engine'
 import { useIdentityStore } from './identity.store'
 import { useAudioPrefsStore } from './audioPrefs.store'
-import { useVoiceStore } from './voice.store'
+import { useVoiceStore, type StreamQuality, type StreamSource } from './voice.store'
 import {
   startIncomingRing,
   stopIncomingRing,
   playOutgoingDial,
   playCallConnect,
   playCallDisconnect,
-  playCallReject
+  playCallReject,
+  playStreamStart,
+  playStreamStop
 } from '@/lib/sounds'
 
 type CallStatus = 'idle' | 'outgoing' | 'incoming' | 'active' | 'declined'
@@ -37,6 +39,8 @@ interface CallState {
   kind: 'voice' | 'video'
   isMuted: boolean
   isCameraOn: boolean
+  isScreenSharing: boolean
+  screenSourceLabel: string | null
   isLocalSpeaking: boolean
   isRemoteSpeaking: boolean
   startedAt: number | null
@@ -57,6 +61,8 @@ interface CallState {
   end: (notifyPeer?: boolean) => void
   toggleMute: () => void
   toggleCamera: () => Promise<void>
+  startScreenShareFromSource: (source: StreamSource, quality: StreamQuality) => Promise<void>
+  stopScreenShare: () => void
   setMicDevice: (deviceId: string | null) => Promise<void>
   setCameraDevice: (deviceId: string | null) => Promise<void>
   setSpeakerDevice: (deviceId: string | null) => void
@@ -129,6 +135,36 @@ async function startMedia(
   return new MediaStream()
 }
 
+function resolveQuality(q: StreamQuality): { width: number; height: number; frameRate: number; bitrate: number } {
+  return q === 'HD'
+    ? { width: 1920, height: 1080, frameRate: 60, bitrate: 4_500_000 }
+    : { width: 1280, height: 720, frameRate: 30, bitrate: 2_500_000 }
+}
+
+async function captureStreamSource(source: StreamSource, quality: StreamQuality): Promise<MediaStream> {
+  const { width, height, frameRate } = resolveQuality(quality)
+  if (source.kind === 'camera') {
+    return navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: source.deviceId ? { deviceId: { exact: source.deviceId } } : true
+    })
+  }
+
+  return navigator.mediaDevices.getUserMedia({
+    audio: false,
+    video: {
+      // @ts-expect-error - Electron desktop-capture constraint.
+      mandatory: {
+        chromeMediaSource: 'desktop',
+        chromeMediaSourceId: source.sourceId,
+        maxWidth: width,
+        maxHeight: height,
+        maxFrameRate: frameRate
+      }
+    }
+  })
+}
+
 const persisted = readPersistedDevices()
 
 // Auto-give-up timer for an outgoing invite that never gets answered (e.g. the
@@ -148,6 +184,8 @@ export const useCallStore = create<CallState>((set, get) => ({
   kind: 'voice',
   isMuted: false,
   isCameraOn: false,
+  isScreenSharing: false,
+  screenSourceLabel: null,
   isLocalSpeaking: false,
   isRemoteSpeaking: false,
   startedAt: null,
@@ -166,6 +204,8 @@ export const useCallStore = create<CallState>((set, get) => ({
       kind,
       isMuted: false,
       isCameraOn: kind === 'video',
+      isScreenSharing: false,
+      screenSourceLabel: null,
       isLocalSpeaking: false,
       isRemoteSpeaking: false,
       startedAt: null,
@@ -200,6 +240,8 @@ export const useCallStore = create<CallState>((set, get) => ({
       kind,
       isMuted: false,
       isCameraOn: kind === 'video',
+      isScreenSharing: false,
+      screenSourceLabel: null,
       isLocalSpeaking: false,
       isRemoteSpeaking: false,
       startedAt: null,
@@ -225,7 +267,7 @@ export const useCallStore = create<CallState>((set, get) => ({
       const { cameraDeviceId } = get()
       const local = await startMedia(kind, prefs.inputDeviceId, cameraDeviceId)
       const cameraOn = local.getVideoTracks().some((t) => t.readyState === 'live')
-      set({ status: 'active', startedAt: Date.now(), localStream: local, isCameraOn: cameraOn })
+      set({ status: 'active', startedAt: Date.now(), localStream: local, isCameraOn: cameraOn, isScreenSharing: false, screenSourceLabel: null })
       // Both peers sit in the SAME signaling room; the host relays media
       // packets between everyone in it.
       const room = callRoomFor(selfId, peerId)
@@ -252,6 +294,8 @@ export const useCallStore = create<CallState>((set, get) => ({
       localStream: null,
       isMuted: false,
       isCameraOn: false,
+      isScreenSharing: false,
+      screenSourceLabel: null,
       isLocalSpeaking: false,
       isRemoteSpeaking: false
     })
@@ -272,7 +316,7 @@ export const useCallStore = create<CallState>((set, get) => ({
       const { cameraDeviceId } = get()
       const local = await startMedia(kind, prefs.inputDeviceId, cameraDeviceId)
       const cameraOn = local.getVideoTracks().some((t) => t.readyState === 'live')
-      set({ status: 'active', startedAt: Date.now(), localStream: local, isCameraOn: cameraOn })
+      set({ status: 'active', startedAt: Date.now(), localStream: local, isCameraOn: cameraOn, isScreenSharing: false, screenSourceLabel: null })
       const room = callRoomFor(selfId, peerId)
       mediaEngine.joinRoom(room)
       window.api.signaling.emit('join-room', room)
@@ -299,6 +343,8 @@ export const useCallStore = create<CallState>((set, get) => ({
           localStream: null,
           isMuted: false,
           isCameraOn: false,
+          isScreenSharing: false,
+          screenSourceLabel: null,
           isLocalSpeaking: false,
           isRemoteSpeaking: false
         })
@@ -331,6 +377,8 @@ export const useCallStore = create<CallState>((set, get) => ({
       localStream: null,
       isMuted: false,
       isCameraOn: false,
+      isScreenSharing: false,
+      screenSourceLabel: null,
       isLocalSpeaking: false,
       isRemoteSpeaking: false
     })
@@ -347,17 +395,18 @@ export const useCallStore = create<CallState>((set, get) => ({
     if (isCameraOn) {
       mediaEngine.stopVideo()
       localStream?.getVideoTracks().forEach((t) => t.stop())
-      set({ isCameraOn: false, localStream: new MediaStream() })
+      set({ isCameraOn: false, isScreenSharing: false, screenSourceLabel: null, localStream: new MediaStream() })
       if (peerId && status === 'active') {
         window.api.signaling.emit('call-video-state', peerId, { enabled: false })
       }
     } else {
       try {
+        localStream?.getVideoTracks().forEach((t) => t.stop())
         const cam = await navigator.mediaDevices.getUserMedia({
           video: cameraDeviceId ? { deviceId: { exact: cameraDeviceId } } : true
         })
         await mediaEngine.attachVideoStream(cam, 'camera', 2_500_000)
-        set({ isCameraOn: true, kind: 'video', localStream: cam })
+        set({ isCameraOn: true, isScreenSharing: false, screenSourceLabel: null, kind: 'video', localStream: cam })
         if (peerId && status === 'active') {
           window.api.signaling.emit('call-video-state', peerId, { enabled: true })
         }
@@ -365,6 +414,48 @@ export const useCallStore = create<CallState>((set, get) => ({
         console.warn('Failed to start camera:', err)
       }
     }
+  },
+
+  startScreenShareFromSource: async (source, quality) => {
+    const { status, peerId, localStream } = get()
+    if (status !== 'active') return
+    try {
+      const stream = await captureStreamSource(source, quality)
+      const { bitrate } = resolveQuality(quality)
+      mediaEngine.stopVideo()
+      localStream?.getVideoTracks().forEach((t) => t.stop())
+      await mediaEngine.attachVideoStream(stream, source.kind === 'camera' ? 'camera' : 'screen', bitrate)
+      stream.getVideoTracks()[0]?.addEventListener('ended', () => {
+        useCallStore.getState().stopScreenShare()
+      })
+      const isCameraSource = source.kind === 'camera'
+      set({
+        kind: 'video',
+        isCameraOn: isCameraSource,
+        isScreenSharing: !isCameraSource,
+        screenSourceLabel: isCameraSource ? null : (source.label || 'Screen'),
+        localStream: stream
+      })
+      if (peerId) window.api.signaling.emit('call-video-state', peerId, { enabled: true })
+      playStreamStart()
+    } catch (err) {
+      console.warn('Failed to start call screen share:', err)
+    }
+  },
+
+  stopScreenShare: () => {
+    const { isScreenSharing, peerId, status, localStream } = get()
+    if (!isScreenSharing) return
+    mediaEngine.stopVideo()
+    localStream?.getVideoTracks().forEach((t) => t.stop())
+    set({
+      isScreenSharing: false,
+      isCameraOn: false,
+      screenSourceLabel: null,
+      localStream: new MediaStream()
+    })
+    if (peerId && status === 'active') window.api.signaling.emit('call-video-state', peerId, { enabled: false })
+    playStreamStop()
   },
 
   setMicDevice: async (deviceId) => {
