@@ -8,6 +8,7 @@ import { useIdentityStore } from '@/stores/identity.store'
 import { useSettingsStore, type KnownNetwork, type ServerHostAssignment } from '@/stores/settings.store'
 import { useServersStore } from '@/stores/servers.store'
 import { useServerAvatarStore } from '@/stores/serverAvatar.store'
+import { encodeConnectionCode, resolveConnectionInput } from '@/lib/connection-code'
 
 type IpScope = 'home' | 'isp' | 'public'
 
@@ -195,6 +196,9 @@ function NetworkCenterPage(): JSX.Element {
       tone: 'busy' as const
     }
   })()
+  // Share the obfuscated code, not the bare IP — the raw address stays tucked
+  // away under "Connection details" for anyone who needs it.
+  const shareCode = sharePlan.address ? encodeConnectionCode(sharePlan.address) : null
 
   const knownNetworks = useMemo(() => {
     const seen = new Set<string>([activeUrl.toLowerCase()])
@@ -290,9 +294,11 @@ function NetworkCenterPage(): JSX.Element {
       setNotice('Create your profile first, then connect.')
       return
     }
-    const url = normalizeNetworkUrl(urlInput)
+    // Accept a MESH connection code OR a raw IP:port/URL. A code decodes back
+    // to its address; anything else is treated as a normal URL.
+    const url = normalizeNetworkUrl(resolveConnectionInput(urlInput))
     if (!url) {
-      setNotice('Enter an IP:port or host URL.')
+      setNotice('Enter a MESH code or IP:port.')
       return
     }
     setReconnectState('connecting')
@@ -574,7 +580,7 @@ function NetworkCenterPage(): JSX.Element {
                 value={urlDraft}
                 onChange={(e) => setUrlDraft(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && connectTo(urlDraft)}
-                placeholder="192.168.0.23:3000"
+                placeholder="Paste a MESH-code or 192.168.0.23:3000"
                 className="h-9 min-w-0 rounded-md border border-mesh-border bg-mesh-bg-primary px-3 font-mono text-xs text-mesh-text-primary outline-none placeholder:text-mesh-text-muted focus:border-mesh-green/60"
               />
               <Button size="sm" disabled={reconnectState === 'connecting'} onClick={() => connectTo(urlDraft)}>
@@ -702,20 +708,22 @@ function NetworkCenterPage(): JSX.Element {
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-bold text-mesh-text-primary">{sharePlan.title}</div>
-                    {sharePlan.address && (
-                      <div className="mt-1 truncate font-mono text-sm text-mesh-green">{sharePlan.address}</div>
+                    {shareCode && (
+                      <div className="mt-1 break-all font-mono text-sm text-mesh-green">{shareCode}</div>
                     )}
-                    <p className="mt-1 text-xs leading-relaxed text-mesh-text-muted">{sharePlan.note}</p>
+                    <p className="mt-1 text-xs leading-relaxed text-mesh-text-muted">
+                      {sharePlan.note} Share this code — your IP stays hidden.
+                    </p>
                   </div>
                 </div>
-                {sharePlan.address ? (
+                {shareCode ? (
                   <Button
                     className="mt-3 w-full"
                     variant={sharePlan.tone === 'blocked' ? 'secondary' : 'primary'}
-                    onClick={() => copyToClipboard(sharePlan.address!, setCopied)}
+                    onClick={() => copyToClipboard(shareCode, setCopied)}
                   >
-                    {copied === sharePlan.address ? <Check className="mr-2 h-4 w-4" /> : <Copy className="mr-2 h-4 w-4" />}
-                    {copied === sharePlan.address ? 'Copied' : sharePlan.button}
+                    {copied === shareCode ? <Check className="mr-2 h-4 w-4" /> : <Copy className="mr-2 h-4 w-4" />}
+                    {copied === shareCode ? 'Copied' : 'Copy invite code'}
                   </Button>
                 ) : (
                   <Button className="mt-3 w-full" onClick={() => toggleHost(true)}>
@@ -887,7 +895,7 @@ function NetworkCenterPage(): JSX.Element {
                           <span>{server.memberCount} members</span>
                         </div>
                       </div>
-                      <Button size="sm" variant="secondary" onClick={() => copyToClipboard(`${inviteAddress} / ${server.id}`, setCopied)}>
+                      <Button size="sm" variant="secondary" onClick={() => copyToClipboard(`${encodeConnectionCode(inviteAddress)} / ${server.id}`, setCopied)}>
                         Copy
                       </Button>
                       <Button size="sm" variant="ghost" onClick={() => navigate(`/channels/${server.id}`)}>

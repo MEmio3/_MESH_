@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { useServersStore } from '@/stores/servers.store'
 import { useIdentityStore } from '@/stores/identity.store'
 import { useSettingsStore } from '@/stores/settings.store'
+import { decodeConnectionCode } from '@/lib/connection-code'
 
 interface CreateServerModalProps {
   isOpen: boolean
@@ -47,9 +48,13 @@ function parseInvite(input: string): ParsedInvite | null {
 
   const serverId = raw.match(/srv_[A-Za-z0-9_-]+/)?.[0] ?? ''
   if (!serverId) return null
+  // A shared invite is "MESH-<code> / srv_...". Decode the code back to the
+  // host address; fall back to a raw URL / IP:port if no code is present.
+  const codeMatch = raw.match(/MESH-[A-Za-z0-9_-]+/i)?.[0]
+  const decodedHost = codeMatch ? decodeConnectionCode(codeMatch) : null
   const hostMatch = raw.match(/https?:\/\/[^\s/]+(?::\d+)?/i)?.[0]
     ?? raw.match(/(?:\b|^)(?:localhost|(?:\d{1,3}\.){3}\d{1,3}|[a-z0-9.-]+\.[a-z]{2,})(?::\d{1,5})(?:\b|$)/i)?.[0]
-  return { serverId, hostUrl: normalizeHostUrl(hostMatch) }
+  return { serverId, hostUrl: decodedHost ?? normalizeHostUrl(hostMatch) }
 }
 
 function CreateServerModal({ isOpen, onClose }: CreateServerModalProps): JSX.Element {
