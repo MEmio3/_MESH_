@@ -46,16 +46,20 @@ function allSocialSockets(): Socket[] {
   const out: Socket[] = []
   if (socket) out.push(socket)
   for (const s of secondaryHosts.values()) out.push(s)
+  for (const s of auxiliarySockets.values()) out.push(s)
   return out
 }
 function socketForHostUrl(url: string): Socket | null {
   if (normalizeUrl(url) === normalizeUrl(currentUrl)) return socket
-  return secondaryHosts.get(normalizeUrl(url)) ?? null
+  return secondaryHosts.get(normalizeUrl(url)) ?? auxiliarySockets.get(normalizeUrl(url)) ?? null
 }
 function listHostUrls(): string[] {
   const urls = new Set<string>()
   if (socket?.connected && currentUrl) urls.add(normalizeUrl(currentUrl))
   for (const [url, s] of secondaryHosts) {
+    if (s.connected) urls.add(url)
+  }
+  for (const [url, s] of auxiliarySockets) {
     if (s.connected) urls.add(url)
   }
   return [...urls]
@@ -68,8 +72,26 @@ const BROADCAST_EVENTS = new Set<string>([
   'status:update',
   'status:set-friends'
 ])
+const REPLAYABLE_BROADCAST_EVENTS = new Set<string>([
+  'presence:update',
+  'status:update',
+  'status:set-friends'
+])
+const replayableBroadcasts = new Map<string, unknown[]>()
+
 function isBroadcastEvent(event: string): boolean {
   return BROADCAST_EVENTS.has(event) || event.startsWith('friend-request:') || event.startsWith('message-request:')
+}
+
+function rememberReplayableBroadcast(event: string, args: unknown[]): void {
+  if (REPLAYABLE_BROADCAST_EVENTS.has(event)) replayableBroadcasts.set(event, args)
+}
+
+function replaySocialState(target: Socket): void {
+  if (!target.connected) return
+  for (const [event, args] of replayableBroadcasts) {
+    target.emit(event, ...args)
+  }
 }
 // Peer-targeted realtime events: route to the host where the peer is present.
 function targetUserIdFor(event: string, args: unknown[]): string | null {
@@ -210,9 +232,11 @@ function routeForEvent(event: string, args: unknown[]): { url: string; userId: s
   return null
 }
 
-function attachAuxiliaryHandlers(aux: Socket, userId: string): void {
+function attachAuxiliaryHandlers(aux: Socket, userId: string, url: string): void {
   aux.on('connect', () => {
     aux.emit('register-user', userId)
+    aux.emit('connection-role', 'auxiliary')
+    replaySocialState(aux)
   })
   aux.on('connect_error', (err) => {
     console.warn('[socket-client] auxiliary connection failed:', err.message)
@@ -234,6 +258,75 @@ function attachAuxiliaryHandlers(aux: Socket, userId: string): void {
   })
   aux.on('media:keyframe-request', (roomId: string, fromUserId?: string) => {
     sendToRenderer('signaling:media:keyframe-request', roomId, fromUserId)
+  })
+  aux.on('dm-message', (fromUserId: string, message: string) => {
+    noteUserOnHost(fromUserId, url)
+    sendToRenderer('signaling:dm-message', fromUserId, message)
+  })
+  aux.on('dm-edit', (fromUserId: string, payload: unknown) => {
+    sendToRenderer('signaling:dm-edit', fromUserId, payload)
+  })
+  aux.on('dm-delete', (fromUserId: string, payload: unknown) => {
+    sendToRenderer('signaling:dm-delete', fromUserId, payload)
+  })
+  aux.on('dm-reaction', (fromUserId: string, payload: unknown) => {
+    sendToRenderer('signaling:dm-reaction', fromUserId, payload)
+  })
+  aux.on('call-invite', (fromUserId: string, callData: unknown) => {
+    noteUserOnHost(fromUserId, url)
+    sendToRenderer('signaling:call-invite', fromUserId, callData)
+  })
+  aux.on('call-accept', (fromUserId: string) => {
+    sendToRenderer('signaling:call-accept', fromUserId)
+  })
+  aux.on('call-reject', (fromUserId: string) => {
+    sendToRenderer('signaling:call-reject', fromUserId)
+  })
+  aux.on('call-unreachable', (targetUserId: string) => {
+    sendToRenderer('signaling:call-unreachable', targetUserId)
+  })
+  aux.on('call-end', (fromUserId: string) => {
+    sendToRenderer('signaling:call-end', fromUserId)
+  })
+  aux.on('call-video-state', (fromUserId: string, payload: unknown) => {
+    sendToRenderer('signaling:call-video-state', fromUserId, payload)
+  })
+  aux.on('friend-request:incoming', (payload: unknown) => {
+    noteUserOnHost((payload as { fromUserId?: string })?.fromUserId, url)
+    sendToRenderer('signaling:friend-request:incoming', payload)
+  })
+  aux.on('friend-request:accepted', (payload: unknown) => {
+    sendToRenderer('signaling:friend-request:accepted', payload)
+  })
+  aux.on('friend-request:rejected', (payload: unknown) => {
+    sendToRenderer('signaling:friend-request:rejected', payload)
+  })
+  aux.on('friend-request:cancelled', (payload: unknown) => {
+    sendToRenderer('signaling:friend-request:cancelled', payload)
+  })
+  aux.on('presence:changed', (payload: unknown) => {
+    const p = payload as { userId?: string; removed?: boolean }
+    if (p?.removed) userHosts.get(p.userId ?? '')?.delete(url)
+    else noteUserOnHost(p?.userId, url)
+    sendToRenderer('signaling:presence:changed', payload, url)
+  })
+  aux.on('presence:snapshot', (payload: unknown) => {
+    if (Array.isArray(payload)) for (const e of payload) noteUserOnHost((e as { userId?: string })?.userId, url)
+    sendToRenderer('signaling:presence:snapshot', payload, url)
+  })
+  aux.on('status:changed', (payload: unknown) => {
+    noteUserOnHost((payload as { userId?: string })?.userId, url)
+    sendToRenderer('signaling:status:changed', payload)
+  })
+  aux.on('status:snapshot', (payload: unknown) => {
+    sendToRenderer('signaling:status:snapshot', payload)
+  })
+  aux.on('message-request:incoming', (payload: unknown) => {
+    noteUserOnHost((payload as { fromUserId?: string })?.fromUserId, url)
+    sendToRenderer('signaling:message-request:incoming', payload)
+  })
+  aux.on('message-request:message-incoming', (payload: unknown) => {
+    sendToRenderer('signaling:message-request:message-incoming', payload)
   })
   for (const evt of serverEvents) {
     aux.on(evt, (payload: unknown) => {
@@ -313,7 +406,10 @@ export function connectSecondaryHost(serverUrl: string): void {
   secondaryHosts.set(url, sock)
   sock.on('connect', () => {
     sock.emit('register-user', currentUserId)
+    sock.emit('connection-role', 'secondary')
+    replaySocialState(sock)
     voiceUdp.configureHost(url, currentUserId)
+    sendToRenderer('signaling:connected')
     sendToRenderer('signaling:hosts-changed', listHostUrls())
   })
   sock.on('disconnect', () => {
@@ -355,7 +451,7 @@ function auxiliarySocketFor(serverUrl: string, userId: string): Socket {
     reconnection: false
   })
   auxiliarySockets.set(url, aux)
-  attachAuxiliaryHandlers(aux, userId)
+  attachAuxiliaryHandlers(aux, userId, url)
   return aux
 }
 
@@ -400,6 +496,8 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
     reconnectAttempts = 0
     sendToRenderer('signaling:reconnect-status', { state: 'connected' })
     socket!.emit('register-user', userId)
+    socket!.emit('connection-role', 'primary')
+    replaySocialState(socket!)
     voiceUdp.configureHost(serverUrl, userId)
     // Flush everything queued while we were offline, preserving order.
     if (pendingEmits.length > 0) {
@@ -597,6 +695,7 @@ export function disconnectFromSignaling(): void {
 }
 
 export function emitSignaling(event: string, ...args: unknown[]): void {
+  rememberReplayableBroadcast(event, args)
   const route = routeForEvent(event, args)
   if (route) {
     const routeUrl = normalizeUrl(route.url)
@@ -610,7 +709,7 @@ export function emitSignaling(event: string, ...args: unknown[]): void {
 
   // Self-announce + dedup-safe requests fan out to EVERY host we're on, so we
   // appear on all of them and friend requests find people wherever they are.
-  if (secondaryHosts.size > 0 && isBroadcastEvent(event)) {
+  if (isBroadcastEvent(event)) {
     const targets = allSocialSockets()
     if (targets.length > 0) {
       for (const s of targets) emitOnSocket(s, event, args)

@@ -122,8 +122,64 @@ setInterval(() => {
 
 // ── Socket.io Signaling ──
 
-// Track which userId maps to which socketId for DM routing
-const userSockets = new Map<string, string>()
+// Track every live socket for a user. A single app can legitimately have more
+// than one connection to the same host (primary, secondary, hosted-route helper).
+// Social delivery must hit all of them so events do not disappear into a helper
+// socket that was opened only for server routing.
+const userSockets = new Map<string, Set<string>>()
+
+function addUserSocket(userId: string, socketId: string): void {
+  let sockets = userSockets.get(userId)
+  if (!sockets) {
+    sockets = new Set()
+    userSockets.set(userId, sockets)
+  }
+  sockets.add(socketId)
+}
+
+function removeUserSocket(userId: string, socketId: string): boolean {
+  const sockets = userSockets.get(userId)
+  if (!sockets) return false
+  sockets.delete(socketId)
+  if (sockets.size === 0) {
+    userSockets.delete(userId)
+    return false
+  }
+  return true
+}
+
+function liveSocketIdsForUser(userId: string): string[] {
+  const sockets = userSockets.get(userId)
+  if (!sockets) return []
+  const live: string[] = []
+  for (const socketId of sockets) {
+    if (io.sockets.sockets.has(socketId)) live.push(socketId)
+    else sockets.delete(socketId)
+  }
+  if (sockets.size === 0) userSockets.delete(userId)
+  return live
+}
+
+function hasLiveUserSocket(userId: string): boolean {
+  return liveSocketIdsForUser(userId).length > 0
+}
+
+function firstLiveUserSocketId(userId: string): string | null {
+  return liveSocketIdsForUser(userId)[0] ?? null
+}
+
+function emitToUser(userId: string, event: string, ...args: unknown[]): boolean {
+  const liveSocketIds = liveSocketIdsForUser(userId)
+  const socialSocketIds = liveSocketIds.filter((socketId) => {
+    const target = io.sockets.sockets.get(socketId)
+    return target?.data.connectionRole !== 'auxiliary'
+  })
+  const socketIds = socialSocketIds.length > 0 ? socialSocketIds : liveSocketIds
+  for (const socketId of socketIds) {
+    io.to(socketId).emit(event, ...args)
+  }
+  return socketIds.length > 0
+}
 
 // ── Presence Registry (Task 4 — discovery) ──
 interface PresenceEntry {
@@ -163,8 +219,7 @@ function notifyObservers(userId: string): void {
     lastSeen: entry?.lastSeen ?? Date.now()
   }
   for (const observerId of obs) {
-    const sid = userSockets.get(observerId)
-    if (sid) io.to(sid).emit('status:changed', payload)
+    emitToUser(observerId, 'status:changed', payload)
   }
 }
 
@@ -203,7 +258,7 @@ const servers = new Map<string, ServerEntry>()
 
 app.get('/get-servers', (_req, res) => {
   const active = [...servers.values()]
-    .filter((entry) => Boolean(userSockets.get(entry.hostUserId)))
+    .filter((entry) => hasLiveUserSocket(entry.hostUserId))
     .map((entry) => ({
       id: entry.id,
       name: entry.name,
@@ -215,7 +270,7 @@ app.get('/get-servers', (_req, res) => {
       hostUsername: entry.hostUsername,
       hostAvatarColor: entry.hostAvatarColor,
       memberCount: entry.members.size,
-      onlineMemberCount: [...entry.members.keys()].filter((id) => userSockets.has(id)).length,
+      onlineMemberCount: [...entry.members.keys()].filter((id) => hasLiveUserSocket(id)).length,
       requiresPassword: Boolean(entry.passwordHash)
     }))
   res.json(active)
@@ -341,7 +396,7 @@ function rememberVoiceUdpEndpoint(userId: string, rinfo: RemoteInfo): void {
 function pruneVoiceUdpEndpoints(): void {
   const now = Date.now()
   for (const [userId, endpoint] of voiceUdpEndpoints) {
-    if (!userSockets.has(userId) || now - endpoint.lastSeen > 30000) {
+    if (!hasLiveUserSocket(userId) || now - endpoint.lastSeen > 30000) {
       voiceUdpEndpoints.delete(userId)
     }
   }
@@ -358,7 +413,7 @@ function sendVoiceUdpPacket(endpoint: VoiceUdpEndpoint, packet: Uint8Array): voi
 function relayVoiceUdpAudio(header: Record<string, unknown>, payload: Uint8Array, rinfo: RemoteInfo): void {
   const roomId = asNonEmptyString(header.roomId)
   const userId = asNonEmptyString(header.userId)
-  if (!roomId || !userId || !userSockets.has(userId)) return
+  if (!roomId || !userId || !hasLiveUserSocket(userId)) return
   const members = voiceRoomMembers.get(roomId)
   if (!members?.has(userId)) return
 
@@ -383,7 +438,7 @@ function handleVoiceUdpMessage(message: Buffer, rinfo: RemoteInfo): void {
   if (packet.kind === 'ping') {
     const userId = asNonEmptyString(packet.header.userId)
     const roomId = asNonEmptyString(packet.header.roomId)
-    if (!userId || !roomId || !userSockets.has(userId)) return
+    if (!userId || !roomId || !hasLiveUserSocket(userId)) return
     const members = voiceRoomMembers.get(roomId)
     if (!members?.has(userId)) return
     rememberVoiceUdpEndpoint(userId, rinfo)
@@ -570,11 +625,22 @@ function unregisterVoiceMember(roomId: string, userId: string, socketId: string)
   return true
 }
 
+const recentSocialEventIds = new Map<string, number>()
+
+function acceptSocialEventOnce(kind: string, id: unknown): boolean {
+  if (typeof id !== 'string' || id.trim().length === 0) return true
+  const now = Date.now()
+  for (const [key, seenAt] of recentSocialEventIds) {
+    if (now - seenAt > 60000) recentSocialEventIds.delete(key)
+  }
+  const key = `${kind}:${id}`
+  if (recentSocialEventIds.has(key)) return false
+  recentSocialEventIds.set(key, now)
+  return true
+}
+
 function deliverOrQueue(targetUserId: string, event: string, ...args: unknown[]): void {
-  const sid = userSockets.get(targetUserId)
-  if (sid) {
-    io.to(sid).emit(event, ...args)
-  } else {
+  if (!emitToUser(targetUserId, event, ...args)) {
     const q = offlineQueue.get(targetUserId) ?? []
     q.push({ event, args })
     offlineQueue.set(targetUserId, q)
@@ -595,12 +661,22 @@ function flushQueue(userId: string, socketId: string): void {
 
 io.on('connection', (socket) => {
   console.log(`[socket] connected: ${socket.id}`)
+  socket.data.connectionRole = 'primary'
 
   socket.on('register-user', (userId: string) => {
+    if (socket.data.userId && socket.data.userId !== userId) {
+      removeUserSocket(socket.data.userId, socket.id)
+    }
     socket.data.userId = userId
-    userSockets.set(userId, socket.id)
+    addUserSocket(userId, socket.id)
     console.log(`[socket] user registered: ${userId} -> ${socket.id}`)
     flushQueue(userId, socket.id)
+  })
+
+  socket.on('connection-role', (role: unknown) => {
+    socket.data.connectionRole = role === 'auxiliary' || role === 'secondary'
+      ? role
+      : 'primary'
   })
 
   // ── Presence / Discovery (Task 4) ──
@@ -677,21 +753,25 @@ io.on('connection', (socket) => {
   // ── Friend requests ──
   // Payload: { id, fromUserId, fromUsername, fromAvatarColor, toUserId, timestamp }
   socket.on('friend-request:send', (payload: { id: string; fromUserId: string; fromUsername: string; fromAvatarColor: string | null; toUserId: string; timestamp: number }) => {
+    if (!acceptSocialEventOnce('friend-request:send', payload.id)) return
     deliverOrQueue(payload.toUserId, 'friend-request:incoming', payload)
   })
 
   // Payload: { requestId, fromUserId (accepter), fromUsername, fromAvatarColor, toUserId (original sender) }
   socket.on('friend-request:accept', (payload: { requestId: string; fromUserId: string; fromUsername: string; fromAvatarColor: string | null; toUserId: string }) => {
+    if (!acceptSocialEventOnce('friend-request:accept', payload.requestId)) return
     deliverOrQueue(payload.toUserId, 'friend-request:accepted', payload)
   })
 
   // Payload: { requestId, fromUserId (rejecter), toUserId (original sender) }
   socket.on('friend-request:reject', (payload: { requestId: string; fromUserId: string; toUserId: string }) => {
+    if (!acceptSocialEventOnce('friend-request:reject', payload.requestId)) return
     deliverOrQueue(payload.toUserId, 'friend-request:rejected', payload)
   })
 
   // Payload: { requestId, fromUserId (canceller = original sender), toUserId (recipient) }
   socket.on('friend-request:cancel', (payload: { requestId: string; fromUserId: string; toUserId: string }) => {
+    if (!acceptSocialEventOnce('friend-request:cancel', payload.requestId)) return
     deliverOrQueue(payload.toUserId, 'friend-request:cancelled', payload)
   })
 
@@ -707,6 +787,7 @@ io.on('connection', (socket) => {
     content: string
     timestamp: number
   }) => {
+    if (!acceptSocialEventOnce('message-request:send', payload.messageId)) return
     deliverOrQueue(payload.toUserId, 'message-request:incoming', payload)
   })
 
@@ -720,6 +801,7 @@ io.on('connection', (socket) => {
     timestamp: number
     isReply: boolean
   }) => {
+    if (!acceptSocialEventOnce('message-request:message', payload.messageId)) return
     deliverOrQueue(payload.toUserId, 'message-request:message-incoming', payload)
   })
 
@@ -909,7 +991,7 @@ io.on('connection', (socket) => {
     // host briefly reconnected and hadn't re-registered yet, the stored
     // id pointed to a dead socket even though the user was actively online
     // — producing a false "Host offline" for people trying to join.
-    const hostSocketId = userSockets.get(entry.hostUserId)
+    const hostSocketId = firstLiveUserSocketId(entry.hostUserId)
     const hostSocket = hostSocketId ? io.sockets.sockets.get(hostSocketId) : null
     if (!hostSocket) {
       socket.emit('server:join-denied', {
@@ -971,7 +1053,7 @@ io.on('connection', (socket) => {
       hostUsername: entry.hostUsername,
       hostAvatarColor: entry.hostAvatarColor,
       members: serialiseMembers(entry),
-      onlineUserIds: [...entry.members.keys()].filter((id) => userSockets.has(id)),
+      onlineUserIds: [...entry.members.keys()].filter((id) => hasLiveUserSocket(id)),
       layout: entry.layout,
       roleNames: entry.roleNames,
       roles: entry.roles,
@@ -1040,8 +1122,7 @@ io.on('connection', (socket) => {
     entry.members.delete(payload.targetId)
     io.to(roomName(payload.serverId)).emit('server:member-kicked', { serverId: payload.serverId, userId: payload.targetId })
     // Also tell the target directly (in case they're offline from the room).
-    const sid = userSockets.get(payload.targetId)
-    if (sid) io.to(sid).emit('server:you-were-kicked', { serverId: payload.serverId })
+    emitToUser(payload.targetId, 'server:you-were-kicked', { serverId: payload.serverId })
   })
 
   socket.on('server:ban', (payload: { serverId: string; actorId: string; targetId: string }) => {
@@ -1052,8 +1133,7 @@ io.on('connection', (socket) => {
     entry.banned.add(payload.targetId)
     entry.members.delete(payload.targetId)
     io.to(roomName(payload.serverId)).emit('server:member-banned', { serverId: payload.serverId, userId: payload.targetId })
-    const sid = userSockets.get(payload.targetId)
-    if (sid) io.to(sid).emit('server:you-were-banned', { serverId: payload.serverId })
+    emitToUser(payload.targetId, 'server:you-were-banned', { serverId: payload.serverId })
   })
 
   socket.on('server:set-role', (payload: { serverId: string; actorId: string; targetId: string; role: 'moderator' | 'member' }) => {
@@ -1268,10 +1348,7 @@ io.on('connection', (socket) => {
 
   // Call signaling
   socket.on('call-invite', (targetUserId: string, callData: unknown) => {
-    const targetSocketId = userSockets.get(targetUserId)
-    if (targetSocketId) {
-      io.to(targetSocketId).emit('call-invite', socket.data.userId, callData)
-    } else {
+    if (!emitToUser(targetUserId, 'call-invite', socket.data.userId, callData)) {
       // Target isn't connected to THIS host. Calls are real-time and same-host
       // only (there's no offline queue for them), so tell the caller right away
       // instead of leaving them ringing into the void.
@@ -1280,33 +1357,21 @@ io.on('connection', (socket) => {
   })
 
   socket.on('call-accept', (targetUserId: string) => {
-    const targetSocketId = userSockets.get(targetUserId)
-    if (targetSocketId) {
-      io.to(targetSocketId).emit('call-accept', socket.data.userId)
-    }
+    emitToUser(targetUserId, 'call-accept', socket.data.userId)
   })
 
   socket.on('call-reject', (targetUserId: string) => {
-    const targetSocketId = userSockets.get(targetUserId)
-    if (targetSocketId) {
-      io.to(targetSocketId).emit('call-reject', socket.data.userId)
-    }
+    emitToUser(targetUserId, 'call-reject', socket.data.userId)
   })
 
   socket.on('call-end', (targetUserId: string) => {
-    const targetSocketId = userSockets.get(targetUserId)
-    if (targetSocketId) {
-      io.to(targetSocketId).emit('call-end', socket.data.userId)
-    }
+    emitToUser(targetUserId, 'call-end', socket.data.userId)
   })
 
   socket.on('call-video-state', (targetUserId: string, payload: { enabled?: boolean }) => {
-    const targetSocketId = userSockets.get(targetUserId)
-    if (targetSocketId) {
-      io.to(targetSocketId).emit('call-video-state', socket.data.userId, {
-        enabled: Boolean(payload?.enabled)
-      })
-    }
+    emitToUser(targetUserId, 'call-video-state', socket.data.userId, {
+      enabled: Boolean(payload?.enabled)
+    })
   })
 
   socket.on('disconnect', () => {
@@ -1338,8 +1403,8 @@ io.on('connection', (socket) => {
     // If a newer socket for the same user already registered, this disconnect
     // belongs to a stale socket and must not announce the user as offline.
     const disconnectedUserId = socket.data.userId as string | undefined
-    const isCurrentUserSocket = disconnectedUserId ? userSockets.get(disconnectedUserId) === socket.id : false
-    if (disconnectedUserId && isCurrentUserSocket) {
+    const hasRemainingUserSockets = disconnectedUserId ? removeUserSocket(disconnectedUserId, socket.id) : false
+    if (disconnectedUserId && !hasRemainingUserSockets) {
       for (const entry of servers.values()) {
         if (entry.hostSocketId === socket.id) {
           servers.delete(entry.id)
@@ -1363,12 +1428,17 @@ io.on('connection', (socket) => {
         for (const fid of subs) observedBy.get(fid)?.delete(disconnectedUserId)
         socketFriendSubs.delete(socket.id)
       }
-      userSockets.delete(disconnectedUserId)
       if (presence.has(disconnectedUserId)) {
         presence.delete(disconnectedUserId)
         io.emit('presence:changed', { userId: disconnectedUserId, removed: true })
       }
     } else if (disconnectedUserId) {
+      const replacementSocketId = firstLiveUserSocketId(disconnectedUserId)
+      if (replacementSocketId) {
+        for (const entry of servers.values()) {
+          if (entry.hostSocketId === socket.id) entry.hostSocketId = replacementSocketId
+        }
+      }
       socketFriendSubs.delete(socket.id)
     }
     console.log(`[socket] disconnected: ${socket.id} (${socket.data.userId || 'unknown'})`)
