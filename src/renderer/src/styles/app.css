@@ -1023,25 +1023,87 @@ html, body {
   animation: fade-in 0.15s ease-out;
 }
 
-/* ─────────────────────────── Nearby radar ─────────────────────────── */
-@keyframes radar-sweep {
-  to { transform: rotate(360deg); }
+/* Nearby map */
+@keyframes nearby-map-sweep {
+  to { transform: translate(-50%, -50%) rotate(360deg); }
 }
-@keyframes radar-ping {
-  0% { transform: scale(0.18); opacity: 0.55; }
-  70% { opacity: 0.12; }
-  100% { transform: scale(1); opacity: 0; }
+
+@keyframes nearby-map-self-pulse {
+  0% { transform: scale(0.48); opacity: 0.5; }
+  72% { opacity: 0.12; }
+  100% { transform: scale(1.5); opacity: 0; }
 }
-@keyframes radar-float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-4px); }
+
+@keyframes nearby-map-float {
+  0%, 100% { translate: 0 0; }
+  50% { translate: 0 -5px; }
 }
-@keyframes radar-blip-in {
-  0% { opacity: 0; transform: scale(0.4); }
-  60% { transform: scale(1.08); }
-  100% { opacity: 1; transform: scale(1); }
+
+.nearby-map-shell {
+  isolation: isolate;
 }
-.radar-sweep { animation: radar-sweep 4.5s linear infinite; }
-.radar-ping { animation: radar-ping 3.4s ease-out infinite; }
-.radar-float { animation: radar-float 3.6s ease-in-out infinite; }
-.radar-blip-in { animation: radar-blip-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+.nearby-map-shell::before {
+  content: '';
+  position: absolute;
+  inset: -22px 0 -18px;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    radial-gradient(34% 42% at 50% 50%, rgba(35, 255, 210, 0.14), transparent 70%),
+    radial-gradient(52% 58% at 66% 30%, rgba(93, 95, 239, 0.14), transparent 72%),
+    radial-gradient(82% 78% at 50% 50%, rgba(10, 18, 19, 0.94), transparent 86%);
+  mask-image: radial-gradient(80% 80% at 50% 50%, black 36%, transparent 90%);
+  opacity: 0.94;
+}
+
+.nearby-map-shell::after {
+  content: '';
+  position: absolute;
+  inset: -22px 0 -18px;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+    radial-gradient(circle, color-mix(in srgb, var(--color-mesh-text-muted) 30%, transparent) 1px, transparent 1.5px);
+  background-size: 88px 88px, 88px 88px, 22px 22px;
+  mask-image: radial-gradient(70% 70% at 50% 50%, black 28%, transparent 88%);
+  opacity: 0.72;
+}
+
+.nearby-map-sweep {
+  transform: translate(-50%, -50%) rotate(0deg);
+  transform-origin: center;
+  animation: nearby-map-sweep 6.8s linear infinite;
+  background:
+    conic-gradient(from -28deg, transparent 0deg, rgba(35,255,210,0.04) 18deg, rgba(35,255,210,0.28) 34deg, rgba(93,95,239,0.13) 50deg, transparent 76deg);
+  mask-image: radial-gradient(circle, transparent 9%, black 12%, rgba(0,0,0,0.78) 48%, transparent 68%);
+  filter: blur(0.6px);
+  opacity: 0.82;
+}
+
+.nearby-map-ring {
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(169, 255, 236, 0.16);
+  box-shadow:
+    inset 0 0 38px rgba(0, 0, 0, 0.62),
+    0 0 28px rgba(35, 255, 210, 0.07);
+}
+
+.nearby-map-ring-strong {
+  border-color: rgba(210, 255, 244, 0.42);
+  box-shadow:
+    inset 0 0 42px rgba(255, 255, 255, 0.045),
+    0 0 44px rgba(35, 255, 210, 0.23);
+}
+
+.nearby-map-self-pulse {
+  border: 1px solid color-mix(in srgb, var(--color-mesh-green) 50%, transparent);
+  background: radial-gradient(circle, color-mix(in srgb, var(--color-mesh-green) 20%, transparent), transparent 68%);
+  animation: nearby-map-self-pulse 2.8s ease-out infinite;
+}
+
+.nearby-map-node {
+  animation: nearby-map-float 3.8s ease-in-out infinite;
+}

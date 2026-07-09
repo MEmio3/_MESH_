@@ -85,31 +85,36 @@ function NearbyTab(): JSX.Element {
           )}
 
           <ul className="space-y-1">
-            {visible.map((u) => (
-              <li
-                key={u.userId}
-                className="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-mesh-bg-tertiary/50"
-              >
-                <Avatar fallback={u.username} size="sm" color={u.avatarColor} />
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm text-mesh-text-primary truncate">{u.username}</div>
-                  <div className="text-[11px] text-mesh-text-muted font-mono truncate">{u.userId}</div>
-                </div>
-                <button
-                  onClick={() => handleAdd(u)}
-                  disabled={busyId === u.userId}
-                  className="h-8 px-2.5 rounded-md text-xs flex items-center gap-1.5 text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary disabled:opacity-50"
+            {visible.map((u) => {
+              const hostCount = u.hostUrls?.length ?? 1
+              return (
+                <li
+                  key={u.userId}
+                  className="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-mesh-bg-tertiary/50"
                 >
-                  <UserPlus className="h-3.5 w-3.5" /> Add
-                </button>
-                <button
-                  onClick={() => handleMessage(u)}
-                  className="h-8 px-2.5 rounded-md text-xs flex items-center gap-1.5 text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary"
-                >
-                  <MessageSquare className="h-3.5 w-3.5" /> Message
-                </button>
-              </li>
-            ))}
+                  <Avatar fallback={u.username} size="sm" color={u.avatarColor} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm text-mesh-text-primary truncate">{u.username}</div>
+                    <div className="text-[11px] text-mesh-text-muted font-mono truncate">
+                      {u.userId} - {hostCount} shared host{hostCount === 1 ? '' : 's'}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleAdd(u)}
+                    disabled={busyId === u.userId}
+                    className="h-8 px-2.5 rounded-md text-xs flex items-center gap-1.5 text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary disabled:opacity-50"
+                  >
+                    <UserPlus className="h-3.5 w-3.5" /> Add
+                  </button>
+                  <button
+                    onClick={() => handleMessage(u)}
+                    className="h-8 px-2.5 rounded-md text-xs flex items-center gap-1.5 text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary"
+                  >
+                    <MessageSquare className="h-3.5 w-3.5" /> Message
+                  </button>
+                </li>
+              )
+            })}
           </ul>
         </>
       )}

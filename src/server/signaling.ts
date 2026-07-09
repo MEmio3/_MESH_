@@ -1185,35 +1185,41 @@ io.on('connection', (socket) => {
     }
     socketVoiceRooms.delete(socket.id)
     // Remove user from any server member lists they're in and notify rooms.
-    if (socket.data.userId) {
+    // If a newer socket for the same user already registered, this disconnect
+    // belongs to a stale socket and must not announce the user as offline.
+    const disconnectedUserId = socket.data.userId as string | undefined
+    const isCurrentUserSocket = disconnectedUserId ? userSockets.get(disconnectedUserId) === socket.id : false
+    if (disconnectedUserId && isCurrentUserSocket) {
       for (const entry of servers.values()) {
         if (entry.hostSocketId === socket.id) {
           servers.delete(entry.id)
           io.to(roomName(entry.id)).emit('server:error', { serverId: entry.id, reason: 'Host disconnected, server closed.' })
-        } else if (entry.members.has(socket.data.userId)) {
-          entry.members.delete(socket.data.userId)
-          socket.to(roomName(entry.id)).emit('server:member-left', { serverId: entry.id, userId: socket.data.userId })
+        } else if (entry.members.has(disconnectedUserId)) {
+          entry.members.delete(disconnectedUserId)
+          socket.to(roomName(entry.id)).emit('server:member-left', { serverId: entry.id, userId: disconnectedUserId })
         }
       }
       // Mark user offline and notify their observers.
-      const existing = statusMap.get(socket.data.userId)
-      statusMap.set(socket.data.userId, {
+      const existing = statusMap.get(disconnectedUserId)
+      statusMap.set(disconnectedUserId, {
         status: 'offline',
         invisible: existing?.invisible ?? false,
         lastSeen: Date.now()
       })
-      notifyObservers(socket.data.userId)
+      notifyObservers(disconnectedUserId)
       // Remove self from observer lists of anyone this socket subscribed to.
       const subs = socketFriendSubs.get(socket.id)
       if (subs) {
-        for (const fid of subs) observedBy.get(fid)?.delete(socket.data.userId)
+        for (const fid of subs) observedBy.get(fid)?.delete(disconnectedUserId)
         socketFriendSubs.delete(socket.id)
       }
-      userSockets.delete(socket.data.userId)
-      if (presence.has(socket.data.userId)) {
-        presence.delete(socket.data.userId)
-        io.emit('presence:changed', { userId: socket.data.userId, removed: true })
+      userSockets.delete(disconnectedUserId)
+      if (presence.has(disconnectedUserId)) {
+        presence.delete(disconnectedUserId)
+        io.emit('presence:changed', { userId: disconnectedUserId, removed: true })
       }
+    } else if (disconnectedUserId) {
+      socketFriendSubs.delete(socket.id)
     }
     console.log(`[socket] disconnected: ${socket.id} (${socket.data.userId || 'unknown'})`)
   })

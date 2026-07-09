@@ -273,13 +273,13 @@ const api = {
       ipcRenderer.on(channel, h)
       return () => ipcRenderer.removeListener(channel, h)
     },
-    onPresenceChanged: (cb: (payload: unknown) => void): (() => void) => {
-      const h = (_e: Electron.IpcRendererEvent, payload: unknown): void => cb(payload)
+    onPresenceChanged: (cb: (payload: unknown, hostUrl?: string) => void): (() => void) => {
+      const h = (_e: Electron.IpcRendererEvent, payload: unknown, hostUrl?: string): void => cb(payload, hostUrl)
       ipcRenderer.on('signaling:presence:changed', h)
       return () => ipcRenderer.removeListener('signaling:presence:changed', h)
     },
-    onPresenceSnapshot: (cb: (list: Array<{ userId: string; username: string; avatarColor: string | null }>) => void): (() => void) => {
-      const h = (_e: Electron.IpcRendererEvent, list: Array<{ userId: string; username: string; avatarColor: string | null }>): void => cb(list)
+    onPresenceSnapshot: (cb: (list: Array<{ userId: string; username: string; avatarColor: string | null }>, hostUrl?: string) => void): (() => void) => {
+      const h = (_e: Electron.IpcRendererEvent, list: Array<{ userId: string; username: string; avatarColor: string | null }>, hostUrl?: string): void => cb(list, hostUrl)
       ipcRenderer.on('signaling:presence:snapshot', h)
       return () => ipcRenderer.removeListener('signaling:presence:snapshot', h)
     },

@@ -211,8 +211,8 @@ interface SignalingAPI {
   onMessageRequestIncoming: (cb: (payload: { requestId: string; messageId: string; fromUserId: string; fromUsername: string; fromAvatarColor: string | null; toUserId: string; content: string; timestamp: number }) => void) => () => void
   onMessageRequestMessage: (cb: (payload: { messageId: string; fromUserId: string; fromUsername: string; toUserId: string; content: string; timestamp: number; isReply: boolean }) => void) => () => void
   onServerEvent: (event: string, cb: (payload: unknown) => void) => () => void
-  onPresenceChanged: (cb: (payload: { userId: string; username?: string; avatarColor?: string | null; hidden?: boolean; removed?: true }) => void) => () => void
-  onPresenceSnapshot: (cb: (list: Array<{ userId: string; username: string; avatarColor: string | null }>) => void) => () => void
+  onPresenceChanged: (cb: (payload: { userId: string; username?: string; avatarColor?: string | null; hidden?: boolean; removed?: true }, hostUrl?: string) => void) => () => void
+  onPresenceSnapshot: (cb: (list: Array<{ userId: string; username: string; avatarColor: string | null }>, hostUrl?: string) => void) => () => void
   onStatusChanged: (cb: (payload: { userId: string; status: 'online' | 'idle' | 'offline'; lastSeen: number }) => void) => () => void
   onStatusSnapshot: (cb: (payload: Array<{ userId: string; status: 'online' | 'idle' | 'offline'; lastSeen: number }>) => void) => () => void
 }

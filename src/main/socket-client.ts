@@ -48,8 +48,10 @@ function socketForHostUrl(url: string): Socket | null {
 }
 function listHostUrls(): string[] {
   const urls = new Set<string>()
-  if (socket && currentUrl) urls.add(normalizeUrl(currentUrl))
-  for (const url of secondaryHosts.keys()) urls.add(url)
+  if (socket?.connected && currentUrl) urls.add(normalizeUrl(currentUrl))
+  for (const [url, s] of secondaryHosts) {
+    if (s.connected) urls.add(url)
+  }
   return [...urls]
 }
 
@@ -249,11 +251,11 @@ function attachSecondaryHandlers(sock: Socket, url: string): void {
     const p = payload as { userId?: string; removed?: boolean }
     if (p?.removed) userHosts.get(p.userId ?? '')?.delete(url)
     else noteUserOnHost(p?.userId, url)
-    fwd('presence:changed', payload)
+    sendToRenderer('signaling:presence:changed', payload, url)
   })
   sock.on('presence:snapshot', (payload: unknown) => {
     if (Array.isArray(payload)) for (const e of payload) noteUserOnHost((e as { userId?: string })?.userId, url)
-    fwd('presence:snapshot', payload)
+    sendToRenderer('signaling:presence:snapshot', payload, url)
   })
   sock.on('status:changed', (payload: unknown) => { noteUserOnHost((payload as { userId?: string })?.userId, url); fwd('status:changed', payload) })
   sock.on('status:snapshot', (payload: unknown) => fwd('status:snapshot', payload))
@@ -278,9 +280,12 @@ export function connectSecondaryHost(serverUrl: string): void {
     sock.emit('register-user', currentUserId)
     sendToRenderer('signaling:hosts-changed', listHostUrls())
   })
+  sock.on('disconnect', () => {
+    forgetHost(url)
+    sendToRenderer('signaling:hosts-changed', listHostUrls())
+  })
   sock.on('connect_error', (err) => console.warn('[socket-client] secondary host failed:', url, err.message))
   attachSecondaryHandlers(sock, url)
-  sendToRenderer('signaling:hosts-changed', listHostUrls())
 }
 
 /** Detach an additional remote host (leaves the primary alone). */
@@ -367,10 +372,13 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
       }
     }
     sendToRenderer('signaling:connected')
+    sendToRenderer('signaling:hosts-changed', listHostUrls())
   })
 
   socket.on('disconnect', (reason) => {
     sendToRenderer('signaling:disconnected', reason)
+    forgetHost(normalizeUrl(currentUrl))
+    sendToRenderer('signaling:hosts-changed', listHostUrls())
     tryReconnect()
   })
 
@@ -470,11 +478,11 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
   })
 
   socket.on('presence:changed', (payload: unknown) => {
-    sendToRenderer('signaling:presence:changed', payload)
+    sendToRenderer('signaling:presence:changed', payload, normalizeUrl(currentUrl))
   })
 
   socket.on('presence:snapshot', (payload: unknown) => {
-    sendToRenderer('signaling:presence:snapshot', payload)
+    sendToRenderer('signaling:presence:snapshot', payload, normalizeUrl(currentUrl))
   })
 
   socket.on('status:changed', (payload: unknown) => {

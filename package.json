@@ -1,6 +1,6 @@
 {
   "name": "@memio3/mesh",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Decentralized, privacy-first communication platform",
   "main": "./out/main/index.js",
   "author": "MEmio3",
@@ -67,7 +67,7 @@
     "publish": {
       "provider": "github",
       "owner": "MEmio3",
-      "repo": "installer_test",
+      "repo": "_MESH_",
       "releaseType": "draft"
     },
     "win": {

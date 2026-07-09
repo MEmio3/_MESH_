@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { UserPlus, MessageSquare, X } from 'lucide-react'
+import { MessageSquare, UserPlus, X } from 'lucide-react'
 import { Avatar } from '@/components/ui/Avatar'
 import { useAvatarStore } from '@/stores/avatar.store'
 import { useIdentityStore } from '@/stores/identity.store'
@@ -9,6 +9,7 @@ export interface RadarUser {
   userId: string
   username: string
   avatarColor: string | null
+  hostUrls?: string[]
 }
 
 interface NearbyRadarProps {
@@ -18,13 +19,11 @@ interface NearbyRadarProps {
   busyId?: string | null
 }
 
-// Vertical compression of the rings → the "looking across a tilted table" look
-// that gives the radar depth instead of a flat top-down circle.
-const TILT = 0.56
-// How far out (in % of the radar half-width) the outermost blip band reaches.
-const REACH = 41
+const CENTER_X = 50
+const CENTER_Y = 50
+const X_REACH = 34
+const Y_REACH = 34
 
-/** Stable 32-bit hash so a user always lands in the same spot on the radar. */
 function hashString(str: string): number {
   let h = 2166136261
   for (let i = 0; i < str.length; i++) {
@@ -39,40 +38,42 @@ interface Placed extends RadarUser {
   topPct: number
   scale: number
   z: number
-  depth: number // 0 (far/back) → 1 (near/front)
+  delay: number
+  strength: number
 }
 
 function placeUsers(users: RadarUser[]): Placed[] {
-  return users.map((u, i) => {
-    const h = hashString(u.userId)
-    // Spread angles roughly evenly (golden-angle) then jitter by the hash so it
-    // feels organic but never overlaps the center or clusters.
-    const angle = (i * 137.508 + (h % 360)) * (Math.PI / 180)
-    const t = 0.46 + ((h >>> 9) % 1000) / 1000 * 0.52 // 0.46 → 0.98 of REACH
-    const nx = Math.cos(angle) * t
-    const ny = Math.sin(angle) * t
-    const depth = (ny + 1) / 2 // front (ny>0, lower on screen) is nearer
+  return users.map((user, index) => {
+    const hash = hashString(user.userId)
+    const angle = (index * 137.508 + (hash % 120)) * (Math.PI / 180)
+    const radius = 0.28 + (((hash >>> 8) % 1000) / 1000) * 0.7
+    const x = Math.cos(angle) * radius
+    const y = Math.sin(angle) * radius
+    const depth = (y + 1) / 2
+
     return {
-      ...u,
-      leftPct: 50 + nx * REACH,
-      topPct: 51 + ny * REACH * TILT,
-      scale: 0.78 + depth * 0.34,
-      z: Math.round(depth * 100) + 10,
-      depth
+      ...user,
+      leftPct: CENTER_X + x * X_REACH,
+      topPct: CENTER_Y + y * Y_REACH,
+      scale: 0.86 + depth * 0.28,
+      z: 20 + Math.round(depth * 80),
+      delay: (hash % 900) / 100,
+      strength: Math.round(48 + (1 - radius) * 42 + depth * 10)
     }
   })
 }
 
-function Ring({ sizePct, opacity }: { sizePct: number; opacity: number }): JSX.Element {
+function Ring({ size, strong = false }: { size: number; strong?: boolean }): JSX.Element {
   return (
     <div
-      className="pointer-events-none absolute left-1/2 top-[51%] rounded-[50%] border border-mesh-border-light"
+      className={cn(
+        'nearby-map-ring pointer-events-none absolute aspect-square rounded-full',
+        strong && 'nearby-map-ring-strong'
+      )}
       style={{
-        width: `${sizePct}%`,
-        height: `${sizePct * TILT}%`,
-        transform: 'translate(-50%, -50%)',
-        opacity,
-        boxShadow: 'inset 0 0 24px rgba(0,0,0,0.45)'
+        left: `${CENTER_X}%`,
+        top: `${CENTER_Y}%`,
+        width: `min(${Math.round(size * 4)}px, calc(100vw - 92px))`
       }}
     />
   )
@@ -85,167 +86,153 @@ function NearbyRadar({ users, onAdd, onMessage, busyId }: NearbyRadarProps): JSX
   const [selected, setSelected] = useState<string | null>(null)
 
   const placed = useMemo(() => placeUsers(users), [users])
-  const selectedUser = placed.find((p) => p.userId === selected) ?? null
+  const selectedUser = placed.find((user) => user.userId === selected) ?? null
 
   return (
-    <div className="px-2">
+    <section
+      className="nearby-map-shell relative -mx-4 min-h-[660px] overflow-visible bg-transparent"
+      onClick={() => setSelected(null)}
+    >
       <div
-        className="relative mx-auto aspect-square w-full max-w-[440px] select-none overflow-hidden rounded-2xl border border-mesh-border/70"
-        style={{
-          background:
-            'radial-gradient(120% 90% at 50% 8%, color-mix(in srgb, var(--color-mesh-green-glow) 22%, transparent), transparent 55%),' +
-            'radial-gradient(80% 70% at 50% 52%, rgba(255,255,255,0.03), transparent 60%),' +
-            'radial-gradient(130% 120% at 50% 55%, transparent 55%, rgba(0,0,0,0.55) 100%),' +
-            'var(--color-mesh-bg-primary)'
-        }}
-        onClick={() => setSelected(null)}
+        className="nearby-map-sweep pointer-events-none absolute aspect-square rounded-full"
+        style={{ left: `${CENTER_X}%`, top: `${CENTER_Y}%`, width: 'min(660px, calc(100vw - 72px))' }}
+      />
+
+      <Ring size={26} strong />
+      <Ring size={44} />
+      <Ring size={66} />
+      <Ring size={92} />
+      <Ring size={122} />
+      <Ring size={154} />
+
+      <div
+        className="pointer-events-none absolute h-px bg-gradient-to-r from-transparent via-mesh-green/35 to-transparent"
+        style={{ left: '9%', right: '9%', top: `${CENTER_Y}%` }}
+      />
+      <div
+        className="pointer-events-none absolute w-px bg-gradient-to-b from-transparent via-mesh-green/24 to-transparent"
+        style={{ left: `${CENTER_X}%`, top: '20%', bottom: '13%' }}
+      />
+
+      <div
+        className="absolute z-[130] -translate-x-1/2 -translate-y-1/2"
+        style={{ left: `${CENTER_X}%`, top: `${CENTER_Y}%` }}
       >
-        {/* dotted grid texture */}
-        <div
-          className="pointer-events-none absolute inset-0 opacity-[0.5]"
-          style={{
-            backgroundImage:
-              'radial-gradient(circle, color-mix(in srgb, var(--color-mesh-text-muted) 32%, transparent) 1px, transparent 1.4px)',
-            backgroundSize: '22px 22px',
-            maskImage: 'radial-gradient(120% 90% at 50% 52%, black 30%, transparent 78%)'
-          }}
-        />
-
-        {/* concentric rings (far → near) */}
-        <Ring sizePct={86} opacity={0.35} />
-        <Ring sizePct={62} opacity={0.5} />
-        <Ring sizePct={38} opacity={0.65} />
-
-        {/* rotating sonar sweep, compressed into the tilted ellipse */}
-        <div
-          className="pointer-events-none absolute inset-0"
-          style={{ transform: `scaleY(${TILT})`, transformOrigin: '50% 51%' }}
-        >
-          <div
-            className="radar-sweep absolute left-1/2 top-[51%] aspect-square w-[86%] rounded-full"
-            style={{
-              transform: 'translate(-50%, -50%)',
-              transformOrigin: 'center',
-              background:
-                'conic-gradient(from 0deg, transparent 0deg, color-mix(in srgb, var(--color-mesh-green) 42%, transparent) 34deg, transparent 74deg)',
-              WebkitMaskImage: 'radial-gradient(circle, black 30%, rgba(0,0,0,0.35) 60%, transparent 74%)',
-              maskImage: 'radial-gradient(circle, black 30%, rgba(0,0,0,0.35) 60%, transparent 74%)'
-            }}
-          />
-        </div>
-
-        {/* sonar pings emanating from the center */}
-        {[0, 1, 2].map((i) => (
-          <div
-            key={i}
-            className="radar-ping pointer-events-none absolute left-1/2 top-[51%] aspect-square w-[86%] rounded-[50%] border border-mesh-green/40"
-            style={{ transform: 'translate(-50%, -50%)', height: `${86 * TILT}%`, animationDelay: `${i * 1.13}s` }}
-          />
-        ))}
-
-        {/* center — you */}
-        <div className="absolute left-1/2 top-[51%] z-[120] -translate-x-1/2 -translate-y-1/2">
-          <div className="relative grid place-items-center">
-            <div
-              className="absolute h-16 w-16 rounded-full blur-md"
-              style={{ background: 'var(--color-mesh-green-glow)' }}
+        <div className="relative grid h-24 w-24 place-items-center">
+          <span className="nearby-map-self-pulse absolute h-40 w-40 rounded-full" />
+          <span className="absolute h-32 w-32 rounded-full bg-mesh-green/18 blur-xl" />
+          <span className="relative rounded-full border border-white/25 bg-mesh-bg-primary/75 p-1.5 shadow-[0_20px_54px_rgba(0,0,0,0.58)] backdrop-blur">
+            <Avatar
+              fallback={identity?.username || 'You'}
+              size="xl"
+              src={selfAvatar}
+              color={(identity as unknown as { avatarPath?: string | null })?.avatarPath}
             />
-            <div className="relative rounded-full p-[3px] shadow-[0_8px_28px_rgba(0,0,0,0.55)] ring-2 ring-mesh-green/70">
-              <Avatar fallback={identity?.username || 'You'} size="md" src={selfAvatar} color={(identity as unknown as { avatarPath?: string | null })?.avatarPath} />
-            </div>
-            <span className="mt-1.5 rounded-full border border-mesh-border/60 bg-mesh-bg-primary/70 px-2 py-0.5 text-[10px] font-semibold text-mesh-text-secondary backdrop-blur">
-              You
-            </span>
-          </div>
+          </span>
+          <span className="absolute left-1/2 top-[calc(100%+5px)] -translate-x-1/2 rounded-full border border-mesh-border/70 bg-mesh-bg-primary/80 px-2 py-0.5 text-[10px] font-bold text-mesh-text-secondary shadow-[0_8px_24px_rgba(0,0,0,0.25)] backdrop-blur">
+            You
+          </span>
         </div>
+      </div>
 
-        {/* blips */}
-        {placed.map((p) => {
-          const isSel = p.userId === selected
-          return (
-            <button
-              key={p.userId}
-              onClick={(e) => {
-                e.stopPropagation()
-                setSelected((cur) => (cur === p.userId ? null : p.userId))
-              }}
-              className="radar-blip-in absolute -translate-x-1/2 -translate-y-1/2 focus:outline-none"
-              style={{ left: `${p.leftPct}%`, top: `${p.topPct}%`, zIndex: isSel ? 200 : p.z }}
-              title={p.username}
-            >
-              <span className="radar-float relative grid place-items-center" style={{ transform: `scale(${p.scale})` }}>
-                {/* ground shadow for depth */}
-                <span
-                  className="absolute top-[86%] h-2 w-8 rounded-[50%] bg-black/55 blur-[3px]"
-                  style={{ opacity: 0.35 + p.depth * 0.4 }}
-                />
-                <span
-                  className={cn(
-                    'relative rounded-full p-[2px] transition-transform',
-                    isSel ? 'ring-2 ring-mesh-green' : 'ring-1 ring-mesh-border-light'
-                  )}
-                  style={{
-                    filter: `brightness(${0.82 + p.depth * 0.22})`,
-                    boxShadow: `0 ${4 + p.depth * 8}px ${8 + p.depth * 14}px rgba(0,0,0,${0.35 + p.depth * 0.2})`
-                  }}
-                >
-                  <Avatar fallback={p.username} size="sm" src={avatarsByUser[p.userId]} color={p.avatarColor} />
-                </span>
-                <span className="pointer-events-none mt-1 block max-w-[74px] truncate rounded bg-mesh-bg-primary/70 px-1.5 text-center text-[9px] font-medium text-mesh-text-secondary backdrop-blur">
-                  {p.username}
-                </span>
-              </span>
-            </button>
-          )
-        })}
-
-        {/* action popover for the selected blip */}
-        {selectedUser && (
-          <div
-            className="absolute z-[300] w-44 -translate-x-1/2 rounded-xl border border-mesh-border/70 bg-mesh-bg-secondary/97 p-2 shadow-[0_20px_60px_rgba(0,0,0,0.55)] backdrop-blur"
+      {placed.map((user) => {
+        const selectedNode = user.userId === selected
+        return (
+          <button
+            key={user.userId}
+            className="nearby-map-node absolute -translate-x-1/2 -translate-y-1/2 text-left focus:outline-none"
             style={{
-              left: `${Math.min(80, Math.max(20, selectedUser.leftPct))}%`,
-              top: `${Math.min(72, Math.max(10, selectedUser.topPct + 8))}%`
+              left: `${user.leftPct}%`,
+              top: `${user.topPct}%`,
+              zIndex: selectedNode ? 220 : user.z,
+              animationDelay: `${user.delay}s`,
+              transform: `translate(-50%, -50%) scale(${user.scale})`
             }}
-            onClick={(e) => e.stopPropagation()}
+            title={user.username}
+            onClick={(event) => {
+              event.stopPropagation()
+              setSelected((current) => (current === user.userId ? null : user.userId))
+            }}
           >
-            <div className="mb-1.5 flex items-center gap-2 px-1">
-              <Avatar fallback={selectedUser.username} size="xs" src={avatarsByUser[selectedUser.userId]} color={selectedUser.avatarColor} />
-              <span className="min-w-0 flex-1 truncate text-xs font-semibold text-mesh-text-primary">{selectedUser.username}</span>
-              <button onClick={() => setSelected(null)} className="text-mesh-text-muted hover:text-mesh-text-primary">
-                <X className="h-3.5 w-3.5" />
-              </button>
+            <span className="relative grid place-items-center">
+              <span className="absolute top-[88%] h-2 w-10 rounded-[50%] bg-black/55 blur-[4px]" />
+              <span className={cn(
+                'relative rounded-full border bg-mesh-bg-primary/85 p-[3px] shadow-[0_14px_34px_rgba(0,0,0,0.48)] transition',
+                selectedNode ? 'border-mesh-green ring-4 ring-mesh-green/18' : 'border-white/18 ring-2 ring-mesh-green/10'
+              )}>
+                <Avatar
+                  fallback={user.username}
+                  size="sm"
+                  src={avatarsByUser[user.userId]}
+                  color={user.avatarColor}
+                />
+                <span className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-mesh-bg-primary bg-mesh-green shadow-[0_0_18px_rgba(35,255,210,0.65)]" />
+              </span>
+              <span className="mt-1 max-w-[86px] truncate rounded-full border border-mesh-border/60 bg-mesh-bg-primary/82 px-2 py-0.5 text-center text-[10px] font-semibold text-mesh-text-secondary shadow-[0_10px_24px_rgba(0,0,0,0.28)] backdrop-blur">
+                {user.username}
+              </span>
+            </span>
+          </button>
+        )
+      })}
+
+      {selectedUser && (
+        <div
+          className="absolute z-[320] w-52 -translate-x-1/2 rounded-xl border border-mesh-border/70 bg-mesh-bg-secondary/95 p-2 shadow-[0_24px_70px_rgba(0,0,0,0.56)] backdrop-blur-xl"
+          style={{
+            left: `${Math.min(82, Math.max(18, selectedUser.leftPct))}%`,
+            top: `${Math.min(76, Math.max(12, selectedUser.topPct + 9))}%`
+          }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="mb-2 flex items-center gap-2 px-1">
+            <Avatar
+              fallback={selectedUser.username}
+              size="xs"
+              src={avatarsByUser[selectedUser.userId]}
+              color={selectedUser.avatarColor}
+            />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-bold text-mesh-text-primary">{selectedUser.username}</p>
+              <p className="text-[10px] text-mesh-text-muted">
+                {selectedUser.strength}% signal - {selectedUser.hostUrls?.length ?? 1} shared host{(selectedUser.hostUrls?.length ?? 1) === 1 ? '' : 's'}
+              </p>
             </div>
+            <button
+              onClick={() => setSelected(null)}
+              className="grid h-6 w-6 place-items-center rounded-md text-mesh-text-muted hover:bg-mesh-bg-tertiary hover:text-mesh-text-primary"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-1.5">
             <button
               onClick={() => { onAdd(selectedUser); setSelected(null) }}
               disabled={busyId === selectedUser.userId}
-              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-mesh-text-secondary transition-colors hover:bg-mesh-bg-tertiary hover:text-mesh-text-primary disabled:opacity-50"
+              className="mesh-pressable flex h-9 items-center justify-center gap-1.5 rounded-lg bg-mesh-green/16 text-xs font-bold text-mesh-green transition hover:bg-mesh-green hover:text-white disabled:opacity-50"
             >
-              <UserPlus className="h-3.5 w-3.5" /> Add friend
+              <UserPlus className="h-3.5 w-3.5" />
+              Add
             </button>
             <button
               onClick={() => { onMessage(selectedUser); setSelected(null) }}
-              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-mesh-text-secondary transition-colors hover:bg-mesh-bg-tertiary hover:text-mesh-text-primary"
+              className="mesh-pressable flex h-9 items-center justify-center gap-1.5 rounded-lg bg-mesh-bg-tertiary text-xs font-bold text-mesh-text-secondary transition hover:text-mesh-text-primary"
             >
-              <MessageSquare className="h-3.5 w-3.5" /> Message
+              <MessageSquare className="h-3.5 w-3.5" />
+              DM
             </button>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* empty state */}
-        {users.length === 0 && (
-          <div className="pointer-events-none absolute inset-x-0 bottom-6 text-center">
-            <span className="text-xs font-medium uppercase tracking-[0.2em] text-mesh-text-muted">
-              No signals detected
-            </span>
-          </div>
-        )}
-      </div>
-
-      <p className="mx-auto mt-3 max-w-[440px] text-center text-[11px] text-mesh-text-muted">
-        Tap a signal to add or message them. People appear as they connect to a host you share.
-      </p>
-    </div>
+      {users.length === 0 && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-8 z-[180] text-center">
+          <span className="rounded-full border border-mesh-border/70 bg-mesh-bg-primary/72 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.24em] text-mesh-text-muted shadow-[0_16px_42px_rgba(0,0,0,0.34)] backdrop-blur">
+            No signals detected
+          </span>
+        </div>
+      )}
+    </section>
   )
 }
 
