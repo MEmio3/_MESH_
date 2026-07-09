@@ -99,6 +99,17 @@ const api = {
     isConnected: (): Promise<boolean> => ipcRenderer.invoke('signaling:is-connected'),
     socketId: (): Promise<string | null> => ipcRenderer.invoke('signaling:socket-id'),
     emit: (event: string, ...args: unknown[]): void => ipcRenderer.send('signaling:emit', event, ...args),
+    // Multi-host: attach/detach additional hosts alongside the primary.
+    addHost: (serverUrl: string): Promise<{ success: boolean; hosts: string[] }> =>
+      ipcRenderer.invoke('signaling:add-host', { serverUrl }),
+    removeHost: (serverUrl: string): Promise<{ success: boolean; hosts: string[] }> =>
+      ipcRenderer.invoke('signaling:remove-host', { serverUrl }),
+    listHosts: (): Promise<string[]> => ipcRenderer.invoke('signaling:list-hosts'),
+    onHostsChanged: (cb: (hosts: string[]) => void): (() => void) => {
+      const h = (_e: Electron.IpcRendererEvent, hosts: string[]): void => cb(hosts)
+      ipcRenderer.on('signaling:hosts-changed', h)
+      return () => ipcRenderer.removeListener('signaling:hosts-changed', h)
+    },
 
     onConnected: (cb: () => void): (() => void) => {
       const h = (): void => cb()

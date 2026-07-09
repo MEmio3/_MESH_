@@ -1712,6 +1712,20 @@ export function registerSignalingHandlers(): void {
     return socketClient.disconnectFromSignaling()
   })
 
+  // Multi-host: attach/detach ADDITIONAL hosts alongside the primary so a
+  // non-hoster is present on several hosts and can talk to people on all of them.
+  ipcMain.handle('signaling:add-host', async (_e, args: { serverUrl: string }) => {
+    socketClient.connectSecondaryHost(args.serverUrl)
+    return { success: true, hosts: socketClient.listConnectedHosts() }
+  })
+  ipcMain.handle('signaling:remove-host', async (_e, args: { serverUrl: string }) => {
+    socketClient.disconnectSecondaryHost(args.serverUrl)
+    return { success: true, hosts: socketClient.listConnectedHosts() }
+  })
+  ipcMain.handle('signaling:list-hosts', () => {
+    return socketClient.listConnectedHosts()
+  })
+
   ipcMain.handle('signaling:is-connected', () => {
     return socketClient.isConnected()
   })

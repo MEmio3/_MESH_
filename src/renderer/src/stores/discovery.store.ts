@@ -29,7 +29,20 @@ export const useDiscoveryStore = create<DiscoveryStore>((set, get) => ({
         window.api.block.list()
       ])
       const blockedIds = new Set(blocked.map((b) => b.userId))
-      set({ nearby: list.filter((u) => !blockedIds.has(u.userId)), loading: false })
+      const selfId = useIdentityStore.getState().identity?.userId
+      // MERGE rather than replace: presence.list() only returns the PRIMARY
+      // host's roster, but we may also be attached to other hosts whose people
+      // arrived via presence:snapshot/changed. Replacing would wipe them.
+      // Stale entries are removed by presence:changed{removed} events.
+      set((s) => {
+        const byId = new Map(s.nearby.map((u) => [u.userId, u]))
+        for (const id of blockedIds) byId.delete(id)
+        for (const u of list) {
+          if (u.userId === selfId || blockedIds.has(u.userId)) continue
+          byId.set(u.userId, u)
+        }
+        return { nearby: [...byId.values()], loading: false }
+      })
     } catch {
       set({ loading: false })
     }

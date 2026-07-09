@@ -177,6 +177,10 @@ interface SignalingAPI {
   isConnected: () => Promise<boolean>
   socketId: () => Promise<string | null>
   emit: (event: string, ...args: unknown[]) => void
+  addHost: (serverUrl: string) => Promise<{ success: boolean; hosts: string[] }>
+  removeHost: (serverUrl: string) => Promise<{ success: boolean; hosts: string[] }>
+  listHosts: () => Promise<string[]>
+  onHostsChanged: (cb: (hosts: string[]) => void) => () => void
 
   onConnected: (cb: () => void) => () => void
   onMediaAudio: (cb: (userId: string, meta: unknown, payload: ArrayBuffer) => void) => () => void

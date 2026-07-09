@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AlertTriangle, Check, ChevronRight, Copy, Loader2, PlugZap, Radio, RefreshCw, Router, Server, Shield, Trash2, Wifi } from 'lucide-react'
+import { AlertTriangle, Check, ChevronRight, Copy, Loader2, PlugZap, Plus, Radio, RefreshCw, Router, Server, Shield, Trash2, Wifi } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Toggle } from '@/components/ui/Toggle'
 import { cn } from '@/lib/utils'
@@ -8,6 +8,8 @@ import { useIdentityStore } from '@/stores/identity.store'
 import { useSettingsStore, type KnownNetwork, type ServerHostAssignment } from '@/stores/settings.store'
 import { useServersStore } from '@/stores/servers.store'
 import { useServerAvatarStore } from '@/stores/serverAvatar.store'
+import { useDiscoveryStore } from '@/stores/discovery.store'
+import { useStatusStore } from '@/stores/status.store'
 import { encodeConnectionCode, resolveConnectionInput } from '@/lib/connection-code'
 
 type IpScope = 'home' | 'isp' | 'public'
@@ -139,6 +141,9 @@ function NetworkCenterPage(): JSX.Element {
   const [netSig, setNetSig] = useState<NetworkScanResult | null>(null)
   const [scanningNetwork, setScanningNetwork] = useState(false)
   const [showDiagnostics, setShowDiagnostics] = useState(false)
+  // Every host we're attached to at once (primary + any additional). A
+  // non-hoster can join several hosts and reach people on all of them.
+  const [connectedHosts, setConnectedHosts] = useState<string[]>([])
 
   const activeUrl = normalizeNetworkUrl(network.signalingUrl || 'http://localhost:3000')
   const hostedServers = servers.filter((server) => server.role === 'host')
@@ -248,6 +253,16 @@ function NetworkCenterPage(): JSX.Element {
   }, [savedHostPort, hostStatus.running])
 
   useEffect(() => {
+    window.api.signaling.listHosts().then(setConnectedHosts).catch(() => {})
+    return window.api.signaling.onHostsChanged(setConnectedHosts)
+  }, [])
+
+  // Additional hosts beyond the active/primary one.
+  const secondaryHosts = connectedHosts.filter(
+    (h) => normalizeNetworkUrl(h).toLowerCase() !== activeUrl.toLowerCase()
+  )
+
+  useEffect(() => {
     let cancelled = false
     const refresh = async (): Promise<void> => {
       await refreshStatus()
@@ -319,6 +334,32 @@ function NetworkCenterPage(): JSX.Element {
       setReconnectState('failed')
       setNotice(err instanceof Error ? err.message : 'Could not connect.')
     }
+  }
+
+  // Attach an ADDITIONAL host without dropping the current one. After it's on,
+  // re-announce ourselves + our friend list so that host's people show up in
+  // Nearby and we can DM/call them.
+  async function addHost(urlInput: string): Promise<void> {
+    if (!identity) { setNotice('Create your profile first, then connect.'); return }
+    const url = normalizeNetworkUrl(resolveConnectionInput(urlInput))
+    if (!url) { setNotice('Enter a MESH code or IP:port to add.'); return }
+    if (url.toLowerCase() === activeUrl.toLowerCase() || secondaryHosts.some((h) => normalizeNetworkUrl(h).toLowerCase() === url.toLowerCase())) {
+      setNotice(`Already connected to ${hostFromUrl(url)}.`)
+      return
+    }
+    await window.api.signaling.addHost(url)
+    // Give the socket a beat to register, then announce on every host.
+    setTimeout(() => {
+      useDiscoveryStore.getState().publishSelf().catch(() => {})
+      useStatusStore.getState().publishFriendsSubscription()
+      window.api.friendRequest.republishPending().catch(() => {})
+    }, 400)
+    setNotice(`Also connected to ${hostFromUrl(url)}. You can now reach people there too.`)
+  }
+
+  async function removeHost(url: string): Promise<void> {
+    await window.api.signaling.removeHost(url)
+    setNotice(`Disconnected from ${hostFromUrl(url)}.`)
   }
 
   async function toggleHost(enabled: boolean): Promise<void> {
@@ -575,7 +616,7 @@ function NetworkCenterPage(): JSX.Element {
               detail={isConnected ? activeUrl : 'No active host'}
               tone={isConnected ? 'online' : reconnectState === 'connecting' ? 'busy' : 'offline'}
             />
-            <div className="mt-4 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+            <div className="mt-4 grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2">
               <input
                 value={urlDraft}
                 onChange={(e) => setUrlDraft(e.target.value)}
@@ -587,7 +628,38 @@ function NetworkCenterPage(): JSX.Element {
                 {reconnectState === 'connecting' ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
                 Connect
               </Button>
+              <Button size="sm" variant="secondary" onClick={() => addHost(urlDraft)} title="Stay on your current host AND also join this one">
+                <Plus className="mr-1 h-3.5 w-3.5" />
+                Add
+              </Button>
             </div>
+            <p className="mt-1.5 text-[11px] leading-snug text-mesh-text-muted">
+              <span className="text-mesh-text-secondary">Connect</span> switches your main host.{' '}
+              <span className="text-mesh-text-secondary">Add</span> keeps you on it and *also* joins another — so you can see and message people on both.
+            </p>
+
+            {secondaryHosts.length > 0 && (
+              <div className="mt-3">
+                <div className="mb-1.5 flex items-center justify-between">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-mesh-text-muted">Also connected</span>
+                  <span className="text-[11px] text-mesh-text-muted">{secondaryHosts.length}</span>
+                </div>
+                <div className="space-y-1.5">
+                  {secondaryHosts.map((h) => (
+                    <div key={h} className="flex items-center gap-2.5 rounded-md border border-mesh-border/60 bg-mesh-bg-primary/65 px-3 py-1.5">
+                      <StatusDot tone="online" />
+                      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-mesh-text-primary">{hostFromUrl(h)}</span>
+                      <button
+                        onClick={() => removeHost(h)}
+                        className="text-[11px] text-mesh-danger/80 transition-colors hover:text-mesh-danger"
+                      >
+                        Disconnect
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
               <input
                 value={savedName}

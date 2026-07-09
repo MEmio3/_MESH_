@@ -11,6 +11,70 @@ let currentUserId: string = ''
 let isConnecting = false
 const auxiliarySockets = new Map<string, Socket>()
 
+// ── Multi-host (non-hoster attached to several hosts at once) ──
+// The "primary" connection lives in `socket`/`currentUrl` (kept for acks +
+// back-compat). These are ADDITIONAL remote host connections that carry the
+// full social event set, so a user can see + message + call people on every
+// host they've joined. Keyed by normalized url.
+const secondaryHosts = new Map<string, Socket>()
+// Per-peer host affinity: which host url(s) a given userId is currently present
+// on. Learned from presence/dm/call traffic, and used to route an outgoing DM
+// or call to the connection where that peer actually is.
+const userHosts = new Map<string, Set<string>>()
+
+function noteUserOnHost(userId: string | undefined, url: string): void {
+  if (!userId) return
+  let set = userHosts.get(userId)
+  if (!set) { set = new Set(); userHosts.set(userId, set) }
+  set.add(url)
+}
+function forgetHost(url: string): void {
+  for (const [uid, set] of userHosts) {
+    set.delete(url)
+    if (set.size === 0) userHosts.delete(uid)
+  }
+}
+
+/** Every live social connection: the primary plus every secondary host. */
+function allSocialSockets(): Socket[] {
+  const out: Socket[] = []
+  if (socket) out.push(socket)
+  for (const s of secondaryHosts.values()) out.push(s)
+  return out
+}
+function socketForHostUrl(url: string): Socket | null {
+  if (normalizeUrl(url) === normalizeUrl(currentUrl)) return socket
+  return secondaryHosts.get(normalizeUrl(url)) ?? null
+}
+function listHostUrls(): string[] {
+  const urls = new Set<string>()
+  if (socket && currentUrl) urls.add(normalizeUrl(currentUrl))
+  for (const url of secondaryHosts.keys()) urls.add(url)
+  return [...urls]
+}
+
+// Self-announce events go to EVERY host; friend/message requests are dedup-safe
+// so they're broadcast too (find the person wherever they are).
+const BROADCAST_EVENTS = new Set<string>([
+  'presence:update',
+  'status:update',
+  'status:set-friends'
+])
+function isBroadcastEvent(event: string): boolean {
+  return BROADCAST_EVENTS.has(event) || event.startsWith('friend-request:') || event.startsWith('message-request:')
+}
+// Peer-targeted realtime events: route to the host where the peer is present.
+function targetUserIdFor(event: string, args: unknown[]): string | null {
+  if (
+    event === 'dm-message' || event === 'dm-edit' || event === 'dm-delete' || event === 'dm-reaction' ||
+    event === 'call-invite' || event === 'call-accept' || event === 'call-reject' ||
+    event === 'call-end' || event === 'call-video-state'
+  ) {
+    return typeof args[0] === 'string' ? args[0] : null
+  }
+  return null
+}
+
 // Outbound events emitted while the socket was down. socket.io's own send
 // buffer dies with the socket object, and our reconnect creates a NEW socket
 // each attempt — so without this queue, every emit during a reconnect window
@@ -143,6 +207,95 @@ function attachAuxiliaryHandlers(aux: Socket, userId: string): void {
       sendToRenderer(`signaling:${evt}`, payload)
     })
   }
+}
+
+/**
+ * Full social-event forwarding for a SECONDARY host connection, so a user
+ * attached to several hosts sees + receives from all of them. Mirrors the
+ * primary socket's forwarders and additionally records per-peer host affinity
+ * (which host a user is on) so outgoing DMs/calls route to the right host.
+ */
+function attachSecondaryHandlers(sock: Socket, url: string): void {
+  const fwd = (evt: string, ...rest: unknown[]): void => sendToRenderer(`signaling:${evt}`, ...rest)
+
+  sock.on('user-joined', (uid: string, socketId: string, roomId?: string) => { noteUserOnHost(uid, url); fwd('user-joined', uid, socketId, roomId) })
+  sock.on('user-left', (uid: string, socketId: string, roomId?: string) => fwd('user-left', uid, socketId, roomId))
+  sock.on('offer', (fromSocketId: string, offer: unknown, fromUserId: string) => fwd('offer', fromSocketId, offer, fromUserId))
+  sock.on('answer', (fromSocketId: string, answer: unknown) => fwd('answer', fromSocketId, answer))
+  sock.on('ice-candidate', (fromSocketId: string, candidate: unknown) => fwd('ice-candidate', fromSocketId, candidate))
+
+  sock.on('dm-message', (fromUserId: string, message: string) => { noteUserOnHost(fromUserId, url); fwd('dm-message', fromUserId, message) })
+  sock.on('dm-edit', (fromUserId: string, payload: unknown) => fwd('dm-edit', fromUserId, payload))
+  sock.on('dm-delete', (fromUserId: string, payload: unknown) => fwd('dm-delete', fromUserId, payload))
+  sock.on('dm-reaction', (fromUserId: string, payload: unknown) => fwd('dm-reaction', fromUserId, payload))
+
+  sock.on('call-invite', (fromUserId: string, callData: unknown) => { noteUserOnHost(fromUserId, url); fwd('call-invite', fromUserId, callData) })
+  sock.on('call-accept', (fromUserId: string) => fwd('call-accept', fromUserId))
+  sock.on('call-reject', (fromUserId: string) => fwd('call-reject', fromUserId))
+  sock.on('call-unreachable', (targetUserId: string) => fwd('call-unreachable', targetUserId))
+  sock.on('call-end', (fromUserId: string) => fwd('call-end', fromUserId))
+  sock.on('call-video-state', (fromUserId: string, payload: unknown) => fwd('call-video-state', fromUserId, payload))
+
+  sock.on('media:audio', (fromUserId: string, meta: unknown, payload: unknown) => fwd('media:audio', fromUserId, meta, payload))
+  sock.on('media:video', (fromUserId: string, meta: unknown, payload: unknown) => fwd('media:video', fromUserId, meta, payload))
+  sock.on('media:pong', (sentAt: unknown) => fwd('media:pong', sentAt))
+
+  sock.on('friend-request:incoming', (payload: unknown) => { noteUserOnHost((payload as { fromUserId?: string })?.fromUserId, url); fwd('friend-request:incoming', payload) })
+  sock.on('friend-request:accepted', (payload: unknown) => fwd('friend-request:accepted', payload))
+  sock.on('friend-request:rejected', (payload: unknown) => fwd('friend-request:rejected', payload))
+  sock.on('friend-request:cancelled', (payload: unknown) => fwd('friend-request:cancelled', payload))
+
+  sock.on('presence:changed', (payload: unknown) => {
+    const p = payload as { userId?: string; removed?: boolean }
+    if (p?.removed) userHosts.get(p.userId ?? '')?.delete(url)
+    else noteUserOnHost(p?.userId, url)
+    fwd('presence:changed', payload)
+  })
+  sock.on('presence:snapshot', (payload: unknown) => {
+    if (Array.isArray(payload)) for (const e of payload) noteUserOnHost((e as { userId?: string })?.userId, url)
+    fwd('presence:snapshot', payload)
+  })
+  sock.on('status:changed', (payload: unknown) => { noteUserOnHost((payload as { userId?: string })?.userId, url); fwd('status:changed', payload) })
+  sock.on('status:snapshot', (payload: unknown) => fwd('status:snapshot', payload))
+
+  sock.on('message-request:incoming', (payload: unknown) => { noteUserOnHost((payload as { fromUserId?: string })?.fromUserId, url); fwd('message-request:incoming', payload) })
+  sock.on('message-request:message-incoming', (payload: unknown) => fwd('message-request:message-incoming', payload))
+
+  for (const evt of serverEvents) {
+    sock.on(evt, (payload: unknown) => fwd(evt, payload))
+  }
+}
+
+/** Attach an additional remote host so the user is present on it too. Idempotent. */
+export function connectSecondaryHost(serverUrl: string): void {
+  const url = normalizeUrl(serverUrl)
+  if (!url || !currentUserId) return
+  if (url === normalizeUrl(currentUrl)) return          // already the primary
+  if (secondaryHosts.has(url)) return                    // already attached
+  const sock = io(url, { transports: ['websocket'], reconnection: true })
+  secondaryHosts.set(url, sock)
+  sock.on('connect', () => {
+    sock.emit('register-user', currentUserId)
+    sendToRenderer('signaling:hosts-changed', listHostUrls())
+  })
+  sock.on('connect_error', (err) => console.warn('[socket-client] secondary host failed:', url, err.message))
+  attachSecondaryHandlers(sock, url)
+  sendToRenderer('signaling:hosts-changed', listHostUrls())
+}
+
+/** Detach an additional remote host (leaves the primary alone). */
+export function disconnectSecondaryHost(serverUrl: string): void {
+  const url = normalizeUrl(serverUrl)
+  const sock = secondaryHosts.get(url)
+  if (!sock) return
+  try { sock.removeAllListeners(); sock.disconnect() } catch { /* ignore */ }
+  secondaryHosts.delete(url)
+  forgetHost(url)
+  sendToRenderer('signaling:hosts-changed', listHostUrls())
+}
+
+export function listConnectedHosts(): string[] {
+  return listHostUrls()
 }
 
 function auxiliarySocketFor(serverUrl: string, userId: string): Socket {
@@ -400,6 +553,27 @@ export function emitSignaling(event: string, ...args: unknown[]): void {
     }
     emitOnSocket(auxiliarySocketFor(routeUrl, route.userId), event, args)
     return
+  }
+
+  // Self-announce + dedup-safe requests fan out to EVERY host we're on, so we
+  // appear on all of them and friend requests find people wherever they are.
+  if (secondaryHosts.size > 0 && isBroadcastEvent(event)) {
+    const targets = allSocialSockets()
+    if (targets.length > 0) {
+      for (const s of targets) emitOnSocket(s, event, args)
+      return
+    }
+  }
+
+  // Peer-targeted realtime (DM / call) → the single host where that peer is
+  // currently present, so it reaches them even if that's a secondary host.
+  if (secondaryHosts.size > 0) {
+    const target = targetUserIdFor(event, args)
+    const hosts = target ? userHosts.get(target) : undefined
+    if (hosts && hosts.size > 0) {
+      const s = socketForHostUrl([...hosts][0])
+      if (s) { emitOnSocket(s, event, args); return }
+    }
   }
 
   if (socket?.connected) {
