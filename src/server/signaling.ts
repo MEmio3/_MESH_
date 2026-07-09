@@ -12,8 +12,8 @@ import { Server as SocketServer } from 'socket.io'
 import dgram, { type RemoteInfo } from 'dgram'
 import fs from 'fs'
 import path from 'path'
-import { decodeUdpMediaPacket, encodeUdpMediaPacket } from '../shared/udp-media-packet'
 import { PERM, MODERATOR_BUNDLE } from '../shared/permissions'
+import { decodeVoiceUdpPacket, encodeVoiceUdpPacket } from '../shared/voice-udp-packet'
 
 export interface SignalingInstance {
   /** Bind and start listening. Resolves once the port is open. */
@@ -310,91 +310,97 @@ const voiceRoomMembers = new Map<string, Map<string, string>>() // roomId → (u
 const socketVoiceRooms = new Map<string, Set<string>>() // socketId → Set<roomId>
 const activeVoiceStreams = new Map<string, Map<string, { kind?: 'screen' | 'window' | 'camera' }>>() // roomId → userId → stream info
 
-// ── UDP voice relay ──
-// Socket.IO remains the room-control authority. UDP only carries hot-path Opus
-// frames after a user has joined a voice room through the normal signaling flow.
-interface UdpEndpoint {
+interface VoiceUdpEndpoint {
   address: string
   port: number
   lastSeen: number
 }
 
-const udpEndpoints = new Map<string, UdpEndpoint>()
-let udpSocket: dgram.Socket | null = null
-let udpRunning = false
-let udpCleanupTimer: ReturnType<typeof setInterval> | null = null
+const voiceUdpEndpoints = new Map<string, VoiceUdpEndpoint>()
+let voiceUdpSocket: dgram.Socket | null = null
+let voiceUdpCleanupTimer: ReturnType<typeof setInterval> | null = null
 
-function asString(value: unknown): string | null {
+function asNonEmptyString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value : null
 }
 
-function rememberUdpEndpoint(userId: string, rinfo: RemoteInfo): void {
-  udpEndpoints.set(userId, {
+function headerObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
+}
+
+function rememberVoiceUdpEndpoint(userId: string, rinfo: RemoteInfo): void {
+  voiceUdpEndpoints.set(userId, {
     address: rinfo.address,
     port: rinfo.port,
     lastSeen: Date.now()
   })
 }
 
-function pruneUdpEndpoints(): void {
+function pruneVoiceUdpEndpoints(): void {
   const now = Date.now()
-  for (const [userId, endpoint] of udpEndpoints) {
-    if (now - endpoint.lastSeen > 30000 || !userSockets.has(userId)) {
-      udpEndpoints.delete(userId)
+  for (const [userId, endpoint] of voiceUdpEndpoints) {
+    if (!userSockets.has(userId) || now - endpoint.lastSeen > 30000) {
+      voiceUdpEndpoints.delete(userId)
     }
   }
 }
 
-function sendUdpPacket(endpoint: UdpEndpoint, packet: Uint8Array): void {
-  if (!udpSocket || !udpRunning) return
-  udpSocket.send(packet, endpoint.port, endpoint.address, (err) => {
-    if (err) console.warn(`[udp-media:${instancePort}] send failed:`, err.message)
+function sendVoiceUdpPacket(endpoint: VoiceUdpEndpoint, packet: Uint8Array): void {
+  const sock = voiceUdpSocket
+  if (!sock) return
+  sock.send(packet, endpoint.port, endpoint.address, (err) => {
+    if (err) console.warn(`[voice-udp:${instancePort}] send failed:`, err.message)
   })
 }
 
-function relayUdpAudio(header: Record<string, unknown>, payload: Uint8Array, rinfo: RemoteInfo): void {
-  const roomId = asString(header.roomId)
-  const userId = asString(header.userId)
-  if (!roomId || !userId) return
-
+function relayVoiceUdpAudio(header: Record<string, unknown>, payload: Uint8Array, rinfo: RemoteInfo): void {
+  const roomId = asNonEmptyString(header.roomId)
+  const userId = asNonEmptyString(header.userId)
+  if (!roomId || !userId || !userSockets.has(userId)) return
   const members = voiceRoomMembers.get(roomId)
   if (!members?.has(userId)) return
 
-  rememberUdpEndpoint(userId, rinfo)
-
-  const meta = header.meta && typeof header.meta === 'object' && !Array.isArray(header.meta)
-    ? header.meta as Record<string, unknown>
-    : {}
-  const packet = encodeUdpMediaPacket('audio', {
+  rememberVoiceUdpEndpoint(userId, rinfo)
+  const out = encodeVoiceUdpPacket('audio', {
     roomId,
     fromUserId: userId,
-    meta
+    meta: headerObject(header.meta)
   }, payload)
 
-  for (const recipientId of members.keys()) {
-    if (recipientId === userId) continue
-    const endpoint = udpEndpoints.get(recipientId)
-    if (endpoint) sendUdpPacket(endpoint, packet)
+  for (const memberUserId of members.keys()) {
+    if (memberUserId === userId) continue
+    const endpoint = voiceUdpEndpoints.get(memberUserId)
+    if (endpoint) sendVoiceUdpPacket(endpoint, out)
   }
 }
 
-function handleUdpMessage(message: Buffer, rinfo: RemoteInfo): void {
-  const packet = decodeUdpMediaPacket(message)
+function handleVoiceUdpMessage(message: Buffer, rinfo: RemoteInfo): void {
+  const packet = decodeVoiceUdpPacket(message)
   if (!packet) return
 
   if (packet.kind === 'ping') {
-    const userId = asString(packet.header.userId)
-    if (!userId || !userSockets.has(userId)) return
-    rememberUdpEndpoint(userId, rinfo)
-    sendUdpPacket(udpEndpoints.get(userId)!, encodeUdpMediaPacket('pong', {
-      userId,
-      sentAt: packet.header.sentAt
-    }))
+    const userId = asNonEmptyString(packet.header.userId)
+    const roomId = asNonEmptyString(packet.header.roomId)
+    if (!userId || !roomId || !userSockets.has(userId)) return
+    const members = voiceRoomMembers.get(roomId)
+    if (!members?.has(userId)) return
+    rememberVoiceUdpEndpoint(userId, rinfo)
+    const sentAt = typeof packet.header.sentAt === 'number' ? packet.header.sentAt : 0
+    const endpoint = voiceUdpEndpoints.get(userId)
+    if (endpoint) {
+      sendVoiceUdpPacket(endpoint, encodeVoiceUdpPacket('pong', {
+        roomId,
+        userId,
+        sentAt
+      }))
+    }
     return
   }
 
   if (packet.kind === 'audio') {
-    relayUdpAudio(packet.header, packet.payload, rinfo)
+    relayVoiceUdpAudio(packet.header, packet.payload, rinfo)
   }
 }
 
@@ -1373,73 +1379,47 @@ io.on('connection', (socket) => {
 
 let running = false
 
-function startUdpRelay(): Promise<void> {
-  if (udpRunning) return Promise.resolve()
+function startVoiceUdpRelay(): void {
+  if (voiceUdpSocket) return
+  const sock = dgram.createSocket('udp4')
+  voiceUdpSocket = sock
 
-  return new Promise((resolve) => {
-    const socket = dgram.createSocket('udp4')
-    udpSocket = socket
-
-    const settle = (): void => {
-      socket.removeListener('listening', onListening)
-      socket.removeListener('error', onInitialError)
-      resolve()
-    }
-    const onListening = (): void => {
-      udpRunning = true
-      console.log(`[udp-media:${instancePort}] listening`)
-      if (!udpCleanupTimer) {
-        udpCleanupTimer = setInterval(pruneUdpEndpoints, 10000)
-      }
-      settle()
-    }
-    const onInitialError = (err: Error): void => {
-      console.warn(`[udp-media:${instancePort}] unavailable:`, err.message)
-      try { socket.close() } catch { /* ignore */ }
-      if (udpSocket === socket) udpSocket = null
-      settle()
-    }
-
-    socket.on('message', handleUdpMessage)
-    socket.on('error', (err) => {
-      console.warn(`[udp-media:${instancePort}] socket error:`, err.message)
-    })
-    socket.once('listening', onListening)
-    socket.once('error', onInitialError)
-
-    try {
-      socket.bind(instancePort)
-    } catch (err) {
-      console.warn(`[udp-media:${instancePort}] bind failed:`, err instanceof Error ? err.message : err)
-      if (udpSocket === socket) udpSocket = null
-      settle()
-    }
+  sock.on('message', handleVoiceUdpMessage)
+  sock.on('error', (err) => {
+    console.warn(`[voice-udp:${instancePort}] disabled:`, err.message)
+    if (voiceUdpSocket === sock) voiceUdpSocket = null
+    voiceUdpEndpoints.clear()
+    try { sock.close() } catch { /* ignore */ }
   })
+  sock.bind(instancePort, () => {
+    console.log(`[voice-udp:${instancePort}] listening`)
+  })
+
+  if (!voiceUdpCleanupTimer) {
+    voiceUdpCleanupTimer = setInterval(pruneVoiceUdpEndpoints, 10000)
+    voiceUdpCleanupTimer.unref?.()
+  }
 }
 
-function stopUdpRelay(): Promise<void> {
-  if (udpCleanupTimer) {
-    clearInterval(udpCleanupTimer)
-    udpCleanupTimer = null
-  }
-  udpEndpoints.clear()
-
-  const socket = udpSocket
-  udpSocket = null
-  if (!socket || !udpRunning) {
-    udpRunning = false
-    return Promise.resolve()
-  }
-
+function stopVoiceUdpRelay(): Promise<void> {
   return new Promise((resolve) => {
+    if (voiceUdpCleanupTimer) {
+      clearInterval(voiceUdpCleanupTimer)
+      voiceUdpCleanupTimer = null
+    }
+    voiceUdpEndpoints.clear()
+
+    const sock = voiceUdpSocket
+    voiceUdpSocket = null
+    if (!sock) {
+      resolve()
+      return
+    }
+    sock.removeAllListeners('message')
+    sock.once('close', () => resolve())
     try {
-      socket.close(() => {
-        udpRunning = false
-        console.log(`[udp-media:${instancePort}] stopped`)
-        resolve()
-      })
+      sock.close()
     } catch {
-      udpRunning = false
       resolve()
     }
   })
@@ -1460,9 +1440,7 @@ function start(): Promise<{ port: number }> {
       httpServer.removeListener('error', onError)
       running = true
       console.log(`[signaling:${instancePort}] listening`)
-      startUdpRelay().catch((err) => {
-        console.warn(`[udp-media:${instancePort}] failed to start:`, err instanceof Error ? err.message : err)
-      })
+      startVoiceUdpRelay()
       resolve({ port: instancePort })
     })
   })
@@ -1471,14 +1449,14 @@ function start(): Promise<{ port: number }> {
 function stop(): Promise<void> {
   return new Promise((resolve) => {
     if (!running) {
-      stopUdpRelay().then(resolve)
+      stopVoiceUdpRelay().then(resolve)
       return
     }
     // io.close() also closes the underlying http server.
     io.close(() => {
       running = false
       console.log(`[signaling:${instancePort}] stopped`)
-      stopUdpRelay().then(resolve)
+      stopVoiceUdpRelay().then(resolve)
     })
   })
 }

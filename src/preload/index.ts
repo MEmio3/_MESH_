@@ -99,9 +99,10 @@ const api = {
     isConnected: (): Promise<boolean> => ipcRenderer.invoke('signaling:is-connected'),
     socketId: (): Promise<string | null> => ipcRenderer.invoke('signaling:socket-id'),
     emit: (event: string, ...args: unknown[]): void => ipcRenderer.send('signaling:emit', event, ...args),
-    emitUdpAudio: (roomId: string, meta: unknown, payload: ArrayBuffer): void =>
-      ipcRenderer.send('signaling:udp-audio', roomId, meta, payload),
-    emitUdpPing: (sentAt: number): void => ipcRenderer.send('signaling:udp-ping', sentAt),
+    emitVoiceUdpAudio: (roomId: string, meta: unknown, payload: ArrayBuffer): void =>
+      ipcRenderer.send('signaling:voice-udp-audio', roomId, meta, payload),
+    emitVoiceUdpPing: (roomId: string, sentAt: number): void =>
+      ipcRenderer.send('signaling:voice-udp-ping', roomId, sentAt),
     // Multi-host: attach/detach additional hosts alongside the primary.
     addHost: (serverUrl: string): Promise<{ success: boolean; hosts: string[] }> =>
       ipcRenderer.invoke('signaling:add-host', { serverUrl }),

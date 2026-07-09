@@ -1,22 +1,22 @@
-export type UdpMediaPacketKind = 'audio' | 'ping' | 'pong'
+export type VoiceUdpPacketKind = 'audio' | 'ping' | 'pong'
 
-export interface UdpMediaPacket {
-  kind: UdpMediaPacketKind
+export interface VoiceUdpPacket {
+  kind: VoiceUdpPacketKind
   header: Record<string, unknown>
   payload: Uint8Array
 }
 
-const MAGIC = [0x4d, 0x55, 0x44, 0x50] // MUDP
+const MAGIC = [0x4d, 0x56, 0x44, 0x50] // MVDP
 const VERSION = 1
 const HEADER_OFFSET = 8
 
-const kindToCode: Record<UdpMediaPacketKind, number> = {
+const kindToCode: Record<VoiceUdpPacketKind, number> = {
   audio: 1,
   ping: 2,
   pong: 3
 }
 
-const codeToKind: Record<number, UdpMediaPacketKind | undefined> = {
+const codeToKind: Record<number, VoiceUdpPacketKind | undefined> = {
   1: 'audio',
   2: 'ping',
   3: 'pong'
@@ -27,20 +27,18 @@ const decoder = new TextDecoder()
 
 function toUint8Array(payload?: ArrayBuffer | Uint8Array): Uint8Array {
   if (!payload) return new Uint8Array(0)
-  if (payload instanceof Uint8Array) {
-    return payload
-  }
+  if (payload instanceof Uint8Array) return payload
   return new Uint8Array(payload)
 }
 
-export function encodeUdpMediaPacket(
-  kind: UdpMediaPacketKind,
+export function encodeVoiceUdpPacket(
+  kind: VoiceUdpPacketKind,
   header: Record<string, unknown>,
   payload?: ArrayBuffer | Uint8Array
 ): Uint8Array {
   const headerBytes = encoder.encode(JSON.stringify(header))
   if (headerBytes.byteLength > 0xffff) {
-    throw new Error('UDP media header is too large')
+    throw new Error('Voice UDP header is too large')
   }
 
   const body = toUint8Array(payload)
@@ -55,7 +53,7 @@ export function encodeUdpMediaPacket(
   return packet
 }
 
-export function decodeUdpMediaPacket(message: Uint8Array): UdpMediaPacket | null {
+export function decodeVoiceUdpPacket(message: Uint8Array): VoiceUdpPacket | null {
   if (message.byteLength < HEADER_OFFSET) return null
   if (message[0] !== MAGIC[0] || message[1] !== MAGIC[1] || message[2] !== MAGIC[2] || message[3] !== MAGIC[3]) {
     return null

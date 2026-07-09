@@ -147,7 +147,7 @@ class MeshMediaEngine {
     this.init()
     this.roomId = roomId
     this.setLocalVoiceActivity(false)
-    this.sendMediaPing()
+    this.sendVoicePing()
     this.startStatsLoop()
   }
 
@@ -349,8 +349,8 @@ class MeshMediaEngine {
     chunk.copyTo(buf)
     this.bytesUp += buf.byteLength
     const meta: AudioPacketMeta = { seq: this.audioSeq++, sampleRate, channels }
-    if (this.hasFreshUdpPath()) {
-      window.api.signaling.emitUdpAudio(this.roomId, meta, buf)
+    if (this.hasFreshUdpVoicePath()) {
+      window.api.signaling.emitVoiceUdpAudio(this.roomId, meta, buf)
     } else {
       window.api.signaling.emit('media:audio', this.roomId, meta, buf)
     }
@@ -644,7 +644,7 @@ class MeshMediaEngine {
   private startStatsLoop(): void {
     if (this.statsTimer) return
     this.statsTimer = setInterval(() => {
-      this.sendMediaPing()
+      this.sendVoicePing()
       const upKbps = Math.round((this.bytesUp * 8) / 1000 / 2)
       const downKbps = Math.round((this.bytesDown * 8) / 1000 / 2)
       this.bytesUp = 0
@@ -663,20 +663,15 @@ class MeshMediaEngine {
     this.onStats?.({ rttMs: null, upKbps: 0, downKbps: 0 })
   }
 
-  private hasFreshUdpPath(): boolean {
+  private hasFreshUdpVoicePath(): boolean {
     return this.lastUdpPongAt > 0 && performance.now() - this.lastUdpPongAt < 5000
   }
 
-  private sendMediaPing(): void {
+  private sendVoicePing(): void {
     if (!this.roomId) return
     const sentAt = performance.now()
-    window.api.signaling.emitUdpPing(sentAt)
-    window.setTimeout(() => {
-      if (!this.roomId) return
-      if (performance.now() - this.lastUdpPongAt > 1500) {
-        window.api.signaling.emit('media:ping', sentAt)
-      }
-    }, 1500)
+    window.api.signaling.emitVoiceUdpPing(this.roomId, sentAt)
+    window.api.signaling.emit('media:ping', sentAt)
   }
 }
 

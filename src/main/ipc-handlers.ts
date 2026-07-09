@@ -1737,13 +1737,11 @@ export function registerSignalingHandlers(): void {
   ipcMain.on('signaling:emit', (_e, event: string, ...args: unknown[]) => {
     socketClient.emitSignaling(event, ...args)
   })
-
-  ipcMain.on('signaling:udp-audio', (_e, roomId: string, meta: unknown, payload: unknown) => {
-    socketClient.emitUdpAudio(roomId, meta, payload)
+  ipcMain.on('signaling:voice-udp-audio', (_e, roomId: string, meta: unknown, payload: unknown) => {
+    socketClient.emitVoiceUdpAudio(roomId, meta, payload)
   })
-
-  ipcMain.on('signaling:udp-ping', (_e, sentAt: number) => {
-    socketClient.emitUdpPing(sentAt)
+  ipcMain.on('signaling:voice-udp-ping', (_e, roomId: string, sentAt: number) => {
+    socketClient.emitVoiceUdpPing(roomId, sentAt)
   })
 }
 

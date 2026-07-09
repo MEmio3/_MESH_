@@ -1,7 +1,7 @@
 import { io, Socket } from 'socket.io-client'
 import { BrowserWindow } from 'electron'
 import { getServer, getSetting } from './database'
-import * as udpMedia from './udp-media-client'
+import * as voiceUdp from './voice-udp-client'
 
 let socket: Socket | null = null
 let mainWindow: BrowserWindow | null = null
@@ -22,6 +22,7 @@ const secondaryHosts = new Map<string, Socket>()
 // on. Learned from presence/dm/call traffic, and used to route an outgoing DM
 // or call to the connection where that peer actually is.
 const userHosts = new Map<string, Set<string>>()
+const serverHosts = new Map<string, string>()
 
 function noteUserOnHost(userId: string | undefined, url: string): void {
   if (!userId) return
@@ -30,9 +31,13 @@ function noteUserOnHost(userId: string | undefined, url: string): void {
   set.add(url)
 }
 function forgetHost(url: string): void {
+  const normalized = normalizeUrl(url)
   for (const [uid, set] of userHosts) {
-    set.delete(url)
+    set.delete(normalized)
     if (set.size === 0) userHosts.delete(uid)
+  }
+  for (const [serverId, hostUrl] of serverHosts) {
+    if (hostUrl === normalized) serverHosts.delete(serverId)
   }
 }
 
@@ -88,7 +93,7 @@ let pendingEmits: Array<{ event: string; args: unknown[] }> = []
 
 export function setMainWindow(win: BrowserWindow): void {
   mainWindow = win
-  udpMedia.setMainWindow(win)
+  voiceUdp.setMainWindow(win)
 }
 
 function sendToRenderer(channel: string, ...args: unknown[]): void {
@@ -128,6 +133,27 @@ const serverEvents = [
 
 function normalizeUrl(url: string): string {
   return url.replace(/\/+$/, '')
+}
+
+function noteServerOnHost(serverId: string | undefined, url: string): void {
+  if (!serverId || !url) return
+  serverHosts.set(serverId, normalizeUrl(url))
+}
+
+function serverIdFromVoiceRoom(roomId: string): string | null {
+  const parts = roomId.split(':')
+  return parts[0] === 'voice' && parts[1] ? parts[1] : null
+}
+
+function voiceUdpTargetUrl(roomId: string): string {
+  const serverId = serverIdFromVoiceRoom(roomId)
+  const hosted = hostedRouteForServer(serverId)
+  if (hosted) return hosted.url
+  if (serverId) {
+    const mapped = serverHosts.get(serverId)
+    if (mapped) return mapped
+  }
+  return currentUrl
 }
 
 function normalizePort(value: unknown): number {
@@ -270,7 +296,10 @@ function attachSecondaryHandlers(sock: Socket, url: string): void {
   sock.on('message-request:message-incoming', (payload: unknown) => fwd('message-request:message-incoming', payload))
 
   for (const evt of serverEvents) {
-    sock.on(evt, (payload: unknown) => fwd(evt, payload))
+    sock.on(evt, (payload: unknown) => {
+      noteServerOnHost((payload as { serverId?: string } | null)?.serverId, url)
+      fwd(evt, payload)
+    })
   }
 }
 
@@ -284,12 +313,12 @@ export function connectSecondaryHost(serverUrl: string): void {
   secondaryHosts.set(url, sock)
   sock.on('connect', () => {
     sock.emit('register-user', currentUserId)
-    udpMedia.configureHost(url, currentUserId)
+    voiceUdp.configureHost(url, currentUserId)
     sendToRenderer('signaling:hosts-changed', listHostUrls())
   })
   sock.on('disconnect', () => {
     forgetHost(url)
-    udpMedia.removeHost(url)
+    voiceUdp.removeHost(url)
     sendToRenderer('signaling:hosts-changed', listHostUrls())
   })
   sock.on('connect_error', (err) => console.warn('[socket-client] secondary host failed:', url, err.message))
@@ -304,7 +333,7 @@ export function disconnectSecondaryHost(serverUrl: string): void {
   try { sock.removeAllListeners(); sock.disconnect() } catch { /* ignore */ }
   secondaryHosts.delete(url)
   forgetHost(url)
-  udpMedia.removeHost(url)
+  voiceUdp.removeHost(url)
   sendToRenderer('signaling:hosts-changed', listHostUrls())
 }
 
@@ -331,13 +360,10 @@ function auxiliarySocketFor(serverUrl: string, userId: string): Socket {
 }
 
 function emitOnSocket(target: Socket, event: string, args: unknown[]): void {
-  const isVolatileVideo = event === 'media:video' && !Boolean((args[1] as { key?: unknown } | null)?.key)
   if (target.connected) {
-    if (isVolatileVideo) target.volatile.emit(event, ...args)
-    else target.emit(event, ...args)
+    target.emit(event, ...args)
     return
   }
-  if (event.startsWith('media:')) return
   target.once('connect', () => target.emit(event, ...args))
 }
 
@@ -374,7 +400,7 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
     reconnectAttempts = 0
     sendToRenderer('signaling:reconnect-status', { state: 'connected' })
     socket!.emit('register-user', userId)
-    udpMedia.configureHost(currentUrl, userId)
+    voiceUdp.configureHost(serverUrl, userId)
     // Flush everything queued while we were offline, preserving order.
     if (pendingEmits.length > 0) {
       const toFlush = pendingEmits
@@ -391,7 +417,7 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
   socket.on('disconnect', (reason) => {
     sendToRenderer('signaling:disconnected', reason)
     forgetHost(normalizeUrl(currentUrl))
-    udpMedia.removeHost(currentUrl)
+    voiceUdp.removeHost(currentUrl)
     sendToRenderer('signaling:hosts-changed', listHostUrls())
     tryReconnect()
   })
@@ -520,6 +546,7 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
   // Community server events
   for (const evt of serverEvents) {
     socket.on(evt, (payload: unknown) => {
+      noteServerOnHost((payload as { serverId?: string } | null)?.serverId, normalizeUrl(currentUrl))
       // Log join-ack for debugging
       if (evt === 'server:join-ack') {
         console.log('[socket-client] server:join-ack received:', JSON.stringify(payload, null, 2).slice(0, 500))
@@ -566,7 +593,7 @@ export function disconnectFromSignaling(): void {
   reconnectAttempts = 0
   socket?.disconnect()
   socket = null
-  udpMedia.reset()
+  voiceUdp.reset()
 }
 
 export function emitSignaling(event: string, ...args: unknown[]): void {
@@ -606,7 +633,6 @@ export function emitSignaling(event: string, ...args: unknown[]): void {
     emitOnSocket(socket, event, args)
     return
   }
-  if (event.startsWith('media:')) return
   // Socket down — queue for the flush that follows the next connect.
   if (pendingEmits.length < MAX_PENDING_EMITS) {
     pendingEmits.push({ event, args })
@@ -623,16 +649,20 @@ export function emitSignalingWithAck(
   else socket.emit(event, arg, cb)
 }
 
-export function emitUdpAudio(roomId: string, meta: unknown, payload: unknown): void {
-  const route = routeForEvent('media:audio', [roomId])
-  const targetUrl = route?.url ?? currentUrl
-  if (!targetUrl || !currentUserId) return
-  udpMedia.configureHost(targetUrl, currentUserId)
-  udpMedia.sendAudio(targetUrl, roomId, meta, payload)
+export function emitVoiceUdpAudio(roomId: string, meta: unknown, payload: unknown): void {
+  if (!currentUserId) return
+  const targetUrl = voiceUdpTargetUrl(roomId)
+  if (!targetUrl) return
+  voiceUdp.configureHost(targetUrl, currentUserId)
+  voiceUdp.sendAudio(targetUrl, roomId, meta, payload)
 }
 
-export function emitUdpPing(sentAt: number): void {
-  udpMedia.sendPing(sentAt)
+export function emitVoiceUdpPing(roomId: string, sentAt: number): void {
+  if (!currentUserId) return
+  const targetUrl = voiceUdpTargetUrl(roomId)
+  if (!targetUrl) return
+  voiceUdp.configureHost(targetUrl, currentUserId)
+  voiceUdp.sendPing(targetUrl, roomId, sentAt)
 }
 
 export function isConnected(): boolean {

@@ -214,7 +214,7 @@ export const useServersStore = create<ServersStore>((set, get) => ({
     // after 15s so the user sees an actionable error instead of an endless spinner.
     setTimeout(() => {
       const state = get()
-      if (state.pendingJoin === serverId && !state.servers.find((s) => s.id === serverId)) {
+      if (state.pendingJoin === serverId) {
         set({ pendingJoin: null, lastError: 'Join timed out. The server may be offline or unreachable.' })
       }
     }, 15000)

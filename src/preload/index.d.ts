@@ -177,8 +177,8 @@ interface SignalingAPI {
   isConnected: () => Promise<boolean>
   socketId: () => Promise<string | null>
   emit: (event: string, ...args: unknown[]) => void
-  emitUdpAudio: (roomId: string, meta: unknown, payload: ArrayBuffer) => void
-  emitUdpPing: (sentAt: number) => void
+  emitVoiceUdpAudio: (roomId: string, meta: unknown, payload: ArrayBuffer) => void
+  emitVoiceUdpPing: (roomId: string, sentAt: number) => void
   addHost: (serverUrl: string) => Promise<{ success: boolean; hosts: string[] }>
   removeHost: (serverUrl: string) => Promise<{ success: boolean; hosts: string[] }>
   listHosts: () => Promise<string[]>

@@ -1,8 +1,8 @@
 import { BrowserWindow } from 'electron'
 import dgram from 'dgram'
-import { decodeUdpMediaPacket, encodeUdpMediaPacket } from '../shared/udp-media-packet'
+import { decodeVoiceUdpPacket, encodeVoiceUdpPacket } from '../shared/voice-udp-packet'
 
-interface UdpHost {
+interface VoiceUdpHost {
   url: string
   hostname: string
   port: number
@@ -11,7 +11,7 @@ interface UdpHost {
 let mainWindow: BrowserWindow | null = null
 let udpSocket: dgram.Socket | null = null
 let currentUserId = ''
-const hosts = new Map<string, UdpHost>()
+const hosts = new Map<string, VoiceUdpHost>()
 
 function sendToRenderer(channel: string, ...args: unknown[]): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -26,7 +26,7 @@ function normalizeUrl(input: string): string {
   return withScheme.replace(/\/+$/, '')
 }
 
-function parseHost(serverUrl: string): UdpHost | null {
+function parseHost(serverUrl: string): VoiceUdpHost | null {
   const normalized = normalizeUrl(serverUrl)
   if (!normalized) return null
 
@@ -72,7 +72,7 @@ function ensureSocket(): dgram.Socket | null {
   const socket = dgram.createSocket('udp4')
   udpSocket = socket
   socket.on('message', (message) => {
-    const packet = decodeUdpMediaPacket(message)
+    const packet = decodeVoiceUdpPacket(message)
     if (!packet) return
 
     if (packet.kind === 'audio') {
@@ -88,17 +88,17 @@ function ensureSocket(): dgram.Socket | null {
     }
   })
   socket.on('error', (err) => {
-    console.warn('[udp-media-client] socket error:', err.message)
+    console.warn('[voice-udp-client] socket error:', err.message)
   })
   socket.unref()
   return socket
 }
 
-function sendPacket(host: UdpHost, packet: Uint8Array): boolean {
+function sendPacket(host: VoiceUdpHost, packet: Uint8Array): boolean {
   const socket = ensureSocket()
   if (!socket) return false
   socket.send(packet, host.port, host.hostname, (err) => {
-    if (err) console.warn('[udp-media-client] send failed:', host.url, err.message)
+    if (err) console.warn('[voice-udp-client] send failed:', host.url, err.message)
   })
   return true
 }
@@ -139,7 +139,7 @@ export function sendAudio(serverUrl: string, roomId: string, meta: unknown, payl
   const bytes = toPayloadBytes(payload)
   if (!host || !currentUserId || !roomId || !bytes) return false
 
-  const packet = encodeUdpMediaPacket('audio', {
+  const packet = encodeVoiceUdpPacket('audio', {
     roomId,
     userId: currentUserId,
     meta: objectHeader(meta)
@@ -147,15 +147,13 @@ export function sendAudio(serverUrl: string, roomId: string, meta: unknown, payl
   return sendPacket(host, packet)
 }
 
-export function sendPing(sentAt: number): boolean {
-  if (!currentUserId || hosts.size === 0 || typeof sentAt !== 'number') return false
-  const packet = encodeUdpMediaPacket('ping', {
+export function sendPing(serverUrl: string, roomId: string, sentAt: number): boolean {
+  const host = hosts.get(parseHost(serverUrl)?.url ?? '')
+  if (!host || !currentUserId || !roomId || typeof sentAt !== 'number') return false
+  const packet = encodeVoiceUdpPacket('ping', {
+    roomId,
     userId: currentUserId,
     sentAt
   })
-  let sent = false
-  for (const host of hosts.values()) {
-    sent = sendPacket(host, packet) || sent
-  }
-  return sent
+  return sendPacket(host, packet)
 }
