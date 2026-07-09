@@ -216,6 +216,11 @@ const api = {
       ipcRenderer.on('signaling:call-end', h)
       return () => ipcRenderer.removeListener('signaling:call-end', h)
     },
+    onCallUnreachable: (cb: (targetUserId: string) => void): (() => void) => {
+      const h = (_e: Electron.IpcRendererEvent, targetUserId: string): void => cb(targetUserId)
+      ipcRenderer.on('signaling:call-unreachable', h)
+      return () => ipcRenderer.removeListener('signaling:call-unreachable', h)
+    },
     onCallVideoState: (cb: (fromUserId: string, payload: { enabled: boolean }) => void): (() => void) => {
       const h = (_e: Electron.IpcRendererEvent, fromUserId: string, payload: { enabled: boolean }): void => cb(fromUserId, payload)
       ipcRenderer.on('signaling:call-video-state', h)

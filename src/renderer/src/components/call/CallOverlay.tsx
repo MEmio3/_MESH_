@@ -100,6 +100,7 @@ function CallOverlay(): JSX.Element | null {
   const isLocalSpeaking = useCallStore((s) => s.isLocalSpeaking)
   const isRemoteSpeaking = useCallStore((s) => s.isRemoteSpeaking)
   const startedAt = useCallStore((s) => s.startedAt)
+  const declineReason = useCallStore((s) => s.declineReason)
   const remoteStream = useCallStore((s) => s.remoteStream)
   const localStream = useCallStore((s) => s.localStream)
   const accept = useCallStore((s) => s.accept)
@@ -172,7 +173,7 @@ function CallOverlay(): JSX.Element | null {
         ? `Incoming ${kind} call`
         : status === 'outgoing'
           ? `Calling ${peerName}...`
-          : 'Call declined'
+          : 'Call ended'
     const Icon = status === 'incoming' ? PhoneIncoming : PhoneOutgoing
 
     return (
@@ -230,7 +231,9 @@ function CallOverlay(): JSX.Element | null {
           )}
 
           {status === 'declined' && (
-            <p className="relative mt-5 text-center text-xs text-mesh-text-muted">The call was declined.</p>
+            <p className="relative mt-5 text-center text-xs leading-relaxed text-mesh-text-muted">
+              {declineReason ?? 'The call was declined.'}
+            </p>
           )}
         </div>
       </div>

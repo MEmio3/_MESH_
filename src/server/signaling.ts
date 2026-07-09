@@ -1122,6 +1122,11 @@ io.on('connection', (socket) => {
     const targetSocketId = userSockets.get(targetUserId)
     if (targetSocketId) {
       io.to(targetSocketId).emit('call-invite', socket.data.userId, callData)
+    } else {
+      // Target isn't connected to THIS host. Calls are real-time and same-host
+      // only (there's no offline queue for them), so tell the caller right away
+      // instead of leaving them ringing into the void.
+      socket.emit('call-unreachable', targetUserId)
     }
   })
 

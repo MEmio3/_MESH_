@@ -46,6 +46,9 @@ interface CallState {
   startedAt: number | null
   remoteStream: MediaStream | null
   localStream: MediaStream | null
+  /** Why the last outgoing call ended in the 'declined' state — shown in the
+   *  overlay. Distinguishes a real decline from "no answer" / "unreachable". */
+  declineReason: string | null
 
   // Selected input/output device ids (persisted to localStorage).
   micDeviceId: string | null
@@ -57,7 +60,9 @@ interface CallState {
   accept: () => Promise<void>
   decline: () => void
   remoteAccepted: () => Promise<void>
-  remoteRejected: () => void
+  remoteRejected: (reason?: string) => void
+  /** Host reported the callee isn't reachable (offline / different host). */
+  remoteUnreachable: (peerId: string) => void
   end: (notifyPeer?: boolean) => void
   toggleMute: () => void
   toggleCamera: () => Promise<void>
@@ -191,6 +196,7 @@ export const useCallStore = create<CallState>((set, get) => ({
   startedAt: null,
   remoteStream: null,
   localStream: null,
+  declineReason: null,
   micDeviceId: persisted.mic,
   cameraDeviceId: persisted.cam,
   speakerDeviceId: persisted.spk,
@@ -222,7 +228,7 @@ export const useCallStore = create<CallState>((set, get) => ({
     outgoingTimer = setTimeout(() => {
       const st = get()
       if (st.status === 'outgoing' && st.peerId === peerId) {
-        st.remoteRejected() // reuses the "call didn't connect" toast + reset
+        st.remoteRejected(`${peerName} didn't answer.`)
       }
     }, 30_000)
   },
@@ -327,10 +333,10 @@ export const useCallStore = create<CallState>((set, get) => ({
     }
   },
 
-  remoteRejected: () => {
+  remoteRejected: (reason = 'The call was declined.') => {
     clearOutgoingTimer()
     playCallReject()
-    set({ status: 'declined' })
+    set({ status: 'declined', declineReason: reason })
     // Auto-clear after a short toast
     setTimeout(() => {
       if (useCallStore.getState().status === 'declined') {
@@ -341,6 +347,7 @@ export const useCallStore = create<CallState>((set, get) => ({
           startedAt: null,
           remoteStream: null,
           localStream: null,
+          declineReason: null,
           isMuted: false,
           isCameraOn: false,
           isScreenSharing: false,
@@ -349,7 +356,14 @@ export const useCallStore = create<CallState>((set, get) => ({
           isRemoteSpeaking: false
         })
       }
-    }, 1800)
+    }, 2600)
+  },
+
+  remoteUnreachable: (unreachablePeerId) => {
+    const { status, peerId, peerName } = get()
+    // Only applies to a call we're currently placing to that peer.
+    if (status !== 'outgoing' || peerId !== unreachablePeerId) return
+    get().remoteRejected(`${peerName ?? 'They'} isn't reachable — you both need to be online on the same host to call.`)
   },
 
   end: (notifyPeer = true) => {

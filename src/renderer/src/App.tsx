@@ -119,6 +119,9 @@ function App(): JSX.Element {
       const st = useCallStore.getState()
       if (st.peerId === fromUserId) st.remoteRejected()
     })
+    const offUnreachable = window.api.signaling.onCallUnreachable((targetUserId) => {
+      useCallStore.getState().remoteUnreachable(targetUserId)
+    })
     const offEnd = window.api.signaling.onCallEnd((fromUserId) => {
       const st = useCallStore.getState()
       if (st.peerId === fromUserId) st.end(false)
@@ -129,7 +132,7 @@ function App(): JSX.Element {
         st._clearRemoteVideo()
       }
     })
-    return () => { offInvite(); offAccept(); offReject(); offEnd(); offVideoState() }
+    return () => { offInvite(); offAccept(); offReject(); offUnreachable(); offEnd(); offVideoState() }
   }, [])
 
   // Feature 2 and 3: signaling fallback for DM edit/delete/reaction when no P2P channel exists.

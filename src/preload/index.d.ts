@@ -198,6 +198,7 @@ interface SignalingAPI {
   onCallAccept: (cb: (fromUserId: string) => void) => () => void
   onCallReject: (cb: (fromUserId: string) => void) => () => void
   onCallEnd: (cb: (fromUserId: string) => void) => () => void
+  onCallUnreachable: (cb: (targetUserId: string) => void) => () => void
   onCallVideoState: (cb: (fromUserId: string, payload: { enabled: boolean }) => void) => () => void
   onFriendRequestIncoming: (cb: (payload: FriendRequestIncomingPayload) => void) => () => void
   onFriendRequestAccepted: (cb: (payload: FriendRequestAcceptedPayload) => void) => () => void

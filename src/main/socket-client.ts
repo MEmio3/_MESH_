@@ -279,6 +279,10 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
     sendToRenderer('signaling:call-reject', fromUserId)
   })
 
+  socket.on('call-unreachable', (targetUserId: string) => {
+    sendToRenderer('signaling:call-unreachable', targetUserId)
+  })
+
   socket.on('call-end', (fromUserId: string) => {
     sendToRenderer('signaling:call-end', fromUserId)
   })
