@@ -1,6 +1,7 @@
 import { io, Socket } from 'socket.io-client'
 import { BrowserWindow } from 'electron'
 import { getServer, getSetting } from './database'
+import * as udpMedia from './udp-media-client'
 
 let socket: Socket | null = null
 let mainWindow: BrowserWindow | null = null
@@ -87,6 +88,7 @@ let pendingEmits: Array<{ event: string; args: unknown[] }> = []
 
 export function setMainWindow(win: BrowserWindow): void {
   mainWindow = win
+  udpMedia.setMainWindow(win)
 }
 
 function sendToRenderer(channel: string, ...args: unknown[]): void {
@@ -204,6 +206,9 @@ function attachAuxiliaryHandlers(aux: Socket, userId: string): void {
   aux.on('media:pong', (sentAt: unknown) => {
     sendToRenderer('signaling:media:pong', sentAt)
   })
+  aux.on('media:keyframe-request', (roomId: string, fromUserId?: string) => {
+    sendToRenderer('signaling:media:keyframe-request', roomId, fromUserId)
+  })
   for (const evt of serverEvents) {
     aux.on(evt, (payload: unknown) => {
       sendToRenderer(`signaling:${evt}`, payload)
@@ -241,6 +246,7 @@ function attachSecondaryHandlers(sock: Socket, url: string): void {
   sock.on('media:audio', (fromUserId: string, meta: unknown, payload: unknown) => fwd('media:audio', fromUserId, meta, payload))
   sock.on('media:video', (fromUserId: string, meta: unknown, payload: unknown) => fwd('media:video', fromUserId, meta, payload))
   sock.on('media:pong', (sentAt: unknown) => fwd('media:pong', sentAt))
+  sock.on('media:keyframe-request', (roomId: string, fromUserId?: string) => fwd('media:keyframe-request', roomId, fromUserId))
 
   sock.on('friend-request:incoming', (payload: unknown) => { noteUserOnHost((payload as { fromUserId?: string })?.fromUserId, url); fwd('friend-request:incoming', payload) })
   sock.on('friend-request:accepted', (payload: unknown) => fwd('friend-request:accepted', payload))
@@ -278,10 +284,12 @@ export function connectSecondaryHost(serverUrl: string): void {
   secondaryHosts.set(url, sock)
   sock.on('connect', () => {
     sock.emit('register-user', currentUserId)
+    udpMedia.configureHost(url, currentUserId)
     sendToRenderer('signaling:hosts-changed', listHostUrls())
   })
   sock.on('disconnect', () => {
     forgetHost(url)
+    udpMedia.removeHost(url)
     sendToRenderer('signaling:hosts-changed', listHostUrls())
   })
   sock.on('connect_error', (err) => console.warn('[socket-client] secondary host failed:', url, err.message))
@@ -296,6 +304,7 @@ export function disconnectSecondaryHost(serverUrl: string): void {
   try { sock.removeAllListeners(); sock.disconnect() } catch { /* ignore */ }
   secondaryHosts.delete(url)
   forgetHost(url)
+  udpMedia.removeHost(url)
   sendToRenderer('signaling:hosts-changed', listHostUrls())
 }
 
@@ -322,10 +331,13 @@ function auxiliarySocketFor(serverUrl: string, userId: string): Socket {
 }
 
 function emitOnSocket(target: Socket, event: string, args: unknown[]): void {
+  const isVolatileVideo = event === 'media:video' && !Boolean((args[1] as { key?: unknown } | null)?.key)
   if (target.connected) {
-    target.emit(event, ...args)
+    if (isVolatileVideo) target.volatile.emit(event, ...args)
+    else target.emit(event, ...args)
     return
   }
+  if (event.startsWith('media:')) return
   target.once('connect', () => target.emit(event, ...args))
 }
 
@@ -362,6 +374,7 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
     reconnectAttempts = 0
     sendToRenderer('signaling:reconnect-status', { state: 'connected' })
     socket!.emit('register-user', userId)
+    udpMedia.configureHost(currentUrl, userId)
     // Flush everything queued while we were offline, preserving order.
     if (pendingEmits.length > 0) {
       const toFlush = pendingEmits
@@ -378,6 +391,7 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
   socket.on('disconnect', (reason) => {
     sendToRenderer('signaling:disconnected', reason)
     forgetHost(normalizeUrl(currentUrl))
+    udpMedia.removeHost(currentUrl)
     sendToRenderer('signaling:hosts-changed', listHostUrls())
     tryReconnect()
   })
@@ -461,6 +475,9 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
   })
   socket.on('media:pong', (sentAt: unknown) => {
     sendToRenderer('signaling:media:pong', sentAt)
+  })
+  socket.on('media:keyframe-request', (roomId: string, fromUserId?: string) => {
+    sendToRenderer('signaling:media:keyframe-request', roomId, fromUserId)
   })
 
   // Friend-request events (server → us)
@@ -549,6 +566,7 @@ export function disconnectFromSignaling(): void {
   reconnectAttempts = 0
   socket?.disconnect()
   socket = null
+  udpMedia.reset()
 }
 
 export function emitSignaling(event: string, ...args: unknown[]): void {
@@ -556,7 +574,7 @@ export function emitSignaling(event: string, ...args: unknown[]): void {
   if (route) {
     const routeUrl = normalizeUrl(route.url)
     if (socket?.connected && normalizeUrl(currentUrl) === routeUrl && currentUserId === route.userId) {
-      socket.emit(event, ...args)
+      emitOnSocket(socket, event, args)
       return
     }
     emitOnSocket(auxiliarySocketFor(routeUrl, route.userId), event, args)
@@ -585,9 +603,10 @@ export function emitSignaling(event: string, ...args: unknown[]): void {
   }
 
   if (socket?.connected) {
-    socket.emit(event, ...args)
+    emitOnSocket(socket, event, args)
     return
   }
+  if (event.startsWith('media:')) return
   // Socket down — queue for the flush that follows the next connect.
   if (pendingEmits.length < MAX_PENDING_EMITS) {
     pendingEmits.push({ event, args })
@@ -602,6 +621,18 @@ export function emitSignalingWithAck(
   if (!socket) { cb(null); return }
   if (arg === undefined) socket.emit(event, cb)
   else socket.emit(event, arg, cb)
+}
+
+export function emitUdpAudio(roomId: string, meta: unknown, payload: unknown): void {
+  const route = routeForEvent('media:audio', [roomId])
+  const targetUrl = route?.url ?? currentUrl
+  if (!targetUrl || !currentUserId) return
+  udpMedia.configureHost(targetUrl, currentUserId)
+  udpMedia.sendAudio(targetUrl, roomId, meta, payload)
+}
+
+export function emitUdpPing(sentAt: number): void {
+  udpMedia.sendPing(sentAt)
 }
 
 export function isConnected(): boolean {

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
+  Maximize2,
   Mic,
   MicOff,
-  PhoneCall,
+  Minimize2,
   PhoneIncoming,
   PhoneOff,
   PhoneOutgoing,
@@ -11,7 +12,6 @@ import {
   Settings,
   Signal,
   Sparkles,
-  UserRound,
   Video,
   VideoOff,
   Volume2,
@@ -21,7 +21,6 @@ import { useCallStore } from '@/stores/call.store'
 import { useAudioPrefsStore } from '@/stores/audioPrefs.store'
 import { registerAudioSink } from '@/stores/audioPrefs.store'
 import { useNetStatsStore, pingTone } from '@/stores/netstats.store'
-import { useIdentityStore } from '@/stores/identity.store'
 import { UserAvatar } from '@/components/ui/UserAvatar'
 import { VoiceDetectionRing } from '@/components/voice/VoiceDetectionRing'
 import { StreamPickerModal } from '@/components/server/StreamPickerModal'
@@ -110,7 +109,6 @@ function CallOverlay(): JSX.Element | null {
   const toggleCamera = useCallStore((s) => s.toggleCamera)
   const startScreenShareFromSource = useCallStore((s) => s.startScreenShareFromSource)
   const stopScreenShare = useCallStore((s) => s.stopScreenShare)
-  const self = useIdentityStore((s) => s.identity)
 
   // Mic + speaker come from the global audio prefs (same selection used in
   // UserPanel); camera stays call-local because it is only relevant in-call.
@@ -123,6 +121,7 @@ function CallOverlay(): JSX.Element | null {
 
   const [showSettings, setShowSettings] = useState(false)
   const [sharePickerOpen, setSharePickerOpen] = useState(false)
+  const [stageExpanded, setStageExpanded] = useState(false)
   const devices = useMediaDevices(showSettings)
   const peerRtt = useNetStatsStore((s) => s.rttMs)
 
@@ -156,6 +155,10 @@ function CallOverlay(): JSX.Element | null {
     if (status !== 'active') setSharePickerOpen(false)
   }, [status])
 
+  useEffect(() => {
+    if (status !== 'active') setStageExpanded(false)
+  }, [status])
+
   if (status === 'idle' || !peerId) return null
 
   const duration = startedAt ? now - startedAt : 0
@@ -166,6 +169,14 @@ function CallOverlay(): JSX.Element | null {
   const showRemoteVideo = showVideoSurface && hasRemoteVideo
   const callTypeLabel = kind === 'video' ? 'Direct Video' : 'Direct Voice'
   const qualityLabel = callQualityLabel(peerRtt)
+  const showMediaStage = status === 'active' && (kind === 'video' || hasRemoteVideo || hasLocalVideoSource)
+  const stageTitle = showRemoteVideo
+    ? peerName || peerId
+    : hasLocalVideoSource
+      ? isScreenSharing
+        ? screenSourceLabel || 'Screen share'
+        : 'Camera preview'
+      : peerName || peerId
 
   if (status === 'incoming' || status === 'outgoing' || status === 'declined') {
     const title =
@@ -212,10 +223,10 @@ function CallOverlay(): JSX.Element | null {
               <button
                 onClick={accept}
                 className="mesh-pressable mesh-icon-button mesh-icon-phone flex h-12 items-center justify-center gap-2 rounded-full border border-mesh-green/35 bg-mesh-green text-sm font-bold text-white shadow-[0_14px_32px_rgba(35,165,89,0.34)] transition hover:bg-mesh-green-light"
-                title="Receive call"
+                title="Accept call"
               >
-                <PhoneCall className="h-5 w-5" />
-                Receive
+                <PhoneIncoming className="h-5 w-5" />
+                Accept
               </button>
             </div>
           )}
@@ -242,93 +253,71 @@ function CallOverlay(): JSX.Element | null {
 
   return (
     <div className="pointer-events-none fixed inset-0 z-50 text-mesh-text-primary">
-      <div className="pointer-events-auto absolute bottom-4 right-4 top-14 flex w-[min(460px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-mesh-border/70 bg-mesh-bg-primary/95 shadow-[0_28px_90px_rgba(0,0,0,0.48),inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-xl">
-      <header className="flex h-14 shrink-0 items-center justify-between border-b border-mesh-border/60 bg-mesh-bg-secondary/80 px-4 backdrop-blur">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-mesh-green/25 bg-mesh-green/12 text-mesh-green">
-            {kind === 'video' ? <Video className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="truncate text-sm font-bold text-mesh-text-primary">{callTypeLabel}</span>
-              <span className="rounded-full border border-mesh-green/25 bg-mesh-green/10 px-2 py-0.5 text-[10px] font-bold uppercase text-mesh-green">
-                Connected
+      {showMediaStage && (
+        <section
+          className={cn(
+            'pointer-events-auto mesh-reveal-in absolute overflow-hidden border border-mesh-border/70 bg-black/90 shadow-[0_28px_90px_rgba(0,0,0,0.52),inset_0_1px_0_rgba(255,255,255,0.05)] backdrop-blur-xl',
+            stageExpanded
+              ? 'inset-4 rounded-2xl'
+              : 'right-5 top-16 h-[min(430px,calc(100vh-168px))] w-[min(760px,calc(100vw-2rem))] rounded-2xl'
+          )}
+        >
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_12%,rgba(45,212,191,0.13),transparent_34%),radial-gradient(circle_at_88%_0%,rgba(96,165,250,0.10),transparent_32%)]" />
+          <header className="absolute inset-x-0 top-0 z-10 flex items-center justify-between bg-gradient-to-b from-black/75 to-transparent px-4 py-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/55 px-2.5 py-1 text-[11px] font-bold text-white backdrop-blur">
+                {isScreenSharing ? <ScreenShare className="h-3.5 w-3.5 text-mesh-green" /> : kind === 'video' ? <Video className="h-3.5 w-3.5 text-mesh-green" /> : <Volume2 className="h-3.5 w-3.5 text-mesh-green" />}
+                <span className="max-w-[24rem] truncate">{stageTitle}</span>
+              </span>
+              <span className="hidden items-center gap-1.5 rounded-full border border-white/10 bg-black/45 px-2.5 py-1 text-[11px] font-semibold text-white/75 sm:inline-flex">
+                <Signal className="h-3.5 w-3.5 text-mesh-green" />
+                {qualityLabel}
               </span>
             </div>
-            <div className="mt-0.5 flex items-center gap-2 text-[11px] text-mesh-text-muted">
-              <span className="font-mono">{formatDuration(duration)}</span>
-              <span className="h-1 w-1 rounded-full bg-mesh-text-muted/60" />
-              <span className={cn('font-mono', peerRtt !== null && pingTone(peerRtt))}>
-                {peerRtt !== null ? `${peerRtt} ms` : 'ping --'}
-              </span>
-            </div>
-          </div>
-        </div>
+            <button
+              onClick={() => setStageExpanded((v) => !v)}
+              className="mesh-pressable grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-white/10 bg-black/50 text-white/80 transition hover:bg-white/10 hover:text-white"
+              title={stageExpanded ? 'Exit full screen' : 'Full screen'}
+            >
+              {stageExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+            </button>
+          </header>
 
-        <div className="flex items-center gap-2">
-          <span className="hidden items-center gap-1.5 rounded-lg border border-mesh-border/60 bg-mesh-bg-tertiary/70 px-2.5 py-1.5 text-[11px] font-semibold text-mesh-text-muted sm:inline-flex">
-            <Signal className="h-3.5 w-3.5 text-mesh-green" />
-            {qualityLabel}
-          </span>
-          <button
-            onClick={() => end(true)}
-            className="mesh-pressable mesh-icon-button mesh-icon-phone grid h-8 w-8 place-items-center rounded-md text-mesh-text-secondary transition-colors hover:bg-mesh-danger/15 hover:text-mesh-danger"
-            title="Leave call"
-          >
-            <PhoneOff className="h-4 w-4" />
-          </button>
-        </div>
-      </header>
-
-      <main className="relative flex min-h-0 flex-1 overflow-hidden">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(45,212,191,0.10),transparent_34%),radial-gradient(circle_at_80%_12%,rgba(96,165,250,0.08),transparent_30%)]" />
-
-        <section className="relative flex min-w-0 flex-1 flex-col gap-4 p-4">
-          <div className="mesh-reveal-in mesh-shimmer relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-2xl border border-mesh-border/70 bg-mesh-bg-secondary/72 shadow-[0_24px_70px_rgba(0,0,0,0.32),inset_0_1px_0_rgba(255,255,255,0.04)]">
+          <div className="relative flex h-full w-full items-center justify-center">
             {showRemoteVideo ? (
-              <>
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="h-full w-full bg-black object-contain"
-                />
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent p-4 pt-16">
-                  <span className="inline-flex max-w-full items-center gap-2 rounded-lg border border-white/10 bg-black/55 px-3 py-1.5 text-sm font-semibold text-white backdrop-blur">
-                    <UserRound className="h-4 w-4" />
-                    <span className="truncate">{peerName || peerId}</span>
-                  </span>
-                </div>
-              </>
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className="h-full w-full bg-black object-contain"
+              />
+            ) : hasLocalVideoSource && hasLocalVideo ? (
+              <video
+                ref={localVideoRef}
+                autoPlay
+                playsInline
+                muted
+                className={cn('h-full w-full bg-black object-contain', isCameraOn && !isScreenSharing && '-scale-x-100')}
+              />
             ) : (
               <div className="relative flex h-full w-full flex-col items-center justify-center p-6 text-center">
                 <div className="absolute inset-x-1/4 top-1/2 h-48 -translate-y-1/2 rounded-full bg-mesh-green/12 blur-3xl" />
-                <div className={cn(
-                  'relative isolate rounded-full bg-mesh-bg-tertiary p-1.5 transition-all',
-                  isRemoteSpeaking && 'mesh-speaking-ring'
-                )}>
+                <div className={cn('relative isolate rounded-full bg-mesh-bg-tertiary p-1.5', isRemoteSpeaking && 'mesh-speaking-ring')}>
                   {isRemoteSpeaking && <VoiceDetectionRing size="lg" />}
                   <UserAvatar userId={peerId} fallback={peerName || peerId} size="xl" status="online" />
                 </div>
                 <h2 className="relative mt-5 max-w-full truncate text-2xl font-bold text-mesh-text-primary">
                   {peerName || peerId}
                 </h2>
-                <div className="relative mt-2 flex flex-wrap items-center justify-center gap-2 text-xs text-mesh-text-muted">
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-mesh-border/60 bg-mesh-bg-primary/70 px-3 py-1">
-                    {kind === 'video' ? <VideoOff className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
-                    {kind === 'video' ? 'Camera off' : 'Voice connected'}
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-mesh-border/60 bg-mesh-bg-primary/70 px-3 py-1">
-                    <Sparkles className="h-3.5 w-3.5 text-mesh-green" />
-                    {qualityLabel}
-                  </span>
-                </div>
+                <p className="relative mt-2 text-xs text-mesh-text-muted">
+                  {kind === 'video' ? 'Waiting for video' : 'Voice connected'}
+                </p>
               </div>
             )}
 
-            {hasLocalVideoSource && hasLocalVideo && (
-              <div className="mesh-hover-lift absolute bottom-4 right-4 aspect-video w-44 overflow-hidden rounded-xl border border-mesh-border/70 bg-black shadow-[0_18px_46px_rgba(0,0,0,0.35)]">
+            {showRemoteVideo && hasLocalVideoSource && hasLocalVideo && (
+              <div className="mesh-hover-lift absolute bottom-4 right-4 aspect-video w-44 overflow-hidden rounded-xl border border-white/10 bg-black shadow-[0_18px_46px_rgba(0,0,0,0.35)]">
                 <video
                   ref={localVideoRef}
                   autoPlay
@@ -343,45 +332,56 @@ function CallOverlay(): JSX.Element | null {
             )}
           </div>
         </section>
+      )}
 
-        <aside className="relative hidden w-72 shrink-0 border-l border-mesh-border/60 bg-mesh-bg-secondary/55 p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-xs font-bold uppercase tracking-wide text-mesh-text-muted">In call</h3>
-            <span className="rounded-full border border-mesh-border/60 bg-mesh-bg-tertiary px-2 py-0.5 text-[10px] font-bold text-mesh-text-muted">
-              2
+      <div className="pointer-events-auto absolute left-1/2 top-4 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-2 rounded-full border border-mesh-border/70 bg-mesh-bg-primary/80 px-3 py-2 shadow-[0_18px_54px_rgba(0,0,0,0.34)] backdrop-blur-xl">
+        <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-mesh-green/25 bg-mesh-green/12 text-mesh-green">
+          {kind === 'video' ? <Video className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+        </div>
+        <div className="min-w-0 pr-1">
+          <div className="flex items-center gap-2">
+            <span className="truncate text-sm font-bold text-mesh-text-primary">{callTypeLabel}</span>
+            <span className="rounded-full border border-mesh-green/25 bg-mesh-green/10 px-2 py-0.5 text-[10px] font-bold uppercase text-mesh-green">
+              Connected
             </span>
           </div>
-          <ParticipantRow
-            userId={peerId}
-            fallback={peerName || peerId}
-            label={peerName || peerId}
-            detail={qualityLabel}
-            speaking={isRemoteSpeaking}
-          />
-          <ParticipantRow
-            userId={self?.userId}
-            fallback={self?.username || 'You'}
-            label={self?.username || 'You'}
-            detail={isMuted ? 'Muted' : 'Mic on'}
-            muted={isMuted}
-            speaking={isLocalSpeaking}
-          />
-        </aside>
-      </main>
+          <div className="mt-0.5 flex items-center gap-2 text-[11px] text-mesh-text-muted">
+            <span className="font-mono">{formatDuration(duration)}</span>
+            <span className="h-1 w-1 rounded-full bg-mesh-text-muted/60" />
+            <span className={cn('font-mono', peerRtt !== null && pingTone(peerRtt))}>
+              {peerRtt !== null ? `${peerRtt} ms` : 'ping --'}
+            </span>
+          </div>
+        </div>
+      </div>
 
-      <footer className="relative flex h-[86px] shrink-0 items-center justify-center gap-3 border-t border-mesh-border/60 bg-mesh-bg-secondary/90 px-4 backdrop-blur">
-        {showSettings && (
-          <DevicePanel
-            devices={devices}
-            micDeviceId={micDeviceId}
-            speakerDeviceId={speakerDeviceId}
-            cameraDeviceId={cameraDeviceId}
-            setMicDevice={setMicDevice}
-            setSpeakerDevice={setSpeakerDevice}
-            setCameraDevice={setCameraDevice}
-            onClose={() => setShowSettings(false)}
-          />
-        )}
+      {showSettings && (
+        <DevicePanel
+          devices={devices}
+          micDeviceId={micDeviceId}
+          speakerDeviceId={speakerDeviceId}
+          cameraDeviceId={cameraDeviceId}
+          setMicDevice={setMicDevice}
+          setSpeakerDevice={setSpeakerDevice}
+          setCameraDevice={setCameraDevice}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
+
+      <div className="pointer-events-auto absolute bottom-5 left-1/2 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-2 rounded-2xl border border-mesh-border/70 bg-mesh-bg-primary/88 p-2 shadow-[0_22px_70px_rgba(0,0,0,0.46),inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-xl">
+        <div className="mr-1 hidden min-w-0 items-center gap-2 border-r border-mesh-border/60 px-2 pr-4 sm:flex">
+          <div className={cn('relative isolate rounded-full bg-mesh-bg-tertiary p-0.5', isRemoteSpeaking && 'mesh-speaking-ring')}>
+            {isRemoteSpeaking && <VoiceDetectionRing size="sm" bars={false} />}
+            <UserAvatar userId={peerId} fallback={peerName || peerId} size="md" status="online" />
+          </div>
+          <div className="min-w-0">
+            <div className="max-w-36 truncate text-sm font-semibold text-mesh-text-primary">{peerName || peerId}</div>
+            <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-mesh-text-muted">
+              <Sparkles className="h-3 w-3 text-mesh-green" />
+              {qualityLabel}
+            </div>
+          </div>
+        </div>
 
         <CallControlButton
           title="Audio and video devices"
@@ -428,10 +428,9 @@ function CallOverlay(): JSX.Element | null {
           <PhoneOff className="h-5 w-5" />
           <span>Leave</span>
         </CallControlButton>
-      </footer>
-
-      <audio ref={audioRef} autoPlay />
       </div>
+
+      <audio ref={audioRef} autoPlay className="hidden" />
       <StreamPickerModal
         isOpen={sharePickerOpen}
         onClose={() => setSharePickerOpen(false)}
@@ -439,36 +438,6 @@ function CallOverlay(): JSX.Element | null {
         title="Share in call"
         onShare={startScreenShareFromSource}
       />
-    </div>
-  )
-}
-
-function ParticipantRow({
-  userId,
-  fallback,
-  label,
-  detail,
-  muted,
-  speaking
-}: {
-  userId?: string | null
-  fallback: string
-  label: string
-  detail: string
-  muted?: boolean
-  speaking?: boolean
-}): JSX.Element {
-  return (
-    <div className="mb-2 flex items-center gap-3 rounded-xl border border-mesh-border/60 bg-mesh-bg-primary/60 p-3">
-      <div className={cn('relative isolate rounded-full bg-mesh-bg-tertiary p-0.5', speaking && 'mesh-speaking-ring')}>
-        {speaking && <VoiceDetectionRing size="sm" bars={false} />}
-        <UserAvatar userId={userId} fallback={fallback} size="md" status={muted ? 'idle' : 'online'} />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-semibold text-mesh-text-primary">{label}</div>
-        <div className="mt-0.5 truncate text-[11px] text-mesh-text-muted">{detail}</div>
-      </div>
-      {muted && <MicOff className="h-4 w-4 shrink-0 text-mesh-warning" />}
     </div>
   )
 }

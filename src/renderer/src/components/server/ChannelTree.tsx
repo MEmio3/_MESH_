@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
-import { ChevronDown, Hash, Volume2, Plus, MicOff, Folder, Pencil, Trash2, Lock } from 'lucide-react'
+import { ChevronDown, Hash, Volume2, Plus, MicOff, Folder, Pencil, Trash2, Lock, ScreenShare } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
@@ -74,6 +74,7 @@ export function ChannelTree({
   const participants = useVoiceStore((s) => s.participants)
   const streamingUsers = useVoiceStore((s) => s.streamingUsers)
   const joinRoom = useVoiceStore((s) => s.joinRoom)
+  const openStreamViewer = useVoiceStore((s) => s.openStreamViewer)
   const selfId = useIdentityStore((s) => s.identity?.userId)
   const selfAvatar = useAvatarStore((s) => s.self)
   const avatarsByUser = useAvatarStore((s) => s.byUser)
@@ -232,8 +233,7 @@ export function ChannelTree({
               {occupantIds.map((uid) => {
                 // Live voice state only exists for the channel we're joined to.
                 const live = isJoinedVoice ? participants.find((p) => p.userId === uid) : undefined
-                // Server-authoritative name wins; the live list may still hold
-                // a "Peer usr_…" placeholder from a pre-roster-sync join.
+                // Server-authoritative name wins when the live list has a placeholder.
                 const username =
                   occ[uid].username ??
                   serverMembers?.find((m) => m.userId === uid)?.username ??
@@ -242,10 +242,27 @@ export function ChannelTree({
                 const isSpeaking = live?.isSpeaking ?? false
                 const isMuted = live?.isMuted ?? false
                 const isLive = streamingUsers.has(uid)
+                const openLiveStream = (): void => {
+                  if (!isLive) return
+                  if (!isJoinedVoice) {
+                    if (!chanPerm(ch, 'connectVoice')) return
+                    void joinRoom(serverId, ch.id).then(() => {
+                      window.setTimeout(() => openStreamViewer(uid), 250)
+                    })
+                    return
+                  }
+                  openStreamViewer(uid)
+                }
                 return (
-                  <div
+                  <button
                     key={uid}
-                    className="mesh-reveal-in flex items-center gap-2 rounded-lg border border-transparent py-1 pl-2 pr-1.5 text-mesh-text-secondary transition-colors hover:border-mesh-border/35 hover:bg-mesh-bg-tertiary/45"
+                    type="button"
+                    onClick={openLiveStream}
+                    title={isLive ? `Watch ${username}'s stream` : username}
+                    className={cn(
+                      'mesh-reveal-in flex w-full select-none items-center gap-2 rounded-lg border border-transparent py-1 pl-2 pr-1.5 text-left text-mesh-text-secondary transition-colors hover:border-mesh-border/35 hover:bg-mesh-bg-tertiary/45',
+                      isLive && 'cursor-pointer hover:text-mesh-text-primary'
+                    )}
                   >
                     <span className="relative isolate shrink-0">
                       {isSpeaking && <VoiceDetectionRing bars={false} size="xs" />}
@@ -254,12 +271,12 @@ export function ChannelTree({
                     <span className="truncate text-xs font-medium text-mesh-text-secondary">{username}</span>
                     {isLive && (
                       <span className="ml-auto inline-flex items-center gap-1 rounded-full border border-red-400/25 bg-red-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase leading-none text-red-300">
-                        <span className="h-1 w-1 rounded-full bg-white" />
+                        <ScreenShare className="h-2.5 w-2.5" />
                         Live
                       </span>
                     )}
                     {isMuted && !isLive && <MicOff className="h-3 w-3 text-red-400 shrink-0 ml-auto" />}
-                  </div>
+                  </button>
                 )
               })}
             </div>

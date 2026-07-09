@@ -508,7 +508,10 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     set({ pickerOpen: true, pickerInitialTab: tab })
   },
   closePicker: () => set({ pickerOpen: false }),
-  openStreamViewer: (userId: string) => set({ viewingStreamUserId: userId }),
+  openStreamViewer: (userId: string) => {
+    mediaEngine.requestKeyframe(userId)
+    set({ viewingStreamUserId: userId })
+  },
   closeStreamViewer: () => set({ viewingStreamUserId: null }),
   hidePreview: () => set({ previewVisible: false }),
   showPreview: () => set({ previewVisible: true })

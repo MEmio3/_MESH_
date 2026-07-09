@@ -51,6 +51,7 @@ interface PeerState {
   canvasCtx: CanvasRenderingContext2D
   canvasStream: MediaStream | null
   awaitingKey: boolean
+  lastKeyframeRequestAt: number
   lastVideoSeq: number
   emittedAudio: boolean
 }
@@ -112,6 +113,7 @@ class MeshMediaEngine {
   private bytesUp = 0
   private bytesDown = 0
   private lastRtt: number | null = null
+  private lastUdpPongAt = 0
   private statsTimer: ReturnType<typeof setInterval> | null = null
   private localVoiceActive = false
   private localVoiceOffTimer: ReturnType<typeof setTimeout> | null = null
@@ -130,8 +132,12 @@ class MeshMediaEngine {
       this.bytesDown += payload.byteLength
       this.handleVideoPacket(userId, meta as VideoPacketMeta, payload)
     })
-    window.api.signaling.onMediaPong((sentAt) => {
+    window.api.signaling.onMediaPong((sentAt, transport) => {
       this.lastRtt = Math.max(0, Math.round(performance.now() - sentAt))
+      if (transport === 'udp') this.lastUdpPongAt = performance.now()
+    })
+    window.api.signaling.onMediaKeyframeRequest((roomId) => {
+      if (this.roomId === roomId) this.forceKeyframe()
     })
   }
 
@@ -141,6 +147,7 @@ class MeshMediaEngine {
     this.init()
     this.roomId = roomId
     this.setLocalVoiceActivity(false)
+    this.sendMediaPing()
     this.startStatsLoop()
   }
 
@@ -163,6 +170,11 @@ class MeshMediaEngine {
    *  we aren't currently sending video. */
   forceKeyframe(): void {
     if (this.videoEncoder) this.forceKeyframeNext = true
+  }
+
+  requestKeyframe(userId?: string): void {
+    if (!this.roomId) return
+    window.api.signaling.emit('media:keyframe-request', this.roomId, userId)
   }
 
   /** A room member left (signaling user-left) — release their decoders. */
@@ -337,7 +349,11 @@ class MeshMediaEngine {
     chunk.copyTo(buf)
     this.bytesUp += buf.byteLength
     const meta: AudioPacketMeta = { seq: this.audioSeq++, sampleRate, channels }
-    window.api.signaling.emit('media:audio', this.roomId, meta, buf)
+    if (this.hasFreshUdpPath()) {
+      window.api.signaling.emitUdpAudio(this.roomId, meta, buf)
+    } else {
+      window.api.signaling.emit('media:audio', this.roomId, meta, buf)
+    }
   }
 
   stopMic(): void {
@@ -478,6 +494,7 @@ class MeshMediaEngine {
       canvasCtx: canvasCtx as CanvasRenderingContext2D,
       canvasStream: null,
       awaitingKey: true,
+      lastKeyframeRequestAt: 0,
       lastVideoSeq: -1,
       emittedAudio: false
     }
@@ -559,14 +576,23 @@ class MeshMediaEngine {
     const p = this.ensurePeer(userId)
 
     // Gap or first frame → wait for the next keyframe so VP8 has a valid ref.
-    if (meta.seq !== p.lastVideoSeq + 1) p.awaitingKey = true
+    if (meta.seq !== p.lastVideoSeq + 1) {
+      p.awaitingKey = true
+      this.requestRemoteKeyframe(userId, p)
+    }
     p.lastVideoSeq = meta.seq
-    if (p.awaitingKey && !meta.key) return
+    if (p.awaitingKey && !meta.key) {
+      this.requestRemoteKeyframe(userId, p)
+      return
+    }
 
     if (!p.videoDecoder || p.videoDecoder.state === 'closed') {
       p.videoDecoder = new VideoDecoder({
         output: (frame) => this.paintFrame(userId, frame),
-        error: () => { p.awaitingKey = true }
+        error: () => {
+          p.awaitingKey = true
+          this.requestRemoteKeyframe(userId, p)
+        }
       })
       p.videoDecoder.configure({ codec: 'vp8' })
       p.awaitingKey = true
@@ -582,7 +608,15 @@ class MeshMediaEngine {
       p.awaitingKey = false
     } catch {
       p.awaitingKey = true
+      this.requestRemoteKeyframe(userId, p)
     }
+  }
+
+  private requestRemoteKeyframe(userId: string, p: PeerState): void {
+    const now = performance.now()
+    if (now - p.lastKeyframeRequestAt < 800) return
+    p.lastKeyframeRequestAt = now
+    this.requestKeyframe(userId)
   }
 
   private paintFrame(userId: string, frame: VideoFrame): void {
@@ -610,7 +644,7 @@ class MeshMediaEngine {
   private startStatsLoop(): void {
     if (this.statsTimer) return
     this.statsTimer = setInterval(() => {
-      window.api.signaling.emit('media:ping', performance.now())
+      this.sendMediaPing()
       const upKbps = Math.round((this.bytesUp * 8) / 1000 / 2)
       const downKbps = Math.round((this.bytesDown * 8) / 1000 / 2)
       this.bytesUp = 0
@@ -625,7 +659,24 @@ class MeshMediaEngine {
       this.statsTimer = null
     }
     this.lastRtt = null
+    this.lastUdpPongAt = 0
     this.onStats?.({ rttMs: null, upKbps: 0, downKbps: 0 })
+  }
+
+  private hasFreshUdpPath(): boolean {
+    return this.lastUdpPongAt > 0 && performance.now() - this.lastUdpPongAt < 5000
+  }
+
+  private sendMediaPing(): void {
+    if (!this.roomId) return
+    const sentAt = performance.now()
+    window.api.signaling.emitUdpPing(sentAt)
+    window.setTimeout(() => {
+      if (!this.roomId) return
+      if (performance.now() - this.lastUdpPongAt > 1500) {
+        window.api.signaling.emit('media:ping', sentAt)
+      }
+    }, 1500)
   }
 }
 

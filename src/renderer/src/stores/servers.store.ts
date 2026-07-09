@@ -9,6 +9,7 @@ import { PERM, effectivePermissions, hasPerm, resolveChannelPerm } from '../../.
 import { normalizeReactions } from './messages.store'
 import { notify } from '@/lib/notify'
 import { playServerMessage } from '@/lib/sounds'
+import { mediaEngine } from '@/lib/media-engine'
 
 /** Who is sitting in which voice channel, with identity carried inline so the
  *  sidebar never has to race a separate roster sync to render a name. */
@@ -1048,6 +1049,7 @@ export const useServersStore = create<ServersStore>((set, get) => ({
       const currentChannel = vs.currentChannelId ?? 'legacy'
       if (vs.isConnected && vs.currentServerId === p.serverId && (!p.channelId || p.channelId === currentChannel)) {
         vs.setStreaming(p.userId, true)
+        mediaEngine.requestKeyframe(p.userId)
       }
     }))
 

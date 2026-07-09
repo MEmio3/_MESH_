@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { X, Maximize2 } from 'lucide-react'
 import { useVoiceStore } from '@/stores/voice.store'
 import { useIdentityStore } from '@/stores/identity.store'
+import { useServersStore } from '@/stores/servers.store'
 import { cn } from '@/lib/utils'
 
 /**
@@ -17,8 +18,11 @@ function StreamViewerModal(): JSX.Element | null {
   const remoteStreams = useVoiceStore((s) => s.remoteStreams)
   const localMediaStream = useVoiceStore((s) => s.localMediaStream)
   const currentStreamSource = useVoiceStore((s) => s.currentStreamSource)
+  const currentServerId = useVoiceStore((s) => s.currentServerId)
   const participants = useVoiceStore((s) => s.participants)
   const selfId = useIdentityStore((s) => s.identity?.userId)
+  const serverMembers = useServersStore((s) => currentServerId ? s.serverMembers[currentServerId] : undefined)
+  const voiceOccupants = useServersStore((s) => currentServerId ? s.serverVoiceStates[currentServerId] : undefined)
 
   const videoRef = useRef<HTMLVideoElement>(null)
 
@@ -26,6 +30,11 @@ function StreamViewerModal(): JSX.Element | null {
   const stream = isSelf ? localMediaStream : viewingUserId ? remoteStreams.get(viewingUserId) ?? null : null
   const participant = participants.find((p) => p.userId === viewingUserId)
   const isCamera = isSelf && currentStreamSource?.kind === 'camera'
+  const displayName =
+    participant?.username ||
+    (viewingUserId ? voiceOccupants?.[viewingUserId]?.username : null) ||
+    serverMembers?.find((m) => m.userId === viewingUserId)?.username ||
+    (viewingUserId ? `Peer ${viewingUserId.slice(0, 6)}` : 'Unknown')
 
   // Close on Esc
   useEffect(() => {
@@ -79,7 +88,7 @@ function StreamViewerModal(): JSX.Element | null {
                   Live
                 </span>
                 <span className="text-sm font-semibold text-white truncate">
-                  {participant?.username ?? 'Unknown'}
+                  {displayName}
                   {isSelf && <span className="ml-1 text-white/60 font-normal">(you)</span>}
                 </span>
                 <Maximize2 className="h-3.5 w-3.5 text-white/50" />

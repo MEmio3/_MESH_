@@ -99,6 +99,9 @@ const api = {
     isConnected: (): Promise<boolean> => ipcRenderer.invoke('signaling:is-connected'),
     socketId: (): Promise<string | null> => ipcRenderer.invoke('signaling:socket-id'),
     emit: (event: string, ...args: unknown[]): void => ipcRenderer.send('signaling:emit', event, ...args),
+    emitUdpAudio: (roomId: string, meta: unknown, payload: ArrayBuffer): void =>
+      ipcRenderer.send('signaling:udp-audio', roomId, meta, payload),
+    emitUdpPing: (sentAt: number): void => ipcRenderer.send('signaling:udp-ping', sentAt),
     // Multi-host: attach/detach additional hosts alongside the primary.
     addHost: (serverUrl: string): Promise<{ success: boolean; hosts: string[] }> =>
       ipcRenderer.invoke('signaling:add-host', { serverUrl }),
@@ -154,10 +157,15 @@ const api = {
       ipcRenderer.on('signaling:media:video', h)
       return () => ipcRenderer.removeListener('signaling:media:video', h)
     },
-    onMediaPong: (cb: (sentAt: number) => void): (() => void) => {
-      const h = (_e: Electron.IpcRendererEvent, sentAt: number): void => cb(sentAt)
+    onMediaPong: (cb: (sentAt: number, transport?: 'udp') => void): (() => void) => {
+      const h = (_e: Electron.IpcRendererEvent, sentAt: number, transport?: 'udp'): void => cb(sentAt, transport)
       ipcRenderer.on('signaling:media:pong', h)
       return () => ipcRenderer.removeListener('signaling:media:pong', h)
+    },
+    onMediaKeyframeRequest: (cb: (roomId: string, fromUserId?: string) => void): (() => void) => {
+      const h = (_e: Electron.IpcRendererEvent, roomId: string, fromUserId?: string): void => cb(roomId, fromUserId)
+      ipcRenderer.on('signaling:media:keyframe-request', h)
+      return () => ipcRenderer.removeListener('signaling:media:keyframe-request', h)
     },
     onUserJoined: (cb: (userId: string, socketId: string, roomId?: string) => void): (() => void) => {
       const h = (_e: Electron.IpcRendererEvent, userId: string, socketId: string, roomId?: string): void => cb(userId, socketId, roomId)
