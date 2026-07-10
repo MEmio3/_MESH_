@@ -227,15 +227,17 @@ export function ChannelTree({
         {!isText && (() => {
           const occ = voiceOccupants ?? EMPTY_OCCUPANTS
           const occupantIds = Object.keys(occ).filter((uid) => occ[uid].channelId === ch.id)
+          if (isJoinedVoice && selfId && !occupantIds.includes(selfId)) occupantIds.unshift(selfId)
           if (occupantIds.length === 0) return null
           return (
             <div className="ml-[20px] mt-1 mb-1 flex flex-col gap-0.5 border-l border-mesh-border/35 pl-7">
               {occupantIds.map((uid) => {
                 // Live voice state only exists for the channel we're joined to.
                 const live = isJoinedVoice ? participants.find((p) => p.userId === uid) : undefined
+                const occupant = occ[uid]
                 // Server-authoritative name wins when the live list has a placeholder.
                 const username =
-                  occ[uid].username ??
+                  occupant?.username ??
                   serverMembers?.find((m) => m.userId === uid)?.username ??
                   live?.username ??
                   `Peer ${uid.slice(0, 6)}`

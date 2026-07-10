@@ -90,6 +90,44 @@ function voiceRoomId(serverId: string | null, channelId: string | null): string 
   return `voice:${serverId}:${channelId ?? 'legacy'}`
 }
 
+function setLocalVoiceOccupant(
+  serverId: string,
+  channelId: string | null,
+  identity: { userId: string; username: string; avatarColor?: string | null } | null | undefined
+): void {
+  if (!identity?.userId) return
+  useServersStore.setState((s) => {
+    const serverOccupants = s.serverVoiceStates[serverId] || {}
+    return {
+      serverVoiceStates: {
+        ...s.serverVoiceStates,
+        [serverId]: {
+          ...serverOccupants,
+          [identity.userId]: {
+            channelId: channelId ?? 'legacy',
+            username: identity.username,
+            avatarColor: identity.avatarColor ?? null
+          }
+        }
+      }
+    }
+  })
+}
+
+function clearLocalVoiceOccupant(serverId: string | null, userId: string | null | undefined): void {
+  if (!serverId || !userId) return
+  useServersStore.setState((s) => {
+    const serverOccupants = { ...(s.serverVoiceStates[serverId] || {}) }
+    delete serverOccupants[userId]
+    return {
+      serverVoiceStates: {
+        ...s.serverVoiceStates,
+        [serverId]: serverOccupants
+      }
+    }
+  })
+}
+
 export const useVoiceStore = create<VoiceStore>((set, get) => ({
   isConnected: false,
   currentServerId: null,
@@ -114,8 +152,10 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   joinRoom: async (serverId, channelId) => {
     const nextChannelId = channelId ?? null
     const state = get()
+    const identity = useIdentityStore.getState().identity
     // No-op if already in this exact voice channel.
     if (state.isConnected && state.currentServerId === serverId && state.currentChannelId === nextChannelId) {
+      setLocalVoiceOccupant(serverId, nextChannelId, identity)
       return
     }
     // The media engine holds ONE active room. If a 1-to-1 call is live, end it
@@ -137,6 +177,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       const previousRoomId = voiceRoomId(state.currentServerId, state.currentChannelId)
       if (previousRoomId) window.api.signaling.emit('leave-room', previousRoomId)
       else window.api.signaling.emit('leave-room')
+      clearLocalVoiceOccupant(state.currentServerId, identity?.userId)
       // Give the signaling server time to fan out `server:voice-left` to
       // remote peers BEFORE we emit the new join. Without this delay the
       // new voice-joined races ahead of the leave on other clients,
@@ -149,10 +190,10 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       const previousRoomId = voiceRoomId(state.currentServerId, state.currentChannelId)
       if (previousRoomId) window.api.signaling.emit('leave-room', previousRoomId)
       else window.api.signaling.emit('leave-room')
+      clearLocalVoiceOccupant(state.currentServerId, identity?.userId)
       await new Promise((r) => setTimeout(r, 500))
     }
 
-    const identity = useIdentityStore.getState().identity
     const self: VoiceParticipant = {
       userId: identity?.userId || 'unknown',
       username: identity?.username || 'Unknown',
@@ -173,6 +214,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       remoteStreams: new Map(),
       streamingUsers: new Set()
     })
+    setLocalVoiceOccupant(serverId, nextChannelId, identity)
 
     if (!isSwitching) {
       try {
@@ -231,6 +273,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
 
   leaveRoom: () => {
     const state = get()
+    const identity = useIdentityStore.getState().identity
     const wasConnected = state.isConnected
     const roomId = voiceRoomId(state.currentServerId, state.currentChannelId)
     if (state.isScreenSharing || state.isCameraOn) {
@@ -241,6 +284,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     mediaEngine.leaveRoom()
     if (roomId) window.api.signaling.emit('leave-room', roomId)
     else window.api.signaling.emit('leave-room')
+    clearLocalVoiceOccupant(state.currentServerId, identity?.userId)
     if (wasConnected) playVoiceSelfLeave()
     set({
       isConnected: false,
