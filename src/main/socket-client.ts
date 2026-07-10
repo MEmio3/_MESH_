@@ -10,6 +10,8 @@ let reconnectAttempts: number = 0
 let currentUrl: string = ''
 let currentUserId: string = ''
 let isConnecting = false
+let connectingPromise: Promise<void> | null = null
+const intentionalDisconnects = new WeakSet<Socket>()
 const auxiliarySockets = new Map<string, Socket>()
 
 // ── Multi-host (non-hoster attached to several hosts at once) ──
@@ -63,6 +65,30 @@ function listHostUrls(): string[] {
     if (s.connected) urls.add(url)
   }
   return [...urls]
+}
+
+function clearReconnectTimer(): void {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+}
+
+function cleanupHostRoute(url: string): void {
+  if (!url) return
+  forgetHost(normalizeUrl(url))
+  voiceUdp.removeHost(url)
+  sendToRenderer('signaling:hosts-changed', listHostUrls())
+}
+
+function disconnectPrimarySocketForSwitch(notify = false): void {
+  const existing = socket
+  const previousUrl = currentUrl
+  if (!existing) return
+  intentionalDisconnects.add(existing)
+  try { existing.disconnect() } catch { /* ignore */ }
+  cleanupHostRoute(previousUrl)
+  if (notify) sendToRenderer('signaling:disconnected', 'manual')
 }
 
 // Self-announce events go to EVERY host; friend/message requests are dedup-safe
@@ -464,41 +490,42 @@ function emitOnSocket(target: Socket, event: string, args: unknown[]): void {
 }
 
 export function connectToSignaling(serverUrl: string, userId: string): Promise<void> {
+  const normalizedUrl = normalizeUrl(serverUrl)
   // Prevent duplicate connections
   if (isConnecting) {
     console.log('[socket-client] connection already in progress, ignoring')
-    return Promise.resolve()
+    return connectingPromise ?? Promise.reject(new Error('Connection already in progress.'))
   }
-  if (socket?.connected && currentUrl === serverUrl && currentUserId === userId) {
+  if (socket?.connected && normalizeUrl(currentUrl) === normalizedUrl && currentUserId === userId) {
     console.log('[socket-client] already connected to same server, ignoring')
     return Promise.resolve()
   }
 
   isConnecting = true
-  currentUrl = serverUrl
+  currentUrl = normalizedUrl
   currentUserId = userId
+  clearReconnectTimer()
 
-  if (socket?.connected) {
-    socket.disconnect()
+  if (socket) {
+    disconnectPrimarySocketForSwitch(false)
   }
 
-  socket = io(serverUrl, {
+  socket = io(normalizedUrl, {
     transports: ['websocket'],
     reconnection: false
   })
+  const activeSocket = socket
 
   socket.on('connect', () => {
     isConnecting = false
-    if (reconnectTimer) {
-      clearTimeout(reconnectTimer)
-      reconnectTimer = null
-    }
+    connectingPromise = null
+    clearReconnectTimer()
     reconnectAttempts = 0
     sendToRenderer('signaling:reconnect-status', { state: 'connected' })
     socket!.emit('register-user', userId)
     socket!.emit('connection-role', 'primary')
     replaySocialState(socket!)
-    voiceUdp.configureHost(serverUrl, userId)
+    voiceUdp.configureHost(normalizedUrl, userId)
     // Flush everything queued while we were offline, preserving order.
     if (pendingEmits.length > 0) {
       const toFlush = pendingEmits
@@ -513,6 +540,12 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
   })
 
   socket.on('disconnect', (reason) => {
+    if (intentionalDisconnects.has(activeSocket)) {
+      intentionalDisconnects.delete(activeSocket)
+      return
+    }
+    isConnecting = false
+    connectingPromise = null
     sendToRenderer('signaling:disconnected', reason)
     forgetHost(normalizeUrl(currentUrl))
     voiceUdp.removeHost(currentUrl)
@@ -522,6 +555,7 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
 
   socket.on('connect_error', (err) => {
     isConnecting = false
+    connectingPromise = null
     sendToRenderer('signaling:error', err.message)
     // A socket that never connected fires connect_error, NOT disconnect —
     // without retrying here, an app started before the signaling host was
@@ -653,11 +687,34 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
     })
   }
 
-  return new Promise((resolve) => {
-    socket!.once('connect', () => resolve())
-    // Fall back after a short timeout so the IPC call doesn't hang
-    setTimeout(resolve, 3000)
+  connectingPromise = new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      if (activeSocket.connected) {
+        resolve()
+        return
+      }
+      isConnecting = false
+      connectingPromise = null
+      const err = new Error(`Connection to ${normalizedUrl} timed out.`)
+      intentionalDisconnects.add(activeSocket)
+      try { activeSocket.disconnect() } catch { /* ignore */ }
+      if (socket === activeSocket) socket = null
+      cleanupHostRoute(normalizedUrl)
+      sendToRenderer('signaling:error', err.message)
+      tryReconnect()
+      reject(err)
+    }, 8000)
+
+    activeSocket.once('connect', () => {
+      clearTimeout(timeout)
+      resolve()
+    })
+    activeSocket.once('connect_error', (err) => {
+      clearTimeout(timeout)
+      reject(err)
+    })
   })
+  return connectingPromise
 }
 
 function tryReconnect(): void {
@@ -684,12 +741,11 @@ function tryReconnect(): void {
 }
 
 export function disconnectFromSignaling(): void {
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer)
-    reconnectTimer = null
-  }
+  clearReconnectTimer()
   reconnectAttempts = 0
-  socket?.disconnect()
+  isConnecting = false
+  connectingPromise = null
+  disconnectPrimarySocketForSwitch(true)
   socket = null
   voiceUdp.reset()
 }

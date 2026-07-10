@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Monitor, AppWindow, Camera, Check } from 'lucide-react'
+import { X, Monitor, AppWindow, Camera, Check, Volume2, VolumeX } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useVoiceStore, type StreamSource, type StreamQuality } from '@/stores/voice.store'
 
@@ -35,6 +35,7 @@ function StreamPickerModal({ isOpen, onClose, initialTab = 'applications', title
   const [cameras, setCameras] = useState<CameraDevice[]>([])
   const [selected, setSelected] = useState<StreamSource | null>(null)
   const [quality, setQuality] = useState<StreamQuality>('SD')
+  const [includeAudio, setIncludeAudio] = useState(false)
   const [sharing, setSharing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -55,6 +56,7 @@ function StreamPickerModal({ isOpen, onClose, initialTab = 'applications', title
     if (!isOpen) return
     setTab(initialTab)
     setSelected(null)
+    setIncludeAudio(false)
     setError(null)
 
     window.api
@@ -97,7 +99,10 @@ function StreamPickerModal({ isOpen, onClose, initialTab = 'applications', title
     setSharing(true)
     setError(null)
     try {
-      await (onShare ?? startVoiceStreamFromSource)(selected, quality)
+      const source = selected.kind === 'camera'
+        ? selected
+        : { ...selected, includeAudio }
+      await (onShare ?? startVoiceStreamFromSource)(source, quality)
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -163,6 +168,7 @@ function StreamPickerModal({ isOpen, onClose, initialTab = 'applications', title
                 onClick={() => {
                   setTab('camera')
                   setSelected(null)
+                  setIncludeAudio(false)
                 }}
                 icon={<Camera className="h-4 w-4" />}
                 label="Camera"
@@ -218,6 +224,21 @@ function StreamPickerModal({ isOpen, onClose, initialTab = 'applications', title
                   />
                 </div>
                 <span className="text-xs text-mesh-text-muted">{qualityLabel}</span>
+                {selected && selected.kind !== 'camera' && (
+                  <button
+                    type="button"
+                    onClick={() => setIncludeAudio((value) => !value)}
+                    className={cn(
+                      'mesh-pressable inline-flex h-8 items-center gap-2 rounded-lg border px-3 text-xs font-semibold transition-colors',
+                      includeAudio
+                        ? 'border-mesh-green/55 bg-mesh-green/15 text-mesh-green'
+                        : 'border-mesh-border/70 bg-mesh-bg-tertiary text-mesh-text-muted hover:text-mesh-text-primary'
+                    )}
+                  >
+                    {includeAudio ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
+                    {includeAudio ? 'Sound on' : 'No sound'}
+                  </button>
+                )}
               </div>
 
               <div className="flex items-center gap-3">

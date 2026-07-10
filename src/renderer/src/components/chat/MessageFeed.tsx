@@ -5,7 +5,7 @@ import { ChevronDown, MessageCircle, Sparkles } from 'lucide-react'
 import { useIdentityStore } from '@/stores/identity.store'
 import { useFriendsStore } from '@/stores/friends.store'
 import { useServersStore } from '@/stores/servers.store'
-import { useMemo } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 
 interface MessageFeedProps {
   messages: Message[]
@@ -64,6 +64,7 @@ function resolveMessagesWithNames(messages: Message[], namesByUserId: Map<string
 
 function MessageFeed({ messages, recipientName: _recipientName, onEditMessage, onDeleteMessage, onToggleReaction, onReply, canDeleteMessage }: MessageFeedProps): JSX.Element {
   const { containerRef, isAtBottom, scrollToBottom } = useScrollAnchor()
+  const messageRefs = useRef(new Map<string, HTMLDivElement>())
   const identity = useIdentityStore((s) => s.identity)
   const friends = useFriendsStore((s) => s.friends)
   const serverMembers = useServersStore((s) => s.serverMembers)
@@ -81,6 +82,16 @@ function MessageFeed({ messages, recipientName: _recipientName, onEditMessage, o
     () => resolveMessagesWithNames(messages, namesByUserId),
     [messages, namesByUserId]
   )
+  const jumpToMessage = useCallback((messageId: string) => {
+    const target = messageRefs.current.get(messageId)
+    if (!target) return
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    target.classList.remove('mesh-reply-target')
+    window.setTimeout(() => {
+      target.classList.add('mesh-reply-target')
+      window.setTimeout(() => target.classList.remove('mesh-reply-target'), 1600)
+    }, 80)
+  }, [])
 
   if (displayMessages.length === 0) {
     return (
@@ -115,7 +126,13 @@ function MessageFeed({ messages, recipientName: _recipientName, onEditMessage, o
           const grouped = isGrouped(msg, prev)
 
           return (
-            <div key={msg.id}>
+            <div
+              key={msg.id}
+              ref={(node) => {
+                if (node) messageRefs.current.set(msg.id, node)
+                else messageRefs.current.delete(msg.id)
+              }}
+            >
               {/* Date divider */}
               {showDate && (
                 <div className="relative my-3 flex items-center justify-center px-4 py-2">
@@ -134,6 +151,7 @@ function MessageFeed({ messages, recipientName: _recipientName, onEditMessage, o
                 onDelete={onDeleteMessage}
                 onToggleReaction={onToggleReaction}
                 onReply={onReply}
+                onJumpToMessage={jumpToMessage}
                 canDelete={canDeleteMessage ? canDeleteMessage(msg) : undefined}
               />
             </div>

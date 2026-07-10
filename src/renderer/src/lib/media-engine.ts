@@ -90,6 +90,12 @@ class MeshMediaEngine {
   private inputGain: GainNode | null = null
   private inputGainValue = 1
   private rawMicStream: MediaStream | null = null
+  private inputDest: MediaStreamAudioDestinationNode | null = null
+  private micSource: MediaStreamAudioSourceNode | null = null
+  private micMuteGain: GainNode | null = null
+  private shareAudioStream: MediaStream | null = null
+  private shareAudioSource: MediaStreamAudioSourceNode | null = null
+  private hasShareAudio = false
 
   private videoStream: MediaStream | null = null
   private videoEncoder: VideoEncoder | null = null
@@ -283,7 +289,7 @@ class MeshMediaEngine {
   }
 
   async startMic(deviceId?: string): Promise<void> {
-    this.stopMic()
+    this.stopMic(true)
     const raw = await navigator.mediaDevices.getUserMedia({
       audio: deviceId ? { deviceId: { exact: deviceId } } : true
     })
@@ -294,15 +300,85 @@ class MeshMediaEngine {
     if (this.inputCtx.state === 'suspended') this.inputCtx.resume().catch(() => {})
     const src = this.inputCtx.createMediaStreamSource(raw)
     const gain = this.inputCtx.createGain()
+    const muteGain = this.inputCtx.createGain()
     gain.gain.value = this.inputGainValue
+    muteGain.gain.value = this.micEnabled ? 1 : 0
     const dest = this.inputCtx.createMediaStreamDestination()
-    src.connect(gain).connect(dest)
+    src.connect(gain).connect(muteGain).connect(dest)
+    this.micSource = src
     this.inputGain = gain
+    this.micMuteGain = muteGain
+    this.inputDest = dest
     this.micStream = dest.stream
     this.micTrack = dest.stream.getAudioTracks()[0] ?? null
     if (!this.micTrack) throw new Error('No audio track from microphone')
+    this.connectShareAudioNode()
 
     await this.startAudioEncoder(this.micTrack)
+  }
+
+  private disconnectShareAudioNode(): void {
+    try { this.shareAudioSource?.disconnect() } catch { /* ignore */ }
+    this.shareAudioSource = null
+    this.hasShareAudio = !!this.shareAudioStream?.getAudioTracks().some((t) => t.readyState === 'live')
+  }
+
+  private connectShareAudioNode(): void {
+    this.disconnectShareAudioNode()
+    if (!this.inputCtx || !this.inputDest || !this.shareAudioStream) {
+      this.hasShareAudio = false
+      return
+    }
+
+    const tracks = this.shareAudioStream.getAudioTracks().filter((t) => t.readyState === 'live')
+    if (tracks.length === 0) {
+      this.hasShareAudio = false
+      return
+    }
+
+    const audioOnly = new MediaStream(tracks)
+    this.shareAudioSource = this.inputCtx.createMediaStreamSource(audioOnly)
+    this.shareAudioSource.connect(this.inputDest)
+    this.hasShareAudio = true
+  }
+
+  async attachShareAudioStream(stream: MediaStream | null): Promise<void> {
+    this.disconnectShareAudioNode()
+    this.shareAudioStream = null
+    this.hasShareAudio = false
+
+    const tracks = stream?.getAudioTracks().filter((t) => t.readyState === 'live') ?? []
+    if (tracks.length === 0) return
+
+    this.shareAudioStream = new MediaStream(tracks)
+    if (!this.inputCtx) this.inputCtx = new AudioContext({ sampleRate: 48000 })
+    if (this.inputCtx.state === 'suspended') this.inputCtx.resume().catch(() => {})
+    if (!this.inputDest) {
+      this.inputDest = this.inputCtx.createMediaStreamDestination()
+      this.micStream = this.inputDest.stream
+      this.micTrack = this.inputDest.stream.getAudioTracks()[0] ?? null
+    }
+
+    this.connectShareAudioNode()
+    if (!this.audioEncoder && this.micTrack) {
+      await this.startAudioEncoder(this.micTrack)
+    }
+  }
+
+  private stopShareAudio(): void {
+    this.disconnectShareAudioNode()
+    this.shareAudioStream = null
+    this.hasShareAudio = false
+    if (!this.rawMicStream) {
+      try { this.audioReader?.cancel() } catch { /* ignore */ }
+      this.audioReader = null
+      try { this.audioEncoder?.close() } catch { /* ignore */ }
+      this.audioEncoder = null
+      this.micStream?.getTracks().forEach((t) => t.stop())
+      this.micStream = null
+      this.micTrack = null
+      this.inputDest = null
+    }
   }
 
   private async startAudioEncoder(track: MediaStreamTrack): Promise<void> {
@@ -331,8 +407,10 @@ class MeshMediaEngine {
         for (;;) {
           const { done, value } = await reader.read()
           if (done || !value) break
-          if (this.audioEncoder === encoder && this.micEnabled && this.roomId) {
-            this.updateLocalVoiceActivity(this.measureAudioRms(value))
+          const shouldSend = !!this.roomId && ((this.micEnabled && !!this.rawMicStream) || this.hasShareAudio)
+          if (this.audioEncoder === encoder && shouldSend) {
+            if (this.micEnabled && this.rawMicStream) this.updateLocalVoiceActivity(this.measureAudioRms(value))
+            else this.setLocalVoiceActivity(false)
             encoder.encode(value)
           } else {
             this.setLocalVoiceActivity(false)
@@ -356,11 +434,20 @@ class MeshMediaEngine {
     }
   }
 
-  stopMic(): void {
+  stopMic(preserveShareAudio = false): void {
+    if (preserveShareAudio) this.disconnectShareAudioNode()
+    else this.stopShareAudio()
     try { this.audioReader?.cancel() } catch { /* ignore */ }
     this.audioReader = null
     try { this.audioEncoder?.close() } catch { /* ignore */ }
     this.audioEncoder = null
+    try { this.micSource?.disconnect() } catch { /* ignore */ }
+    try { this.inputGain?.disconnect() } catch { /* ignore */ }
+    try { this.micMuteGain?.disconnect() } catch { /* ignore */ }
+    this.micSource = null
+    this.inputGain = null
+    this.micMuteGain = null
+    this.inputDest = null
     this.rawMicStream?.getTracks().forEach((t) => t.stop())
     this.rawMicStream = null
     this.micStream?.getTracks().forEach((t) => t.stop())
@@ -372,6 +459,7 @@ class MeshMediaEngine {
   /** Mute = simply stop shipping packets; capture keeps running. */
   setMicEnabled(enabled: boolean): void {
     this.micEnabled = enabled
+    if (this.micMuteGain) this.micMuteGain.gain.value = enabled ? 1 : 0
     if (!enabled) this.setLocalVoiceActivity(false)
   }
 
@@ -401,6 +489,7 @@ class MeshMediaEngine {
 
   async attachVideoStream(stream: MediaStream, kind: 'camera' | 'screen', bitrate?: number): Promise<void> {
     this.stopVideo()
+    await this.attachShareAudioStream(stream)
     this.videoStream = stream
     this.videoKind = kind
     if (bitrate) this.videoBitrate = bitrate
@@ -463,6 +552,7 @@ class MeshMediaEngine {
   }
 
   stopVideo(): void {
+    this.stopShareAudio()
     try { this.videoReader?.cancel() } catch { /* ignore */ }
     this.videoReader = null
     try { this.videoEncoder?.close() } catch { /* ignore */ }

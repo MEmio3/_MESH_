@@ -19,6 +19,7 @@ interface MessageBubbleProps {
   onDelete?: (messageId: string) => void
   onToggleReaction?: (messageId: string, emojiId: string) => void
   onReply?: (message: Message) => void
+  onJumpToMessage?: (messageId: string) => void
 }
 
 function formatTime(timestamp: number): string {
@@ -183,18 +184,32 @@ const ActionButton = forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HT
 )
 ActionButton.displayName = 'ActionButton'
 
-function ReplyQuote({ message }: { message: Message }): JSX.Element | null {
+function ReplyQuote({
+  message,
+  onJumpToMessage
+}: {
+  message: Message
+  onJumpToMessage?: (messageId: string) => void
+}): JSX.Element | null {
   if (!message.replyTo) return null
   return (
-    <div className="mesh-reveal-in mb-1.5 flex max-w-2xl items-start gap-2 rounded-lg border border-mesh-border/45 bg-mesh-bg-tertiary/35 px-2.5 py-1.5">
+    <button
+      type="button"
+      onClick={() => onJumpToMessage?.(message.replyTo!.messageId)}
+      className={cn(
+        'mesh-reveal-in mb-1.5 flex max-w-2xl items-start gap-2 rounded-lg border border-mesh-border/45 bg-mesh-bg-tertiary/35 px-2.5 py-1.5 text-left transition-colors',
+        onJumpToMessage && 'cursor-pointer hover:border-mesh-green/55 hover:bg-mesh-green/10'
+      )}
+      title="Jump to replied message"
+    >
       <span className="mt-0.5 h-4 w-0.5 shrink-0 rounded-full bg-mesh-green" />
       <span className="shrink-0 text-[11px] font-semibold text-mesh-green">{message.replyTo.senderName}</span>
       <span className="min-w-0 truncate text-[11px] text-mesh-text-muted">{message.replyTo.content.slice(0, 90)}</span>
-    </div>
+    </button>
   )
 }
 
-function MessageBubble({ message, isGrouped, isOwnMessage, canDelete, onEdit, onDelete, onToggleReaction, onReply }: MessageBubbleProps): JSX.Element {
+function MessageBubble({ message, isGrouped, isOwnMessage, canDelete, onEdit, onDelete, onToggleReaction, onReply, onJumpToMessage }: MessageBubbleProps): JSX.Element {
   const [isEditing, setIsEditing] = useState(false)
   const selfId = useIdentityStore((s) => s.identity?.userId)
   const selfAvatar = useAvatarStore((s) => s.self)
@@ -224,7 +239,7 @@ function MessageBubble({ message, isGrouped, isOwnMessage, canDelete, onEdit, on
   function renderBody(): JSX.Element {
     if (message.isDeleted) return <DeletedPlaceholder />
 
-    const replyQuote = <ReplyQuote message={message} />
+    const replyQuote = <ReplyQuote message={message} onJumpToMessage={onJumpToMessage} />
 
     if (isEditing) {
       return (

@@ -26,6 +26,7 @@ export interface StreamSource {
   sourceId?: string   // for screen/window (desktopCapturer source id)
   deviceId?: string   // for camera (mediaDevices deviceId)
   label?: string
+  includeAudio?: boolean
 }
 
 interface VoiceStore {
@@ -490,7 +491,14 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       // This bypasses getDisplayMedia entirely so we can target a specific
       // source picked from our custom modal.
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
+        audio: source.includeAudio
+          ? ({
+              mandatory: {
+                chromeMediaSource: 'desktop',
+                chromeMediaSourceId: source.sourceId
+              }
+            } as MediaTrackConstraints)
+          : false,
         video: {
           // @ts-expect-error — Chrome/Electron non-standard constraint
           mandatory: {

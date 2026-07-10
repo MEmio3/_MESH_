@@ -175,7 +175,7 @@ function SelfPreviewPiP(): JSX.Element | null {
       {/* Source hint — so users know what remote peers are seeing */}
       {!collapsed && (
         <div className="px-2 py-1.5 bg-mesh-bg-primary/95 border-t border-mesh-border/40 text-[10px] text-mesh-text-muted truncate">
-          Peers see: {describeSource(currentStreamSource?.kind, currentStreamSource?.label)}
+          Peers see: {describeSource(currentStreamSource?.kind, currentStreamSource?.label, currentStreamSource?.includeAudio)}
         </div>
       )}
     </div>,
@@ -183,10 +183,11 @@ function SelfPreviewPiP(): JSX.Element | null {
   )
 }
 
-function describeSource(kind?: string, label?: string): string {
+function describeSource(kind?: string, label?: string, includeAudio?: boolean): string {
   if (kind === 'camera') return `your camera${label ? ` (${label})` : ''}`
-  if (kind === 'window') return `the window "${label ?? 'selected'}"`
-  if (kind === 'screen') return `your entire screen${label ? ` (${label})` : ''}`
+  const sound = includeAudio ? ' with sound' : ''
+  if (kind === 'window') return `the window "${label ?? 'selected'}"${sound}`
+  if (kind === 'screen') return `your entire screen${label ? ` (${label})` : ''}${sound}`
   return 'your stream'
 }
 

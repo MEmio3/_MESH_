@@ -156,7 +156,14 @@ async function captureStreamSource(source: StreamSource, quality: StreamQuality)
   }
 
   return navigator.mediaDevices.getUserMedia({
-    audio: false,
+    audio: source.includeAudio
+      ? ({
+          mandatory: {
+            chromeMediaSource: 'desktop',
+            chromeMediaSourceId: source.sourceId
+          }
+        } as MediaTrackConstraints)
+      : false,
     video: {
       // @ts-expect-error - Electron desktop-capture constraint.
       mandatory: {
