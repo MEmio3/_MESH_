@@ -465,11 +465,91 @@
   --mesh-theme-glint: rgba(248, 235, 251, 0.16);
 }
 
+:root {
+  --mesh-motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --mesh-motion-fast: 150ms;
+  --mesh-motion-medium: 220ms;
+  --mesh-motion-slow: 950ms;
+  --mesh-motion-bg-duration: 18s;
+  --mesh-motion-surface-duration: 20s;
+  --mesh-motion-accent-duration: 4.8s;
+  --mesh-motion-pulse-duration: 3.2s;
+  --mesh-motion-hover-y: -1px;
+  --mesh-motion-hover-scale: 1;
+  --mesh-motion-icon-scale: 1.07;
+  --mesh-motion-press-y: 1px;
+  --mesh-motion-press-scale: 0.985;
+}
+
+html[data-motion-style='calm'] {
+  --mesh-motion-ease: ease;
+  --mesh-motion-fast: 190ms;
+  --mesh-motion-medium: 280ms;
+  --mesh-motion-slow: 1400ms;
+  --mesh-motion-bg-duration: 34s;
+  --mesh-motion-surface-duration: 38s;
+  --mesh-motion-accent-duration: 8s;
+  --mesh-motion-pulse-duration: 5.6s;
+  --mesh-motion-hover-y: 0px;
+  --mesh-motion-hover-scale: 1;
+  --mesh-motion-icon-scale: 1.03;
+  --mesh-motion-press-y: 0px;
+  --mesh-motion-press-scale: 0.995;
+}
+
+html[data-motion-style='snappy'] {
+  --mesh-motion-ease: cubic-bezier(0.2, 0.9, 0.2, 1);
+  --mesh-motion-fast: 90ms;
+  --mesh-motion-medium: 140ms;
+  --mesh-motion-slow: 520ms;
+  --mesh-motion-bg-duration: 15s;
+  --mesh-motion-surface-duration: 16s;
+  --mesh-motion-accent-duration: 3.1s;
+  --mesh-motion-pulse-duration: 2.3s;
+  --mesh-motion-hover-y: -1px;
+  --mesh-motion-hover-scale: 1.01;
+  --mesh-motion-icon-scale: 1.1;
+  --mesh-motion-press-y: 1px;
+  --mesh-motion-press-scale: 0.965;
+}
+
+html[data-motion-style='luxe'] {
+  --mesh-motion-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --mesh-motion-fast: 190ms;
+  --mesh-motion-medium: 320ms;
+  --mesh-motion-slow: 1300ms;
+  --mesh-motion-bg-duration: 22s;
+  --mesh-motion-surface-duration: 26s;
+  --mesh-motion-accent-duration: 6.2s;
+  --mesh-motion-pulse-duration: 4.4s;
+  --mesh-motion-hover-y: -2px;
+  --mesh-motion-hover-scale: 1;
+  --mesh-motion-icon-scale: 1.09;
+  --mesh-motion-press-y: 1px;
+  --mesh-motion-press-scale: 0.98;
+}
+
+html[data-motion-style='playful'] {
+  --mesh-motion-ease: cubic-bezier(0.18, 1.35, 0.32, 1);
+  --mesh-motion-fast: 130ms;
+  --mesh-motion-medium: 240ms;
+  --mesh-motion-slow: 780ms;
+  --mesh-motion-bg-duration: 16s;
+  --mesh-motion-surface-duration: 18s;
+  --mesh-motion-accent-duration: 4s;
+  --mesh-motion-pulse-duration: 2.8s;
+  --mesh-motion-hover-y: -2px;
+  --mesh-motion-hover-scale: 1.015;
+  --mesh-motion-icon-scale: 1.12;
+  --mesh-motion-press-y: 2px;
+  --mesh-motion-press-scale: 0.972;
+}
+
 /* Applied briefly during a theme switch so colors cross-fade instead of
    snapping. Removed after the transition so lists stay cheap to paint. */
 .theme-transition,
 .theme-transition * {
-  transition: background-color 220ms ease, border-color 220ms ease, color 220ms ease !important;
+  transition: background-color var(--mesh-motion-medium) ease, border-color var(--mesh-motion-medium) ease, color var(--mesh-motion-medium) ease !important;
 }
 
 /* Animated theme motion layer. Tied to the app's Animations toggle through
@@ -477,7 +557,7 @@
 [data-motion='on'] body {
   background: var(--mesh-theme-bg-gradient);
   background-size: 220% 220%;
-  animation: theme-bg-drift 18s ease-in-out infinite;
+  animation: theme-bg-drift var(--mesh-motion-bg-duration) ease-in-out infinite;
 }
 
 [data-motion='on'] .bg-mesh-bg-primary,
@@ -486,23 +566,23 @@
 [data-motion='on'] .bg-mesh-bg-elevated {
   background-image: var(--mesh-theme-surface-gradient);
   background-size: 240% 240%;
-  animation: theme-surface-drift 20s ease-in-out infinite;
+  animation: theme-surface-drift var(--mesh-motion-surface-duration) ease-in-out infinite;
 }
 
 [data-motion='on'] button,
 [data-motion='on'] [role='button'] {
   position: relative;
   transition:
-    transform 160ms ease,
-    box-shadow 220ms ease,
-    border-color 220ms ease,
-    background-color 220ms ease,
-    color 220ms ease;
+    transform var(--mesh-motion-fast) var(--mesh-motion-ease),
+    box-shadow var(--mesh-motion-medium) ease,
+    border-color var(--mesh-motion-medium) ease,
+    background-color var(--mesh-motion-medium) ease,
+    color var(--mesh-motion-medium) ease;
 }
 
 [data-motion='on'] button:not(:disabled):hover,
 [data-motion='on'] [role='button']:hover {
-  transform: translateY(-1px);
+  transform: translateY(var(--mesh-motion-hover-y)) scale(var(--mesh-motion-hover-scale));
   box-shadow:
     0 12px 34px -28px color-mix(in srgb, var(--color-mesh-green) 80%, transparent),
     0 0 0 1px color-mix(in srgb, var(--color-mesh-green) 18%, transparent);
@@ -524,7 +604,7 @@
 [data-motion='on'] button:not(:disabled):hover::after,
 [data-motion='on'] [role='button']:hover::after {
   opacity: 1;
-  animation: theme-glint 950ms ease;
+  animation: theme-glint var(--mesh-motion-slow) ease;
 }
 
 [data-motion='on'] .bg-mesh-green,
@@ -532,8 +612,8 @@
   background-image: var(--mesh-theme-accent-gradient);
   background-size: 260% 100%;
   animation:
-    theme-accent-flow 4.8s ease-in-out infinite,
-    theme-soft-pulse 3.2s ease-in-out infinite;
+    theme-accent-flow var(--mesh-motion-accent-duration) ease-in-out infinite,
+    theme-soft-pulse var(--mesh-motion-pulse-duration) ease-in-out infinite;
 }
 
 [data-motion='on'] [class*='text-mesh-green'] {
@@ -542,11 +622,11 @@
 
 [data-motion='on'] [class*='border-mesh-green'],
 [data-motion='on'] [class*='ring-mesh-green'] {
-  animation: theme-border-breathe 3.8s ease-in-out infinite;
+  animation: theme-border-breathe calc(var(--mesh-motion-pulse-duration) + 0.6s) ease-in-out infinite;
 }
 
 [data-motion='on'] .mesh-slider::-webkit-slider-thumb {
-  animation: theme-thumb-glow 2.8s ease-in-out infinite;
+  animation: theme-thumb-glow var(--mesh-motion-pulse-duration) ease-in-out infinite;
 }
 
 [data-motion='on'] ::selection {
@@ -619,6 +699,35 @@ html, body {
 .scrollbar-none {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+.mesh-server-avatar-fallback {
+  color: #ffffff;
+  background:
+    radial-gradient(circle at 28% 20%, color-mix(in srgb, var(--color-mesh-green-light) 46%, transparent), transparent 34%),
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--color-mesh-green) 74%, var(--color-mesh-bg-primary)),
+      color-mix(in srgb, var(--color-mesh-green-dark) 62%, var(--color-mesh-bg-tertiary))
+    );
+  border-color: color-mix(in srgb, var(--color-mesh-green) 38%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.13),
+    0 10px 24px -18px color-mix(in srgb, var(--color-mesh-green) 70%, transparent);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.28);
+}
+
+.mesh-server-avatar-fallback::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid color-mix(in srgb, var(--color-mesh-text-primary) 20%, transparent);
+  pointer-events: none;
+}
+
+[data-motion='on'] .mesh-server-avatar-fallback {
+  background-size: 180% 180%;
+  animation: theme-surface-drift calc(var(--mesh-motion-surface-duration) * 0.75) ease-in-out infinite;
 }
 
 /* Custom range slider — hairline track, precise thumb */
@@ -704,19 +813,19 @@ html, body {
    reusable so motion feels consistent across chat, voice, navigation, and
    settings without turning the UI into a light show. */
 [data-motion='on'] .mesh-reveal-in {
-  animation: mesh-reveal-in 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: mesh-reveal-in var(--mesh-motion-medium) var(--mesh-motion-ease) both;
 }
 
 [data-motion='on'] .mesh-message-enter {
-  animation: mesh-message-enter 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: mesh-message-enter var(--mesh-motion-medium) var(--mesh-motion-ease) both;
 }
 
 [data-motion='on'] .mesh-action-pop {
   transform-origin: top right;
   transform: translateY(4px) scale(0.98);
   transition:
-    opacity 150ms ease,
-    transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+    opacity var(--mesh-motion-fast) ease,
+    transform var(--mesh-motion-medium) var(--mesh-motion-ease);
 }
 
 [data-motion='on'] .group:hover .mesh-action-pop {
@@ -725,11 +834,11 @@ html, body {
 
 [data-motion='on'] .mesh-hover-lift {
   transition:
-    transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
-    box-shadow 220ms ease,
-    border-color 220ms ease,
-    background-color 220ms ease,
-    color 180ms ease;
+    transform var(--mesh-motion-medium) var(--mesh-motion-ease),
+    box-shadow var(--mesh-motion-medium) ease,
+    border-color var(--mesh-motion-medium) ease,
+    background-color var(--mesh-motion-medium) ease,
+    color var(--mesh-motion-fast) ease;
 }
 
 [data-motion='on'] .mesh-hover-lift:hover {
@@ -738,30 +847,30 @@ html, body {
 
 [data-motion='on'] .mesh-pressable {
   transition:
-    transform 130ms cubic-bezier(0.22, 1, 0.36, 1),
-    filter 180ms ease,
-    box-shadow 220ms ease,
-    background-color 180ms ease,
-    border-color 180ms ease,
-    color 180ms ease;
+    transform var(--mesh-motion-fast) var(--mesh-motion-ease),
+    filter var(--mesh-motion-medium) ease,
+    box-shadow var(--mesh-motion-medium) ease,
+    background-color var(--mesh-motion-medium) ease,
+    border-color var(--mesh-motion-medium) ease,
+    color var(--mesh-motion-medium) ease;
 }
 
 [data-motion='on'] .mesh-pressable:active {
-  transform: translateY(1px) scale(0.985);
+  transform: translateY(var(--mesh-motion-press-y)) scale(var(--mesh-motion-press-scale));
   filter: brightness(0.95);
 }
 
 [data-motion='on'] .mesh-icon-button svg {
   transform-origin: center;
   transition:
-    transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
-    filter 180ms ease,
-    opacity 180ms ease;
+    transform var(--mesh-motion-medium) var(--mesh-motion-ease),
+    filter var(--mesh-motion-medium) ease,
+    opacity var(--mesh-motion-medium) ease;
   will-change: transform;
 }
 
 [data-motion='on'] .mesh-icon-button:hover svg {
-  transform: translateY(-1px) scale(1.07);
+  transform: translateY(var(--mesh-motion-hover-y)) scale(var(--mesh-motion-icon-scale));
   filter: drop-shadow(0 6px 12px color-mix(in srgb, currentColor 24%, transparent));
 }
 
@@ -815,7 +924,7 @@ html, body {
 }
 
 [data-motion='on'] .mesh-icon-chevron svg {
-  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform var(--mesh-motion-medium) var(--mesh-motion-ease);
 }
 
 [data-motion='on'] .mesh-icon-chevron.mesh-chevron-open svg {
@@ -823,11 +932,11 @@ html, body {
 }
 
 [data-motion='on'] .mesh-reaction-chip {
-  animation: mesh-pop-in 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: mesh-pop-in var(--mesh-motion-medium) var(--mesh-motion-ease) both;
 }
 
 [data-motion='on'] .mesh-reaction-chip:active {
-  animation: mesh-reaction-pop 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  animation: mesh-reaction-pop var(--mesh-motion-medium) var(--mesh-motion-ease);
 }
 
 [data-motion='on'] .mesh-live-badge {
@@ -932,7 +1041,7 @@ html, body {
 }
 
 [data-motion='on'] .mesh-active-indicator {
-  animation: mesh-active-slide 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: mesh-active-slide var(--mesh-motion-medium) var(--mesh-motion-ease) both;
 }
 
 [data-motion='on'] .mesh-shimmer {
@@ -947,7 +1056,44 @@ html, body {
   pointer-events: none;
   background: linear-gradient(110deg, transparent 0%, rgba(255, 255, 255, 0.08) 46%, transparent 66%);
   background-size: 240% 100%;
-  animation: mesh-shimmer-slide 2.8s ease-in-out infinite;
+  animation: mesh-shimmer-slide calc(var(--mesh-motion-pulse-duration) + 0.4s) ease-in-out infinite;
+}
+
+[data-motion='on'][data-motion-style='calm'] button:not(:disabled):hover,
+[data-motion='on'][data-motion-style='calm'] [role='button']:hover {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-mesh-green) 10%, transparent);
+}
+
+[data-motion='on'][data-motion-style='calm'] button:not(:disabled):hover::after,
+[data-motion='on'][data-motion-style='calm'] [role='button']:hover::after {
+  opacity: 0;
+  animation: none;
+}
+
+[data-motion='on'][data-motion-style='snappy'] .mesh-pressable:active {
+  animation: mesh-snappy-press 170ms cubic-bezier(0.2, 0.9, 0.2, 1);
+}
+
+[data-motion='on'][data-motion-style='luxe'] button:not(:disabled):hover,
+[data-motion='on'][data-motion-style='luxe'] [role='button']:hover {
+  box-shadow:
+    0 18px 48px -28px color-mix(in srgb, var(--color-mesh-green) 95%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--color-mesh-green) 28%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+[data-motion='on'][data-motion-style='luxe'] button::after,
+[data-motion='on'][data-motion-style='luxe'] [role='button']::after {
+  background: linear-gradient(110deg, transparent 0%, rgba(255, 255, 255, 0.22) 46%, var(--mesh-theme-glint) 56%, transparent 70%);
+}
+
+[data-motion='on'][data-motion-style='playful'] button:not(:disabled):hover,
+[data-motion='on'][data-motion-style='playful'] [role='button']:hover {
+  animation: mesh-playful-button 420ms cubic-bezier(0.18, 1.35, 0.32, 1);
+}
+
+[data-motion='on'][data-motion-style='playful'] .mesh-icon-button:hover svg {
+  animation: mesh-playful-icon 520ms cubic-bezier(0.18, 1.35, 0.32, 1);
 }
 
 @keyframes mesh-reveal-in {
@@ -1082,6 +1228,25 @@ html, body {
   0% { background-position: 180% 0; opacity: 0; }
   18%, 70% { opacity: 1; }
   100% { background-position: -90% 0; opacity: 0; }
+}
+
+@keyframes mesh-snappy-press {
+  0% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(1px) scale(0.955); }
+  100% { transform: translateY(0) scale(1); }
+}
+
+@keyframes mesh-playful-button {
+  0% { transform: translateY(0) scale(1); }
+  45% { transform: translateY(-3px) scale(1.018); }
+  75% { transform: translateY(-1px) scale(0.996); }
+  100% { transform: translateY(var(--mesh-motion-hover-y)) scale(var(--mesh-motion-hover-scale)); }
+}
+
+@keyframes mesh-playful-icon {
+  0%, 100% { transform: translateY(var(--mesh-motion-hover-y)) scale(var(--mesh-motion-icon-scale)) rotate(0deg); }
+  35% { transform: translateY(-3px) scale(1.15) rotate(-6deg); }
+  70% { transform: translateY(-1px) scale(1.08) rotate(5deg); }
 }
 
 @media (prefers-reduced-motion: reduce) {

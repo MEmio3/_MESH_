@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
 import type { Message } from '@/types/messages'
 import { FileAttachmentDisplay } from './FileAttachment'
+import { MessageContent } from './MessageContent'
 import { ReactionPicker } from './ReactionPicker'
 import { ReactionBar } from './ReactionBar'
 import { useIdentityStore } from '@/stores/identity.store'
@@ -268,10 +269,10 @@ function MessageBubble({ message, isGrouped, isOwnMessage, canDelete, onEdit, on
     return (
       <>
         {replyQuote}
-        <p className="max-w-3xl break-words text-sm leading-relaxed text-mesh-text-primary">
-          {message.content}
+        <div className="max-w-3xl">
+          <MessageContent content={message.content} />
           {message.editedAt ? <EditedTag editedAt={message.editedAt} /> : null}
-        </p>
+        </div>
       </>
     )
   }

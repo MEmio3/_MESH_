@@ -15,6 +15,7 @@ import {
   Wifi
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { ServerAvatar } from '@/components/ui/ServerAvatar'
 import { cn } from '@/lib/utils'
 import { useIdentityStore } from '@/stores/identity.store'
 import { useServersStore } from '@/stores/servers.store'
@@ -338,21 +339,11 @@ function DiscoveryPage(): JSX.Element {
                     className="mesh-hover-lift rounded-lg border border-mesh-border/70 bg-mesh-bg-secondary/70 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"
                   >
                     <div className="flex items-start gap-3">
-                      <div
-                        className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-lg text-base font-bold text-white"
-                        style={avatarSrc ? undefined : { backgroundColor: server.iconColor }}
-                      >
-                        {avatarSrc ? (
-                          <img
-                            src={avatarSrc}
-                            alt={server.name}
-                            className="h-full w-full object-cover"
-                            draggable={false}
-                          />
-                        ) : (
-                          server.name.slice(0, 1).toUpperCase()
-                        )}
-                      </div>
+                      <ServerAvatar
+                        src={avatarSrc}
+                        name={server.name}
+                        className="h-12 w-12 rounded-lg text-base"
+                      />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <h3 className="truncate text-base font-bold text-mesh-text-primary">{server.name}</h3>

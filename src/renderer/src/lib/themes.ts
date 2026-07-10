@@ -25,6 +25,10 @@ export type ThemeId =
   | 'rose-pine-dawn'
   | 'premium'
 
+export const MOTION_STYLES = ['smooth', 'snappy', 'luxe', 'playful', 'calm'] as const
+export type MotionStyle = typeof MOTION_STYLES[number]
+export const DEFAULT_MOTION_STYLE: MotionStyle = 'smooth'
+
 export interface ThemeMeta {
   id: ThemeId
   name: string
@@ -63,9 +67,15 @@ let transitionTimer: ReturnType<typeof setTimeout> | null = null
  * Apply a theme. `animate` cross-fades colors (used for user-initiated
  * switches; startup applies instantly).
  */
-export function applyTheme(id: ThemeId, animate = false, motionEnabled = true): void {
+export function applyTheme(
+  id: ThemeId,
+  animate = false,
+  motionEnabled = true,
+  motionStyle: MotionStyle = DEFAULT_MOTION_STYLE
+): void {
   const root = document.documentElement
   root.dataset.motion = motionEnabled ? 'on' : 'off'
+  root.dataset.motionStyle = motionEnabled ? motionStyle : 'off'
   if (animate && motionEnabled) {
     root.classList.add('theme-transition')
     if (transitionTimer) clearTimeout(transitionTimer)
@@ -79,4 +89,8 @@ export function applyTheme(id: ThemeId, animate = false, motionEnabled = true): 
 
 export function isThemeId(v: unknown): v is ThemeId {
   return typeof v === 'string' && THEMES.some((t) => t.id === v)
+}
+
+export function isMotionStyle(v: unknown): v is MotionStyle {
+  return typeof v === 'string' && MOTION_STYLES.includes(v as MotionStyle)
 }

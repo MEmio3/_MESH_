@@ -6,6 +6,7 @@ import { useIdentityStore } from '@/stores/identity.store'
 import { useFriendsStore } from '@/stores/friends.store'
 import { ChatHeader } from '@/components/chat/ChatHeader'
 import { MessageFeed } from '@/components/chat/MessageFeed'
+import { MessageContent } from '@/components/chat/MessageContent'
 import { MessageInput } from '@/components/chat/MessageInput'
 import { UserProfileCard } from '@/components/profile/UserProfileCard'
 import { Avatar } from '@/components/ui/Avatar'
@@ -272,7 +273,7 @@ function DmConversationPage(): JSX.Element {
                     mine ? 'bg-mesh-green/20 text-mesh-text-primary' : 'bg-mesh-bg-tertiary text-mesh-text-primary'
                   }`}
                 >
-                  <p className="whitespace-pre-wrap break-words">{m.content}</p>
+                  <MessageContent content={m.content} />
                   <span className="text-[10px] text-mesh-text-muted mt-1 block">
                     {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>

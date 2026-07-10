@@ -4,6 +4,7 @@ import { ChevronDown, Settings } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
+import { ServerAvatar } from '@/components/ui/ServerAvatar'
 import { PERM, effectivePermissions, hasPerm } from '../../../../../shared/permissions'
 import { useServersStore } from '@/stores/servers.store'
 import type { ServerMember } from '@/types/server'
@@ -86,16 +87,11 @@ function ServerSidePanel({ serverId }: ServerSidePanelProps): JSX.Element {
             showDropdown ? 'bg-mesh-bg-tertiary/60' : 'hover:bg-mesh-bg-tertiary/40'
           )}
         >
-          <div
-            className="h-7 w-7 rounded-md overflow-hidden flex items-center justify-center text-xs font-bold text-white shrink-0 ring-1 ring-black/20 shadow-sm"
-            style={serverAvatar ? undefined : { backgroundColor: server.iconColor }}
-          >
-            {serverAvatar ? (
-              <img src={serverAvatar} alt={server.name} className="h-full w-full object-cover" draggable={false} />
-            ) : (
-              server.name[0].toUpperCase()
-            )}
-          </div>
+          <ServerAvatar
+            src={serverAvatar}
+            name={server.name}
+            className="h-7 w-7 rounded-md text-xs ring-1 ring-mesh-border/60 shadow-sm"
+          />
           <span className="text-[13px] font-bold text-mesh-text-primary truncate flex-1 text-left tracking-tight">
             {server.name}
           </span>

@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/Input'
 import { Toggle } from '@/components/ui/Toggle'
 import { Modal } from '@/components/ui/Modal'
 import { Avatar } from '@/components/ui/Avatar'
+import { ServerAvatar } from '@/components/ui/ServerAvatar'
 import { useServersStore } from '@/stores/servers.store'
 import { useIdentityStore } from '@/stores/identity.store'
 import { useAvatarStore } from '@/stores/avatar.store'
@@ -257,16 +258,11 @@ function OverviewSection({ serverId, canEditServer }: { serverId: string; canEdi
 
       {/* Identity card */}
       <div className="flex items-center gap-4">
-        <div
-          className="h-20 w-20 rounded-xl overflow-hidden flex items-center justify-center text-2xl font-bold text-white shrink-0 ring-1 ring-mesh-border"
-          style={serverAvatar ? undefined : { backgroundColor: server.iconColor }}
-        >
-          {serverAvatar ? (
-            <img src={serverAvatar} alt={server.name} className="h-full w-full object-cover" draggable={false} />
-          ) : (
-            server.name[0]?.toUpperCase()
-          )}
-        </div>
+        <ServerAvatar
+          src={serverAvatar}
+          name={server.name}
+          className="h-20 w-20 rounded-xl text-2xl ring-1 ring-mesh-border"
+        />
         <div className="min-w-0">
           <h3 className="text-lg font-semibold text-mesh-text-primary truncate">{server.name}</h3>
           <p className="text-xs text-mesh-text-muted">

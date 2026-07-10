@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { AlertTriangle, Check, ChevronRight, Copy, Loader2, PlugZap, Plus, Radio, RefreshCw, Router, Server, Shield, Trash2, Wifi } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Toggle } from '@/components/ui/Toggle'
+import { ServerAvatar } from '@/components/ui/ServerAvatar'
 import { cn } from '@/lib/utils'
 import { useIdentityStore } from '@/stores/identity.store'
 import { useSettingsStore, type KnownNetwork, type ServerHostAssignment } from '@/stores/settings.store'
@@ -960,12 +961,11 @@ function NetworkCenterPage(): JSX.Element {
                 return (
                   <div key={server.id} className="rounded-lg border border-mesh-border/60 bg-mesh-bg-primary/65 p-3">
                     <div className="flex items-center gap-3">
-                      <div
-                        className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-lg text-sm font-bold text-white"
-                        style={avatar ? undefined : { backgroundColor: server.iconColor }}
-                      >
-                        {avatar ? <img src={avatar} alt={server.name} className="h-full w-full object-cover" draggable={false} /> : server.name[0]?.toUpperCase()}
-                      </div>
+                      <ServerAvatar
+                        src={avatar}
+                        name={server.name}
+                        className="h-10 w-10 rounded-lg text-sm"
+                      />
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-semibold text-mesh-text-primary">{server.name}</div>
                         <div className="truncate font-mono text-[11px] text-mesh-text-muted">{inviteAddress}</div>

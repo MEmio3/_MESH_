@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Check, Copy, MessageSquare, Server, Shield, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
+import { ServerAvatar } from '@/components/ui/ServerAvatar'
 import { useAvatarStore } from '@/stores/avatar.store'
 import { useIdentityStore } from '@/stores/identity.store'
 import { useFriendsStore } from '@/stores/friends.store'
@@ -223,12 +224,10 @@ function UserProfileCard({
                   onClick={() => { navigate(`/channels/${sv.id}`); onAction?.() }}
                   className="group flex items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-mesh-bg-secondary/80"
                 >
-                  <span
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold text-white shadow-sm transition-transform group-hover:scale-105"
-                    style={{ backgroundColor: sv.iconColor }}
-                  >
-                    {sv.name[0]?.toUpperCase()}
-                  </span>
+                  <ServerAvatar
+                    name={sv.name}
+                    className="h-7 w-7 rounded-lg text-[10px] shadow-sm transition-transform group-hover:scale-105"
+                  />
                   <span className="min-w-0 flex-1 truncate text-xs font-medium text-mesh-text-secondary group-hover:text-mesh-text-primary">
                     {sv.name}
                   </span>

@@ -1,6 +1,14 @@
 import { create } from 'zustand'
 import { webrtcManager } from '@/lib/webrtc'
-import { applyTheme, isThemeId, DEFAULT_THEME, type ThemeId } from '@/lib/themes'
+import {
+  applyTheme,
+  isMotionStyle,
+  isThemeId,
+  DEFAULT_MOTION_STYLE,
+  DEFAULT_THEME,
+  type MotionStyle,
+  type ThemeId
+} from '@/lib/themes'
 
 /**
  * Apply ICE configuration to the WebRTC manager based on user settings.
@@ -67,6 +75,7 @@ interface AppearanceSettings {
   chatDensity: 'compact' | 'cozy' | 'default'
   messageGroupingMinutes: number
   animationsEnabled: boolean
+  animationStyle: MotionStyle
 }
 
 interface NotificationSettings {
@@ -140,7 +149,8 @@ const DEFAULT_APPEARANCE: AppearanceSettings = {
   fontSize: 14,
   chatDensity: 'default',
   messageGroupingMinutes: 5,
-  animationsEnabled: true
+  animationsEnabled: true,
+  animationStyle: DEFAULT_MOTION_STYLE
 }
 
 const DEFAULT_NOTIFICATIONS: NotificationSettings = {
@@ -224,6 +234,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       ? { ...DEFAULT_APPEARANCE, ...JSON.parse(appearanceRaw) }
       : { ...DEFAULT_APPEARANCE }
     if (!isThemeId(appearance.theme)) appearance.theme = DEFAULT_THEME
+    if (!isMotionStyle(appearance.animationStyle)) appearance.animationStyle = DEFAULT_MOTION_STYLE
 
     set({
       appearance,
@@ -233,7 +244,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     })
 
     // Skin the app before first paint settles — no animation on startup.
-    applyTheme(appearance.theme, false, appearance.animationsEnabled)
+    applyTheme(appearance.theme, false, appearance.animationsEnabled, appearance.animationStyle)
 
     // Apply ICE config to WebRTC manager on load
     applyIceConfig(network)
@@ -246,8 +257,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       // Live theme/motion switch with a colour cross-fade.
       const themeChanged = partial.theme && partial.theme !== s.appearance.theme
       const motionChanged = typeof partial.animationsEnabled === 'boolean' && partial.animationsEnabled !== s.appearance.animationsEnabled
-      if (themeChanged || motionChanged) {
-        applyTheme(updated.theme, Boolean(themeChanged), updated.animationsEnabled)
+      const animationStyleChanged = partial.animationStyle && partial.animationStyle !== s.appearance.animationStyle
+      if (!isMotionStyle(updated.animationStyle)) updated.animationStyle = DEFAULT_MOTION_STYLE
+      if (themeChanged || motionChanged || animationStyleChanged) {
+        applyTheme(updated.theme, Boolean(themeChanged), updated.animationsEnabled, updated.animationStyle)
       }
       return { appearance: updated }
     })

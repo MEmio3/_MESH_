@@ -4,6 +4,7 @@ import { Compass, Plus, Router } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { Tooltip } from '@/components/ui/Tooltip'
+import { ServerAvatar } from '@/components/ui/ServerAvatar'
 import { useServersStore } from '@/stores/servers.store'
 import { useServerAvatarStore } from '@/stores/serverAvatar.store'
 import { CreateServerModal } from '@/components/modals/CreateServerModal'
@@ -42,23 +43,17 @@ function ServerList(): JSX.Element {
                 <button
                   onClick={() => navigate(`/channels/${server.id}`)}
                   className={cn(
-                    'mesh-pressable mesh-hover-lift flex items-center justify-center h-10 w-10 rounded-lg transition-all duration-150 font-semibold text-sm overflow-hidden border',
+                    'mesh-pressable mesh-hover-lift flex h-10 w-10 items-center justify-center rounded-lg border p-0 transition-all duration-150',
                     isActive
-                      ? 'border-mesh-border-light text-white opacity-100'
-                      : 'border-transparent text-white/85 opacity-80 hover:opacity-100 hover:text-white'
+                      ? 'border-mesh-green/45 opacity-100'
+                      : 'border-transparent opacity-80 hover:opacity-100'
                   )}
-                  style={avatars[server.id] ? undefined : { backgroundColor: server.iconColor }}
                 >
-                  {avatars[server.id] ? (
-                    <img
-                      src={avatars[server.id]}
-                      alt={server.name}
-                      className="h-full w-full object-cover"
-                      draggable={false}
-                    />
-                  ) : (
-                    server.name[0].toUpperCase()
-                  )}
+                  <ServerAvatar
+                    src={avatars[server.id]}
+                    name={server.name}
+                    className="h-full w-full rounded-lg text-sm"
+                  />
                 </button>
               </div>
             </Tooltip>
