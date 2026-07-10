@@ -20,6 +20,9 @@ export type ThemeId =
   | 'glacier'
   | 'solar'
   | 'orchid'
+  | 'rose-pine'
+  | 'rose-pine-moon'
+  | 'rose-pine-dawn'
   | 'premium'
 
 export interface ThemeMeta {
@@ -32,6 +35,9 @@ export interface ThemeMeta {
 
 export const THEMES: ThemeMeta[] = [
   { id: 'premium', name: 'Premium', tagline: 'Animated neon glass, luxe motion', swatch: ['#080713', '#17122a', '#f472ff'] },
+  { id: 'rose-pine', name: 'Rosé Pine', tagline: 'Velvet dusk, rose accent', swatch: ['#191724', '#1f1d2e', '#eb6f92'] },
+  { id: 'rose-pine-moon', name: 'Rosé Pine Moon', tagline: 'Moonlit mauve, soft rose', swatch: ['#232136', '#2a273f', '#ea9a97'] },
+  { id: 'rose-pine-dawn', name: 'Rosé Pine Dawn', tagline: 'Warm paper, muted rose', swatch: ['#faf4ed', '#fffaf3', '#b4637a'] },
   { id: 'crimson', name: 'Crimson', tagline: 'Warm black, red accent', swatch: ['#0d0a0b', '#1a1517', '#d64550'] },
   { id: 'obsidian', name: 'Obsidian', tagline: 'Near-black, emerald accent', swatch: ['#0a0a0b', '#17171b', '#2f9e6e'] },
   { id: 'midnight', name: 'Midnight', tagline: 'Deep blue, soft indigo accent', swatch: ['#0d1017', '#181e30', '#7aa2f7'] },

@@ -84,6 +84,81 @@
   --mesh-theme-glint: rgba(255, 255, 255, 0.18);
 }
 
+[data-theme='rose-pine'] {
+  --color-mesh-bg-primary: #191724;
+  --color-mesh-bg-secondary: #1f1d2e;
+  --color-mesh-bg-tertiary: #26233a;
+  --color-mesh-bg-elevated: #21202e;
+  --color-mesh-bg-hover: #403d52;
+  --color-mesh-green: #eb6f92;
+  --color-mesh-green-light: #ebbcba;
+  --color-mesh-green-dark: #c4a7e7;
+  --color-mesh-green-glow: rgba(235, 111, 146, 0.22);
+  --color-mesh-text-primary: #e0def4;
+  --color-mesh-text-secondary: #908caa;
+  --color-mesh-text-muted: #6e6a86;
+  --color-mesh-border: #403d52;
+  --color-mesh-border-light: #524f67;
+  --color-mesh-danger: #eb6f92;
+  --color-mesh-danger-hover: #ebbcba;
+  --color-mesh-warning: #f6c177;
+  --color-mesh-info: #9ccfd8;
+  --mesh-theme-bg-gradient: linear-gradient(125deg, #191724 0%, #1f1d2e 30%, #26233a 54%, #21384a 78%, #191724 100%);
+  --mesh-theme-surface-gradient: linear-gradient(135deg, rgba(235, 111, 146, 0.06), transparent 38%, rgba(156, 207, 216, 0.04));
+  --mesh-theme-accent-gradient: linear-gradient(120deg, #eb6f92, #f6c177, #c4a7e7, #eb6f92);
+  --mesh-theme-glint: rgba(224, 222, 244, 0.17);
+}
+
+[data-theme='rose-pine-moon'] {
+  --color-mesh-bg-primary: #232136;
+  --color-mesh-bg-secondary: #2a273f;
+  --color-mesh-bg-tertiary: #393552;
+  --color-mesh-bg-elevated: #2a283e;
+  --color-mesh-bg-hover: #44415a;
+  --color-mesh-green: #ea9a97;
+  --color-mesh-green-light: #ebbcba;
+  --color-mesh-green-dark: #c4a7e7;
+  --color-mesh-green-glow: rgba(234, 154, 151, 0.22);
+  --color-mesh-text-primary: #e0def4;
+  --color-mesh-text-secondary: #908caa;
+  --color-mesh-text-muted: #6e6a86;
+  --color-mesh-border: #44415a;
+  --color-mesh-border-light: #56526e;
+  --color-mesh-danger: #eb6f92;
+  --color-mesh-danger-hover: #ea9a97;
+  --color-mesh-warning: #f6c177;
+  --color-mesh-info: #9ccfd8;
+  --mesh-theme-bg-gradient: linear-gradient(125deg, #232136 0%, #2a273f 30%, #393552 56%, #263f5b 78%, #232136 100%);
+  --mesh-theme-surface-gradient: linear-gradient(135deg, rgba(234, 154, 151, 0.06), transparent 38%, rgba(196, 167, 231, 0.04));
+  --mesh-theme-accent-gradient: linear-gradient(120deg, #ea9a97, #9ccfd8, #c4a7e7, #ea9a97);
+  --mesh-theme-glint: rgba(224, 222, 244, 0.17);
+}
+
+[data-theme='rose-pine-dawn'] {
+  --color-mesh-bg-primary: #faf4ed;
+  --color-mesh-bg-secondary: #fffaf3;
+  --color-mesh-bg-tertiary: #f2e9e1;
+  --color-mesh-bg-elevated: #f4ede8;
+  --color-mesh-bg-hover: #dfdad9;
+  --color-mesh-green: #b4637a;
+  --color-mesh-green-light: #d7827e;
+  --color-mesh-green-dark: #907aa9;
+  --color-mesh-green-glow: rgba(180, 99, 122, 0.20);
+  --color-mesh-text-primary: #464261;
+  --color-mesh-text-secondary: #797593;
+  --color-mesh-text-muted: #9893a5;
+  --color-mesh-border: #dfdad9;
+  --color-mesh-border-light: #cecacd;
+  --color-mesh-danger: #b4637a;
+  --color-mesh-danger-hover: #d7827e;
+  --color-mesh-warning: #ea9d34;
+  --color-mesh-info: #56949f;
+  --mesh-theme-bg-gradient: linear-gradient(125deg, #faf4ed 0%, #fffaf3 30%, #f2e9e1 56%, #f4ede8 78%, #faf4ed 100%);
+  --mesh-theme-surface-gradient: linear-gradient(135deg, rgba(180, 99, 122, 0.08), transparent 38%, rgba(86, 148, 159, 0.06));
+  --mesh-theme-accent-gradient: linear-gradient(120deg, #b4637a, #ea9d34, #907aa9, #b4637a);
+  --mesh-theme-glint: rgba(255, 255, 255, 0.45);
+}
+
 [data-theme='midnight'] {
   --color-mesh-bg-primary: #0d1017;
   --color-mesh-bg-secondary: #121724;

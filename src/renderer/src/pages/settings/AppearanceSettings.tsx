@@ -29,6 +29,7 @@ function AppearanceSettings(): JSX.Element {
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {THEMES.map((t) => {
             const active = appearance.theme === t.id
+            const lightPreview = t.id === 'rose-pine-dawn'
             return (
               <button
                 key={t.id}
@@ -59,8 +60,16 @@ function AppearanceSettings(): JSX.Element {
                     />
                   </div>
                 </div>
-                <span className="block text-[13px] font-semibold text-white">{t.name}</span>
-                <span className="block text-[10px] text-white/50 leading-tight">{t.tagline}</span>
+                <span
+                  className={cn('block text-[13px] font-semibold', lightPreview ? 'text-[#464261]' : 'text-white')}
+                >
+                  {t.name}
+                </span>
+                <span
+                  className={cn('block text-[10px] leading-tight', lightPreview ? 'text-[#797593]' : 'text-white/50')}
+                >
+                  {t.tagline}
+                </span>
                 {active && (
                   <span className="absolute top-2 right-2 h-4.5 w-4.5 rounded-full flex items-center justify-center" style={{ backgroundColor: t.swatch[2] }}>
                     <Check className="h-3 w-3 text-white" />
