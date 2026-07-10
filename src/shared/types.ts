@@ -92,6 +92,9 @@ export interface MessageRow {
   editedAt: number | null
   isDeleted: number
   reactions: string
+  replyToId?: string | null
+  replyToSenderName?: string | null
+  replyToContent?: string | null
 }
 
 export interface FileTransferMeta {
@@ -194,6 +197,9 @@ export interface ServerMessageRow {
   isDeleted: number
   reactions: string
   channelId: string | null
+  replyToId?: string | null
+  replyToSenderName?: string | null
+  replyToContent?: string | null
 }
 
 // ── Relays ──

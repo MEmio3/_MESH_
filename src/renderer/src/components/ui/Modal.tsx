@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useId, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X } from 'lucide-react'
@@ -15,6 +15,8 @@ interface ModalProps {
 }
 
 function Modal({ isOpen, onClose, title, children, className, bodyClassName }: ModalProps): JSX.Element | null {
+  const titleId = useId()
+
   useEffect(() => {
     if (!isOpen) return
     const handleEsc = (e: KeyboardEvent): void => {
@@ -40,29 +42,34 @@ function Modal({ isOpen, onClose, title, children, className, bodyClassName }: M
 
           {/* Content */}
           <motion.div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
             variants={modalMotion}
             initial="initial"
             animate="animate"
             exit="exit"
             transition={meshSoftSpring}
             className={cn(
-              'mesh-reveal-in relative w-full max-w-md mx-4 rounded-xl bg-mesh-bg-secondary border border-mesh-border-light/60 shadow-[0_24px_64px_-16px_rgba(0,0,0,0.75),inset_0_1px_0_rgba(255,255,255,0.05)]',
+              'mesh-modal-surface mesh-reveal-in relative mx-4 w-full max-w-md overflow-hidden rounded-lg border border-mesh-border-light/60 bg-mesh-bg-secondary',
               className
             )}
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-5 pt-5 pb-2">
-              <h2 className="text-lg font-bold text-mesh-text-primary">{title}</h2>
+            <div className="mesh-modal-header flex items-center justify-between border-b border-mesh-border/60 px-5 py-3.5">
+              <h2 id={titleId} className="text-base font-bold text-mesh-text-primary">{title}</h2>
               <button
+                type="button"
+                aria-label={`Close ${title}`}
                 onClick={onClose}
-                className="h-8 w-8 rounded-md flex items-center justify-center text-mesh-text-muted hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary transition-colors"
+                className="mesh-icon-button mesh-pressable flex h-8 w-8 items-center justify-center rounded-md border border-transparent text-mesh-text-muted transition-colors hover:border-mesh-border/70 hover:bg-mesh-bg-tertiary hover:text-mesh-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mesh-green/60"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
             {/* Body */}
-            <div className={cn('px-5 pb-5', bodyClassName)}>
+            <div className={cn('px-5 py-4', bodyClassName)}>
               {children}
             </div>
           </motion.div>

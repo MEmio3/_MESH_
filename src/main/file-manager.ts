@@ -3,7 +3,7 @@
  * Files are stored in {userData}/downloads/.
  */
 import { app, dialog } from 'electron'
-import { join, extname } from 'path'
+import { join, extname, basename } from 'path'
 import { existsSync, mkdirSync, writeFileSync, readFileSync, statSync } from 'fs'
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50 MB
@@ -12,6 +12,38 @@ function getDownloadsDir(): string {
   const dir = join(app.getPath('userData'), 'downloads')
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
   return dir
+}
+
+function getClipboardDir(): string {
+  const dir = join(app.getPath('temp'), 'MESH', 'clipboard')
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  return dir
+}
+
+/** Stage a clipboard File in a temporary directory so the existing attachment
+ * transport can read it through the same path-based API as picked files. */
+export function saveClipboardFile(fileName: string, fileType: string, data: Buffer): string {
+  if (data.byteLength > MAX_FILE_SIZE) throw new Error('File exceeds the 50 MB attachment limit.')
+
+  const extensionByType: Record<string, string> = {
+    'image/png': '.png',
+    'image/jpeg': '.jpg',
+    'image/gif': '.gif',
+    'image/webp': '.webp',
+    'image/svg+xml': '.svg',
+    'text/plain': '.txt',
+    'application/pdf': '.pdf'
+  }
+  const original = basename(fileName || 'clipboard-file')
+  const existingExt = extname(original)
+  const fallbackExt = extensionByType[fileType] || ''
+  const stem = existingExt ? original.slice(0, -existingExt.length) : original
+  const safeStem = stem.replace(/[^a-zA-Z0-9._-]+/g, '_').replace(/^\.+/, '').slice(0, 80) || 'clipboard-file'
+  const ext = (existingExt || fallbackExt).replace(/[^a-zA-Z0-9.]/g, '').slice(0, 12)
+  const unique = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+  const filePath = join(getClipboardDir(), `${unique}_${safeStem}${ext}`)
+  writeFileSync(filePath, data)
+  return filePath
 }
 
 /** Save a received file (raw Buffer) to userData/downloads/ and return the path. */

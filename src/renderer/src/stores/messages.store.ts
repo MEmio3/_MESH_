@@ -39,6 +39,9 @@ type DbMessageRow = Message & {
   filePath?: string | null
   isDeleted?: number | boolean
   reactions?: unknown
+  replyToId?: string | null
+  replyToSenderName?: string | null
+  replyToContent?: string | null
 }
 
 function mapDbMessageRow(row: DbMessageRow): Message {
@@ -54,6 +57,13 @@ function mapDbMessageRow(row: DbMessageRow): Message {
   }
   msg.isDeleted = Boolean(msg.isDeleted)
   msg.reactions = normalizeReactions(msg.reactions)
+  msg.replyTo = msg.replyToId
+    ? {
+        messageId: msg.replyToId,
+        senderName: msg.replyToSenderName || 'Unknown user',
+        content: msg.replyToContent || ''
+      }
+    : null
   return msg as Message
 }
 
@@ -264,7 +274,10 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
       senderName: msg.senderName,
       content: msg.content,
       timestamp: msg.timestamp,
-      status: msg.status
+      status: msg.status,
+      replyToId: msg.replyTo?.messageId ?? null,
+      replyToSenderName: msg.replyTo?.senderName ?? null,
+      replyToContent: msg.replyTo?.content ?? null
     })
 
     // Try P2P delivery via WebRTC data channel; fall back to signaling relay.
@@ -636,7 +649,10 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
       senderName: msg.senderName,
       content: msg.content,
       timestamp: msg.timestamp,
-      status: msg.status
+      status: msg.status,
+      replyToId: msg.replyTo?.messageId ?? null,
+      replyToSenderName: msg.replyTo?.senderName ?? null,
+      replyToContent: msg.replyTo?.content ?? null
     })
     if (!existing) {
       void Promise.all([persistConversation, persistMessage])

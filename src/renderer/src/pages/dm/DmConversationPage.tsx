@@ -1,6 +1,6 @@
 import { useParams } from 'react-router-dom'
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
-import { MessageSquare, X, ShieldOff, UserPlus } from 'lucide-react'
+import { MessageSquare, ShieldOff, UserPlus } from 'lucide-react'
 import { useMessagesStore } from '@/stores/messages.store'
 import { useIdentityStore } from '@/stores/identity.store'
 import { useFriendsStore } from '@/stores/friends.store'
@@ -81,6 +81,7 @@ function DmConversationPage(): JSX.Element {
 
   // ── Reply state ──
   const [replyTarget, setReplyTarget] = useState<Message | null>(null)
+  useEffect(() => setReplyTarget(null), [normalizedId])
 
   // ── Typing indicator state ──
   const [peerTyping, setPeerTyping] = useState(false)
@@ -357,31 +358,20 @@ function DmConversationPage(): JSX.Element {
         </div>
       )}
 
-      {/* Reply banner */}
-      {replyTarget && (
-        <div className="mx-4 mb-1 flex items-center gap-2 rounded bg-mesh-bg-tertiary border-l-2 border-mesh-green px-3 py-1.5">
-          <span className="text-[11px] text-mesh-text-muted shrink-0">Replying to</span>
-          <span className="text-[11px] font-semibold text-mesh-green shrink-0">{replyTarget.senderName}</span>
-          <span className="text-[11px] text-mesh-text-muted truncate flex-1">{replyTarget.content.slice(0, 60)}</span>
-          <button
-            onClick={() => setReplyTarget(null)}
-            className="ml-auto shrink-0 text-mesh-text-muted hover:text-mesh-text-primary transition-colors"
-          >
-            <X className="h-3 w-3" />
-          </button>
-        </div>
-      )}
-
       <MessageInput
         recipientName={(displayConversation ?? conversation).recipientName}
         onSend={(content, replyTo) => {
           sendMessage(conversation.id, content, replyTo)
           setReplyTarget(null)
         }}
-        onSendFile={(filePath) => sendFileMessage(conversation.id, filePath)}
+        onSendFile={(filePath) => {
+          sendFileMessage(conversation.id, filePath)
+          setReplyTarget(null)
+        }}
         onTypingStart={handleTypingStart}
         onTypingStop={handleTypingStop}
         replyTo={replyTarget ? { messageId: replyTarget.id, senderName: replyTarget.senderName, content: replyTarget.content } : undefined}
+        onCancelReply={() => setReplyTarget(null)}
       />
       </div>
 

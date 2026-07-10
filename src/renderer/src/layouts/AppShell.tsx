@@ -22,14 +22,14 @@ function AppShell(): JSX.Element {
   const animationsEnabled = useSettingsStore((s) => s.appearance.animationsEnabled)
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-mesh-bg-primary overflow-hidden">
+    <div className="mesh-app-shell flex h-screen w-screen flex-col overflow-hidden bg-mesh-bg-primary">
       {/* Title Bar */}
       <TitleBar />
 
       {/* Main Body */}
       <div className="flex flex-1 min-h-0">
         {/* Left section — activity bar + sidebar + bottom panels */}
-        <div className="flex flex-col shrink-0 border-r border-mesh-border/50">
+        <div className="mesh-left-dock flex shrink-0 flex-col border-r border-mesh-border/50">
           {/* Top: Activity bar + Side panel side by side */}
           <div className="flex flex-1 min-h-0">
             <ActivityBar />
@@ -46,7 +46,7 @@ function AppShell(): JSX.Element {
         </div>
 
         {/* Main Content Area — subtle fade+rise on navigation */}
-        <main className="flex-1 min-w-0 bg-mesh-bg-primary">
+        <main className="mesh-main-stage min-w-0 flex-1 bg-mesh-bg-primary">
           <ErrorBoundary key={location.pathname}>
             {animationsEnabled ? (
               <motion.div

@@ -1073,7 +1073,7 @@ io.on('connection', (socket) => {
 
   socket.on('server:message', (payload: {
     serverId: string
-    message: { id: string; senderId: string; senderName: string; content: string; timestamp: number; channelId?: string | null }
+    message: { id: string; senderId: string; senderName: string; content: string; timestamp: number; channelId?: string | null; replyTo?: { messageId: string; senderName: string; content: string } | null }
   }) => {
     const entry = servers.get(payload.serverId)
     if (!entry) return

@@ -11,6 +11,12 @@ export interface FileAttachment {
 /** Map of emoji-mart native emoji string → list of userIds who reacted with it. */
 export type ReactionMap = Record<string, string[]>
 
+export interface MessageReply {
+  messageId: string
+  senderName: string
+  content: string
+}
+
 export interface Message {
   id: string
   conversationId: string
@@ -23,7 +29,7 @@ export interface Message {
   editedAt?: number | null
   isDeleted?: boolean
   reactions?: ReactionMap
-  replyTo?: { messageId: string; senderName: string; content: string } | null
+  replyTo?: MessageReply | null
   /** For server messages: which channel this message belongs to. Null/undefined for DMs. */
   channelId?: string | null
 }

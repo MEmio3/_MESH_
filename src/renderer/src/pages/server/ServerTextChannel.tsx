@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Hash, Users, Search, Bell } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useServersStore } from '@/stores/servers.store'
@@ -10,6 +10,7 @@ import { Tooltip } from '@/components/ui/Tooltip'
 import { useServerLayout } from '@/stores/channels.store'
 import { PERM, effectivePermissions, hasPerm, resolveChannelPerm, type ChannelPermKey } from '../../../../shared/permissions'
 import type { Server } from '@/types/server'
+import type { Message } from '@/types/messages'
 
 interface ServerTextChannelProps {
   server: Server
@@ -33,6 +34,8 @@ interface ServerTextChannelProps {
 function ServerTextChannel({ server, channelName, channelId, isDefaultChannel }: ServerTextChannelProps): JSX.Element {
   const displayName = channelName || server.textChannelName
   const [showMembers, setShowMembers] = useState(true)
+  const [replyTarget, setReplyTarget] = useState<Message | null>(null)
+  useEffect(() => setReplyTarget(null), [server.id, channelId])
   const allMessages = useServersStore((s) => s.serverMessages[server.id] || [])
   // Filter to this channel. Legacy messages (channelId === null) only show in
   // the default channel so nothing silently vanishes after the migration.
@@ -127,6 +130,7 @@ function ServerTextChannel({ server, channelName, channelId, isDefaultChannel }:
           onEditMessage={(messageId, newContent) => editServerMessage(server.id, messageId, newContent)}
           onDeleteMessage={(messageId) => deleteServerMessage(server.id, messageId)}
           onToggleReaction={(messageId, emojiId) => toggleServerReaction(server.id, messageId, emojiId)}
+          onReply={setReplyTarget}
           canDeleteMessage={(msg) => msg.senderId === selfId || isModerator}
         />
 
@@ -136,8 +140,16 @@ function ServerTextChannel({ server, channelName, channelId, isDefaultChannel }:
         {canSend ? (
           <MessageInput
             recipientName={displayName}
-            onSend={(content) => sendMessage(server.id, content, channelId ?? null)}
-            onSendFile={canAttach ? (filePath) => sendFileMessage(server.id, filePath, channelId ?? null) : undefined}
+            onSend={(content, replyTo) => {
+              sendMessage(server.id, content, channelId ?? null, replyTo)
+              setReplyTarget(null)
+            }}
+            onSendFile={canAttach ? (filePath) => {
+              sendFileMessage(server.id, filePath, channelId ?? null)
+              setReplyTarget(null)
+            } : undefined}
+            replyTo={replyTarget ? { messageId: replyTarget.id, senderName: replyTarget.senderName, content: replyTarget.content } : undefined}
+            onCancelReply={() => setReplyTarget(null)}
           />
         ) : (
           <div className="shrink-0 px-4 pb-4 pt-1">

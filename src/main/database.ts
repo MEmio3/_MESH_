@@ -76,6 +76,9 @@ function migrateSchema(): void {
     if (!msgNames.has('edited_at')) d.exec('ALTER TABLE messages ADD COLUMN edited_at INTEGER')
     if (!msgNames.has('is_deleted')) d.exec('ALTER TABLE messages ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0')
     if (!msgNames.has('reactions')) d.exec("ALTER TABLE messages ADD COLUMN reactions TEXT NOT NULL DEFAULT '{}'")
+    if (!msgNames.has('reply_to_id')) d.exec('ALTER TABLE messages ADD COLUMN reply_to_id TEXT')
+    if (!msgNames.has('reply_to_sender_name')) d.exec('ALTER TABLE messages ADD COLUMN reply_to_sender_name TEXT')
+    if (!msgNames.has('reply_to_content')) d.exec('ALTER TABLE messages ADD COLUMN reply_to_content TEXT')
   }
 
   const convCols = d.prepare("PRAGMA table_info('conversations')").all() as { name: string }[]
@@ -99,6 +102,9 @@ function migrateSchema(): void {
     if (!smsgNames.has('is_deleted')) d.exec('ALTER TABLE server_messages ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0')
     if (!smsgNames.has('reactions')) d.exec("ALTER TABLE server_messages ADD COLUMN reactions TEXT NOT NULL DEFAULT '{}'")
     if (!smsgNames.has('channel_id')) d.exec('ALTER TABLE server_messages ADD COLUMN channel_id TEXT')
+    if (!smsgNames.has('reply_to_id')) d.exec('ALTER TABLE server_messages ADD COLUMN reply_to_id TEXT')
+    if (!smsgNames.has('reply_to_sender_name')) d.exec('ALTER TABLE server_messages ADD COLUMN reply_to_sender_name TEXT')
+    if (!smsgNames.has('reply_to_content')) d.exec('ALTER TABLE server_messages ADD COLUMN reply_to_content TEXT')
   }
 
   const srvCols = d.prepare("PRAGMA table_info('servers')").all() as { name: string }[]
@@ -579,7 +585,7 @@ export function deleteConversationWith(recipientId: string): void {
 
 // ── Messages ──
 
-const MSG_COLS = 'id, conversation_id AS conversationId, sender_id AS senderId, sender_name AS senderName, content, timestamp, status, file_id AS fileId, file_name AS fileName, file_size AS fileSize, file_type AS fileType, file_path AS filePath, edited_at AS editedAt, is_deleted AS isDeleted, reactions'
+const MSG_COLS = 'id, conversation_id AS conversationId, sender_id AS senderId, sender_name AS senderName, content, timestamp, status, file_id AS fileId, file_name AS fileName, file_size AS fileSize, file_type AS fileType, file_path AS filePath, edited_at AS editedAt, is_deleted AS isDeleted, reactions, reply_to_id AS replyToId, reply_to_sender_name AS replyToSenderName, reply_to_content AS replyToContent'
 
 export function getMessages(conversationId: string, limit = 50, before?: number): MessageRow[] {
   if (before) {
@@ -589,7 +595,7 @@ export function getMessages(conversationId: string, limit = 50, before?: number)
 }
 
 export function insertMessage(msg: MessageRow): void {
-  getDb().prepare('INSERT OR REPLACE INTO messages (id, conversation_id, sender_id, sender_name, content, timestamp, status, file_id, file_name, file_size, file_type, file_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(msg.id, msg.conversationId, msg.senderId, msg.senderName, msg.content, msg.timestamp, msg.status, msg.fileId, msg.fileName, msg.fileSize, msg.fileType, msg.filePath)
+  getDb().prepare('INSERT OR REPLACE INTO messages (id, conversation_id, sender_id, sender_name, content, timestamp, status, file_id, file_name, file_size, file_type, file_path, reply_to_id, reply_to_sender_name, reply_to_content) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(msg.id, msg.conversationId, msg.senderId, msg.senderName, msg.content, msg.timestamp, msg.status, msg.fileId, msg.fileName, msg.fileSize, msg.fileType, msg.filePath, msg.replyToId ?? null, msg.replyToSenderName ?? null, msg.replyToContent ?? null)
 }
 
 export function updateMessageStatus(id: string, status: string): void {
@@ -889,7 +895,7 @@ export function updateServerMemberStatus(serverId: string, userId: string, statu
 
 // ── Server Messages ──
 
-const SMSG_COLS = 'id, server_id AS serverId, sender_id AS senderId, sender_name AS senderName, content, timestamp, status, file_id AS fileId, file_name AS fileName, file_size AS fileSize, file_type AS fileType, file_path AS filePath, edited_at AS editedAt, is_deleted AS isDeleted, reactions, channel_id AS channelId'
+const SMSG_COLS = 'id, server_id AS serverId, sender_id AS senderId, sender_name AS senderName, content, timestamp, status, file_id AS fileId, file_name AS fileName, file_size AS fileSize, file_type AS fileType, file_path AS filePath, edited_at AS editedAt, is_deleted AS isDeleted, reactions, channel_id AS channelId, reply_to_id AS replyToId, reply_to_sender_name AS replyToSenderName, reply_to_content AS replyToContent'
 
 export function getServerMessages(serverId: string, limit = 50, before?: number): ServerMessageRow[] {
   if (before) {
@@ -899,7 +905,7 @@ export function getServerMessages(serverId: string, limit = 50, before?: number)
 }
 
 export function insertServerMessage(msg: ServerMessageRow): void {
-  getDb().prepare('INSERT OR REPLACE INTO server_messages (id, server_id, sender_id, sender_name, content, timestamp, status, file_id, file_name, file_size, file_type, file_path, channel_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(msg.id, msg.serverId, msg.senderId, msg.senderName, msg.content, msg.timestamp, msg.status, msg.fileId, msg.fileName, msg.fileSize, msg.fileType, msg.filePath, msg.channelId ?? null)
+  getDb().prepare('INSERT OR REPLACE INTO server_messages (id, server_id, sender_id, sender_name, content, timestamp, status, file_id, file_name, file_size, file_type, file_path, channel_id, reply_to_id, reply_to_sender_name, reply_to_content) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(msg.id, msg.serverId, msg.senderId, msg.senderName, msg.content, msg.timestamp, msg.status, msg.fileId, msg.fileName, msg.fileSize, msg.fileType, msg.filePath, msg.channelId ?? null, msg.replyToId ?? null, msg.replyToSenderName ?? null, msg.replyToContent ?? null)
 }
 
 export function getServerMessagesByChannel(serverId: string, channelId: string, limit = 50, before?: number): ServerMessageRow[] {

@@ -15,6 +15,8 @@ const api = {
       ipcRenderer.removeListener('window:maximized-change', handler)
     }
   },
+  editCommand: (command: 'undo' | 'redo' | 'cut' | 'copy' | 'paste' | 'selectAll'): void =>
+    ipcRenderer.send('edit:command', command),
 
   // Identity
   identityExists: (): Promise<boolean> => ipcRenderer.invoke('identity:exists'),
@@ -365,9 +367,9 @@ const api = {
       ipcRenderer.invoke('server:leave', payload),
     removeLocal: (serverId: string): Promise<{ success: boolean }> =>
       ipcRenderer.invoke('server:remove-local', { serverId }),
-    sendMessage: (payload: { serverId: string; senderId: string; senderName: string; content: string; channelId?: string | null; file?: { fileId: string; fileName: string; fileSize: number; fileType: string; base64: string; filePath?: string | null } | null }): Promise<{ success: boolean; error?: string; messageId?: string }> =>
+    sendMessage: (payload: { serverId: string; senderId: string; senderName: string; content: string; channelId?: string | null; replyTo?: { messageId: string; senderName: string; content: string } | null; file?: { fileId: string; fileName: string; fileSize: number; fileType: string; base64: string; filePath?: string | null } | null }): Promise<{ success: boolean; error?: string; messageId?: string }> =>
       ipcRenderer.invoke('server:send-message', payload),
-    messageRemote: (payload: { serverId: string; message: { id: string; senderId: string; senderName: string; content: string; timestamp: number; channelId?: string | null; file?: { fileId: string; fileName: string; fileSize: number; fileType: string; filePath?: string | null } | null } }): Promise<{ success: boolean }> =>
+    messageRemote: (payload: { serverId: string; message: { id: string; senderId: string; senderName: string; content: string; timestamp: number; channelId?: string | null; replyTo?: { messageId: string; senderName: string; content: string } | null; file?: { fileId: string; fileName: string; fileSize: number; fileType: string; filePath?: string | null } | null } }): Promise<{ success: boolean }> =>
       ipcRenderer.invoke('server:message-remote', payload),
     mute: (payload: { serverId: string; actorId: string; targetId: string; mute: boolean }): Promise<{ success: boolean }> =>
       ipcRenderer.invoke('server:mute', payload),
@@ -553,6 +555,8 @@ const api = {
     pick: (): Promise<string | null> => ipcRenderer.invoke('file:pick'),
     read: (filePath: string): Promise<{ base64: string; fileName: string; fileSize: number; fileType: string } | null> =>
       ipcRenderer.invoke('file:read', filePath),
+    saveClipboard: (payload: { fileName: string; fileType: string; base64: string }): Promise<{ success: boolean; filePath?: string; error?: string }> =>
+      ipcRenderer.invoke('file:save-clipboard', payload),
     saveReceived: (payload: { fileId: string; fileName: string; base64: string }): Promise<{ filePath: string }> =>
       ipcRenderer.invoke('file:save-received', payload),
     readBase64: (filePath: string): Promise<string | null> =>

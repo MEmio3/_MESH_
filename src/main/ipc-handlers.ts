@@ -95,6 +95,18 @@ export function registerWindowHandlers(mainWindow: BrowserWindow): void {
     return mainWindow.isMaximized()
   })
 
+  ipcMain.on('edit:command', (_event, command: string) => {
+    const contents = mainWindow.webContents
+    switch (command) {
+      case 'undo': contents.undo(); break
+      case 'redo': contents.redo(); break
+      case 'cut': contents.cut(); break
+      case 'copy': contents.copy(); break
+      case 'paste': contents.paste(); break
+      case 'selectAll': contents.selectAll(); break
+    }
+  })
+
   mainWindow.on('maximize', () => {
     mainWindow.webContents.send('window:maximized-change', true)
   })
@@ -1189,6 +1201,7 @@ export function registerServerHandlers(): void {
     senderName: string
     content: string
     channelId?: string | null
+    replyTo?: { messageId: string; senderName: string; content: string } | null
     file?: { fileId: string; fileName: string; fileSize: number; fileType: string; base64: string; filePath?: string | null } | null
   }) => {
     // Permission gates. With a channel context the channel-override resolver
@@ -1250,7 +1263,10 @@ export function registerServerHandlers(): void {
       filePath: payload.file?.filePath ?? null,
       editedAt: null,
       isDeleted: 0,
-      reactions: '{}'
+      reactions: '{}',
+      replyToId: payload.replyTo?.messageId ?? null,
+      replyToSenderName: payload.replyTo?.senderName ?? null,
+      replyToContent: payload.replyTo?.content ?? null
     })
     socketClient.emitSignaling('server:message', {
       serverId: payload.serverId,
@@ -1261,6 +1277,7 @@ export function registerServerHandlers(): void {
         content: payload.content,
         timestamp,
         channelId: payload.channelId ?? null,
+        replyTo: payload.replyTo ?? null,
         file: payload.file
           ? {
               fileId: payload.file.fileId,
@@ -1282,6 +1299,7 @@ export function registerServerHandlers(): void {
     serverId: string
     message: {
       id: string; senderId: string; senderName: string; content: string; timestamp: number; channelId?: string | null
+      replyTo?: { messageId: string; senderName: string; content: string } | null
       file?: { fileId: string; fileName: string; fileSize: number; fileType: string; filePath?: string | null } | null
     }
   }) => {
@@ -1301,7 +1319,10 @@ export function registerServerHandlers(): void {
       filePath: payload.message.file?.filePath ?? null,
       editedAt: null,
       isDeleted: 0,
-      reactions: '{}'
+      reactions: '{}',
+      replyToId: payload.message.replyTo?.messageId ?? null,
+      replyToSenderName: payload.message.replyTo?.senderName ?? null,
+      replyToContent: payload.message.replyTo?.content ?? null
     })
     return { success: true }
   })
@@ -1924,6 +1945,20 @@ export function registerFileHandlers(): void {
       fileName: result.fileName,
       fileSize: result.fileSize,
       fileType: result.fileType
+    }
+  })
+
+  ipcMain.handle('file:save-clipboard', async (_e, payload: {
+    fileName: string
+    fileType: string
+    base64: string
+  }) => {
+    try {
+      const buffer = Buffer.from(payload.base64, 'base64')
+      const filePath = fileManager.saveClipboardFile(payload.fileName, payload.fileType, buffer)
+      return { success: true, filePath }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Could not stage clipboard file.' }
     }
   })
 

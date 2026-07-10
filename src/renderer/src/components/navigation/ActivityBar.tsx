@@ -13,7 +13,7 @@ function ActivityBar(): JSX.Element {
   const isHome = location.pathname.startsWith('/channels/@me')
 
   return (
-    <div className="flex flex-col items-center w-[60px] shrink-0 h-full bg-mesh-bg-primary py-2.5 border-r border-mesh-border/60">
+    <div className="mesh-activity-rail flex h-full w-[60px] shrink-0 flex-col items-center border-r border-mesh-border/60 bg-mesh-bg-primary py-2.5">
       {/* Home Button */}
       <ActivityBarItem
         tooltip="Home"
@@ -63,6 +63,8 @@ function ActivityBarItem({ tooltip, isActive, onClick, hasNotification, children
 
         <div className="relative">
           <button
+            type="button"
+            aria-label={tooltip}
             onClick={onClick}
             className={cn(
               'mesh-pressable mesh-hover-lift flex items-center justify-center h-10 w-10 rounded-lg transition-colors duration-150 overflow-hidden',

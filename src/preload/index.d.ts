@@ -114,7 +114,7 @@ interface DbConversationsAPI {
 }
 
 interface DbMessagesAPI {
-  list: (args: { conversationId: string; limit?: number; before?: number }) => Promise<{ id: string; conversationId: string; senderId: string; senderName: string; content: string; timestamp: number; status: string; fileId?: string | null; fileName?: string | null; fileSize?: number | null; fileType?: string | null; filePath?: string | null; editedAt?: number | null; isDeleted?: number }[]>
+  list: (args: { conversationId: string; limit?: number; before?: number }) => Promise<{ id: string; conversationId: string; senderId: string; senderName: string; content: string; timestamp: number; status: string; fileId?: string | null; fileName?: string | null; fileSize?: number | null; fileType?: string | null; filePath?: string | null; editedAt?: number | null; isDeleted?: number; replyToId?: string | null; replyToSenderName?: string | null; replyToContent?: string | null }[]>
   send: (msg: unknown) => Promise<void>
   updateStatus: (id: string, status: string) => Promise<void>
   edit: (id: string, content: string, editedAt: number) => Promise<void>
@@ -134,7 +134,7 @@ interface DbServerMembersAPI {
 }
 
 interface DbServerMessagesAPI {
-  list: (args: { serverId: string; limit?: number; before?: number }) => Promise<{ id: string; serverId: string; senderId: string; senderName: string; content: string; timestamp: number; status: string; fileId?: string | null; fileName?: string | null; fileSize?: number | null; fileType?: string | null; filePath?: string | null; editedAt?: number | null; isDeleted?: number; reactions?: string; channelId?: string | null }[]>
+  list: (args: { serverId: string; limit?: number; before?: number }) => Promise<{ id: string; serverId: string; senderId: string; senderName: string; content: string; timestamp: number; status: string; fileId?: string | null; fileName?: string | null; fileSize?: number | null; fileType?: string | null; filePath?: string | null; editedAt?: number | null; isDeleted?: number; reactions?: string; channelId?: string | null; replyToId?: string | null; replyToSenderName?: string | null; replyToContent?: string | null }[]>
   send: (msg: unknown) => Promise<void>
   edit: (id: string, content: string, editedAt: number) => Promise<void>
   delete: (id: string) => Promise<void>
@@ -256,8 +256,8 @@ interface ServerAPI {
   memberJoinedPersist: (p: unknown) => Promise<{ success: boolean }>
   leave: (p: { serverId: string; userId: string; destroy?: boolean }) => Promise<{ success: boolean }>
   removeLocal: (serverId: string) => Promise<{ success: boolean }>
-  sendMessage: (p: { serverId: string; senderId: string; senderName: string; content: string; channelId?: string | null; file?: { fileId: string; fileName: string; fileSize: number; fileType: string; base64: string; filePath?: string | null } | null }) => Promise<{ success: boolean; error?: string; messageId?: string }>
-  messageRemote: (p: { serverId: string; message: { id: string; senderId: string; senderName: string; content: string; timestamp: number; channelId?: string | null; file?: { fileId: string; fileName: string; fileSize: number; fileType: string; filePath?: string | null } | null } }) => Promise<{ success: boolean }>
+  sendMessage: (p: { serverId: string; senderId: string; senderName: string; content: string; channelId?: string | null; replyTo?: { messageId: string; senderName: string; content: string } | null; file?: { fileId: string; fileName: string; fileSize: number; fileType: string; base64: string; filePath?: string | null } | null }) => Promise<{ success: boolean; error?: string; messageId?: string }>
+  messageRemote: (p: { serverId: string; message: { id: string; senderId: string; senderName: string; content: string; timestamp: number; channelId?: string | null; replyTo?: { messageId: string; senderName: string; content: string } | null; file?: { fileId: string; fileName: string; fileSize: number; fileType: string; filePath?: string | null } | null } }) => Promise<{ success: boolean }>
   mute: (p: { serverId: string; actorId: string; targetId: string; mute: boolean }) => Promise<{ success: boolean }>
   kick: (p: { serverId: string; actorId: string; targetId: string }) => Promise<{ success: boolean }>
   ban: (p: { serverId: string; actorId: string; targetId: string }) => Promise<{ success: boolean }>
@@ -342,6 +342,7 @@ interface NotificationsAPI {
 interface FileAPI {
   pick: () => Promise<string | null>
   read: (filePath: string) => Promise<{ base64: string; fileName: string; fileSize: number; fileType: string } | null>
+  saveClipboard: (p: { fileName: string; fileType: string; base64: string }) => Promise<{ success: boolean; filePath?: string; error?: string }>
   saveReceived: (p: { fileId: string; fileName: string; base64: string }) => Promise<{ filePath: string }>
   readBase64: (filePath: string) => Promise<string | null>
   exists: (filePath: string) => Promise<boolean>
@@ -422,6 +423,7 @@ interface MeshAPI {
   close: () => void
   isMaximized: () => Promise<boolean>
   onMaximizedChange: (callback: (maximized: boolean) => void) => () => void
+  editCommand: (command: 'undo' | 'redo' | 'cut' | 'copy' | 'paste' | 'selectAll') => void
 
   // Identity
   identityExists: () => Promise<boolean>

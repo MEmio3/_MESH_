@@ -12,10 +12,10 @@ function TitleBar(): JSX.Element {
   }, [])
 
   return (
-    <div className="relative flex items-center h-8 bg-mesh-bg-primary select-none app-drag">
+    <div className="mesh-titlebar app-drag relative flex h-8 select-none items-center bg-mesh-bg-primary">
       {/* Center aligned title */}
       <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center pointer-events-none">
-        <span className="text-xs font-medium tracking-wide text-mesh-text-muted uppercase">
+        <span className="mesh-title-mark text-xs font-medium uppercase text-mesh-text-muted">
           MESH
         </span>
       </div>
@@ -52,8 +52,9 @@ function TitleBarButton({
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'default' | 'close' }): JSX.Element {
   return (
     <button
+      type="button"
       className={cn(
-        'inline-flex items-center justify-center h-8 w-11 transition-colors duration-100',
+        'mesh-titlebar-button inline-flex h-8 w-11 items-center justify-center transition-colors duration-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-mesh-green/60',
         variant === 'close'
           ? 'hover:bg-red-500 text-mesh-text-secondary hover:text-white'
           : 'hover:bg-mesh-bg-tertiary text-mesh-text-secondary hover:text-mesh-text-primary',

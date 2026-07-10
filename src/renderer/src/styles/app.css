@@ -41,6 +41,9 @@
   --mesh-theme-surface-gradient: linear-gradient(135deg, rgba(47, 158, 110, 0.05), transparent 38%, rgba(122, 162, 247, 0.035));
   --mesh-theme-accent-gradient: linear-gradient(120deg, #2f9e6e, #7aa2f7, #3cb27e, #2f9e6e);
   --mesh-theme-glint: rgba(255, 255, 255, 0.14);
+  --mesh-depth-shadow: rgba(0, 0, 0, 0.58);
+  --mesh-depth-shadow-soft: rgba(0, 0, 0, 0.28);
+  --mesh-surface-highlight: rgba(255, 255, 255, 0.045);
 
   /* Typography — Segoe UI Variable renders noticeably crisper on Win11 */
   --font-sans: 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
@@ -157,6 +160,9 @@
   --mesh-theme-surface-gradient: linear-gradient(135deg, rgba(180, 99, 122, 0.08), transparent 38%, rgba(86, 148, 159, 0.06));
   --mesh-theme-accent-gradient: linear-gradient(120deg, #b4637a, #ea9d34, #907aa9, #b4637a);
   --mesh-theme-glint: rgba(255, 255, 255, 0.45);
+  --mesh-depth-shadow: rgba(70, 66, 97, 0.18);
+  --mesh-depth-shadow-soft: rgba(70, 66, 97, 0.1);
+  --mesh-surface-highlight: rgba(255, 255, 255, 0.72);
 }
 
 [data-theme='midnight'] {
@@ -648,7 +654,7 @@ html, body {
   background-color: var(--color-mesh-bg-primary);
   color: var(--color-mesh-text-primary);
   font-size: 14px;
-  letter-spacing: 0.01em;
+  letter-spacing: 0;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -656,6 +662,116 @@ html, body {
 #root {
   height: 100%;
   width: 100%;
+}
+
+/* App depth system. These classes shape the existing work surfaces without
+   adding decorative layers that compete with chat, voice, or navigation. */
+.mesh-app-shell {
+  isolation: isolate;
+  box-shadow: inset 0 1px 0 var(--mesh-surface-highlight);
+}
+
+.mesh-titlebar {
+  z-index: 60;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-mesh-border) 78%, transparent);
+  background-image: linear-gradient(180deg, var(--mesh-surface-highlight), transparent 74%);
+  box-shadow:
+    0 7px 24px -20px var(--mesh-depth-shadow),
+    inset 0 -1px 0 color-mix(in srgb, var(--color-mesh-bg-primary) 75%, transparent);
+}
+
+.mesh-title-mark {
+  text-shadow: 0 1px 12px color-mix(in srgb, var(--color-mesh-green) 20%, transparent);
+}
+
+.mesh-titlebar-button {
+  border-left: 1px solid transparent;
+}
+
+.mesh-titlebar-button:hover {
+  border-left-color: color-mix(in srgb, var(--color-mesh-border-light) 42%, transparent);
+}
+
+.mesh-left-dock {
+  position: relative;
+  z-index: 20;
+  box-shadow:
+    14px 0 38px -34px var(--mesh-depth-shadow),
+    inset -1px 0 0 color-mix(in srgb, var(--mesh-surface-highlight) 50%, transparent);
+}
+
+.mesh-activity-rail {
+  background-image: linear-gradient(90deg, color-mix(in srgb, var(--color-mesh-bg-primary) 96%, var(--color-mesh-green) 4%), var(--color-mesh-bg-primary));
+  box-shadow:
+    inset -1px 0 0 color-mix(in srgb, var(--mesh-surface-highlight) 42%, transparent),
+    inset 0 1px 0 var(--mesh-surface-highlight);
+}
+
+.mesh-side-panel {
+  position: relative;
+  box-shadow:
+    inset -1px 0 0 color-mix(in srgb, var(--color-mesh-border-light) 24%, transparent),
+    inset 1px 0 0 color-mix(in srgb, var(--mesh-surface-highlight) 38%, transparent);
+}
+
+.mesh-main-stage {
+  position: relative;
+  isolation: isolate;
+}
+
+.mesh-main-stage::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 30;
+  height: 48px;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--color-mesh-green) 22%, transparent), transparent 34%) top / 100% 1px no-repeat,
+    linear-gradient(180deg, var(--mesh-surface-highlight), transparent 80%);
+  opacity: 0.52;
+}
+
+.mesh-input-field:hover:not(:focus):not(:disabled) {
+  border-color: var(--color-mesh-border-light);
+  background-color: color-mix(in srgb, var(--color-mesh-bg-secondary) 82%, var(--color-mesh-bg-tertiary));
+}
+
+.mesh-input-field:focus {
+  box-shadow:
+    inset 0 1px 2px var(--mesh-depth-shadow-soft),
+    0 0 0 1px color-mix(in srgb, var(--color-mesh-green) 30%, transparent),
+    0 8px 24px -18px color-mix(in srgb, var(--color-mesh-green) 72%, transparent);
+}
+
+.mesh-control-button:not(:disabled):hover {
+  box-shadow:
+    inset 0 1px 0 var(--mesh-surface-highlight),
+    0 8px 24px -18px var(--mesh-depth-shadow);
+}
+
+.mesh-modal-surface,
+.mesh-floating-surface {
+  background-image: linear-gradient(160deg, var(--mesh-surface-highlight), transparent 32%);
+  box-shadow:
+    0 28px 80px -22px var(--mesh-depth-shadow),
+    0 8px 28px -18px var(--mesh-depth-shadow-soft),
+    inset 0 1px 0 var(--mesh-surface-highlight);
+}
+
+.mesh-modal-header {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-mesh-bg-elevated) 68%, transparent), transparent);
+}
+
+.mesh-context-menu-item > span {
+  color: var(--color-mesh-text-muted);
+  transition: color var(--mesh-motion-fast) ease, transform var(--mesh-motion-fast) ease;
+}
+
+.mesh-context-menu-item:hover > span,
+.mesh-context-menu-item:focus-visible > span {
+  color: currentColor;
+  transform: translateX(1px);
 }
 
 /* Scrollbar — thin, hairline, invisible until needed */
@@ -669,18 +785,20 @@ html, body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: #26262c;
+  border: 1px solid transparent;
   border-radius: 3px;
+  background-color: color-mix(in srgb, var(--color-mesh-text-muted) 44%, transparent);
+  background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background-color: #34343c;
+  background-color: color-mix(in srgb, var(--color-mesh-text-secondary) 56%, transparent);
 }
 
 /* Selection color follows the active theme's accent */
 ::selection {
   background-color: color-mix(in srgb, var(--color-mesh-green) 30%, transparent);
-  color: #ffffff;
+  color: var(--color-mesh-text-primary);
 }
 
 /* Electron titlebar drag region */

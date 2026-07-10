@@ -18,7 +18,7 @@ function SidePanel(): JSX.Element {
   const serverId = serverMatch?.[1] || null
 
   return (
-    <div className="flex flex-col h-full w-60 bg-mesh-bg-secondary">
+    <div className="mesh-side-panel flex h-full w-60 flex-col bg-mesh-bg-secondary">
       {/* Panel Content */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden">
         {isSettings ? (

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { Server, ServerMember, ServerRoleDef } from '@/types/server'
-import type { Message, FileAttachment } from '@/types/messages'
+import type { Message, FileAttachment, MessageReply } from '@/types/messages'
 import { useIdentityStore } from './identity.store'
 import { useAvatarStore } from './avatar.store'
 import { useServerAvatarStore } from './serverAvatar.store'
@@ -48,7 +48,7 @@ interface ServersStore {
   }) => Promise<{ success: boolean; error?: string; serverId?: string }>
   joinServer: (serverId: string, passwordHash?: string | null) => Promise<{ success: boolean; error?: string }>
   leaveServer: (serverId: string, destroy?: boolean) => Promise<void>
-  sendServerMessage: (serverId: string, content: string, channelId?: string | null) => Promise<void>
+  sendServerMessage: (serverId: string, content: string, channelId?: string | null, replyTo?: MessageReply) => Promise<void>
   sendServerFileMessage: (serverId: string, filePath: string, channelId?: string | null) => Promise<void>
   muteMember: (serverId: string, targetId: string, mute: boolean) => Promise<void>
   kickMember: (serverId: string, targetId: string) => Promise<void>
@@ -204,7 +204,16 @@ export const useServersStore = create<ServersStore>((set, get) => ({
       serverMessages[srv.id] = msgRows.reverse().map((m) => {
         // Row → Message: server rows have no conversationId (serverId plays
         // that role downstream), hence the unknown hop.
-        const msg = m as unknown as Message & { fileId?: string | null; fileName?: string | null; fileSize?: number | null; fileType?: string | null; filePath?: string | null }
+        const msg = m as unknown as Message & {
+          fileId?: string | null
+          fileName?: string | null
+          fileSize?: number | null
+          fileType?: string | null
+          filePath?: string | null
+          replyToId?: string | null
+          replyToSenderName?: string | null
+          replyToContent?: string | null
+        }
         if (msg.fileId) {
           msg.file = {
             fileId: msg.fileId,
@@ -214,6 +223,13 @@ export const useServersStore = create<ServersStore>((set, get) => ({
             filePath: msg.filePath
           }
         }
+        msg.replyTo = msg.replyToId
+          ? {
+              messageId: msg.replyToId,
+              senderName: msg.replyToSenderName || 'Unknown user',
+              content: msg.replyToContent || ''
+            }
+          : null
         msg.reactions = normalizeReactions(msg.reactions)
         return msg as Message
       })
@@ -284,7 +300,7 @@ export const useServersStore = create<ServersStore>((set, get) => ({
     })
   },
 
-  sendServerMessage: async (serverId, content, channelId) => {
+  sendServerMessage: async (serverId, content, channelId, replyTo) => {
     const identity = useIdentityStore.getState().identity
     if (!identity) return
     const res = await window.api.server.sendMessage({
@@ -292,7 +308,8 @@ export const useServersStore = create<ServersStore>((set, get) => ({
       senderId: identity.userId,
       senderName: identity.username,
       content,
-      channelId: channelId ?? null
+      channelId: channelId ?? null,
+      replyTo: replyTo ?? null
     })
     if (res.success && res.messageId) {
       const msg: Message = {
@@ -303,7 +320,8 @@ export const useServersStore = create<ServersStore>((set, get) => ({
         content,
         timestamp: Date.now(),
         status: 'sent',
-        channelId: channelId ?? null
+        channelId: channelId ?? null,
+        replyTo: replyTo ?? null
       }
       set((s) => {
         const existing = s.serverMessages[serverId] || []
@@ -831,6 +849,7 @@ export const useServersStore = create<ServersStore>((set, get) => ({
         serverId: string
         message: {
           id: string; senderId: string; senderName: string; content: string; timestamp: number; channelId?: string | null
+          replyTo?: MessageReply | null
           file?: { fileId: string; fileName: string; fileSize: number; fileType: string; base64?: string } | null
         }
       }
@@ -880,6 +899,7 @@ export const useServersStore = create<ServersStore>((set, get) => ({
           timestamp: p.message.timestamp,
           status: 'delivered',
           channelId: p.message.channelId ?? null,
+          replyTo: p.message.replyTo ?? null,
           file: file ?? null
         }
         appended = true
