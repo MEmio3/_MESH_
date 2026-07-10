@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { SendHorizontal, Paperclip, X, FileIcon } from 'lucide-react'
 
 interface PendingFile {
@@ -58,6 +58,26 @@ function MessageInput({ recipientName, onSend, onSendFile, onTypingStart, onTypi
     lastTypingEmit.current = 0
     onTypingStop()
   }, [onTypingStop])
+
+  useEffect(() => {
+    const handleInsertMention = (event: Event): void => {
+      const detail = (event as CustomEvent<{ text?: string }>).detail
+      const mention = detail?.text?.trim()
+      if (!mention) return
+      setValue((current) => {
+        const spacer = current.length > 0 && !/\s$/.test(current) ? ' ' : ''
+        return `${current}${spacer}${mention} `
+      })
+      requestAnimationFrame(() => {
+        adjustHeight()
+        textareaRef.current?.focus()
+      })
+      emitTypingStart()
+    }
+
+    window.addEventListener('mesh:insert-mention', handleInsertMention)
+    return () => window.removeEventListener('mesh:insert-mention', handleInsertMention)
+  }, [adjustHeight, emitTypingStart])
 
   const handleSend = (): void => {
     if (pendingFile && onSendFile) {

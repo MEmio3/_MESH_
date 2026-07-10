@@ -29,13 +29,13 @@ function VoiceAudioEngine(): JSX.Element | null {
   return (
     <div className="hidden">
       {entries.map(([userId, stream]) => (
-        <EnginePlayer key={userId} stream={stream} muted={isDeafened} />
+        <EnginePlayer key={userId} userId={userId} stream={stream} muted={isDeafened} />
       ))}
     </div>
   )
 }
 
-function EnginePlayer({ stream, muted }: { stream: MediaStream; muted: boolean }): JSX.Element {
+function EnginePlayer({ userId, stream, muted }: { userId: string; stream: MediaStream; muted: boolean }): JSX.Element {
   const ref = useRef<HTMLAudioElement>(null)
 
   useEffect(() => {
@@ -46,7 +46,7 @@ function EnginePlayer({ stream, muted }: { stream: MediaStream; muted: boolean }
   }, [stream])
 
   // Honor the global speaker device + output volume.
-  useEffect(() => registerAudioSink(ref.current), [stream])
+  useEffect(() => registerAudioSink(ref.current, userId), [stream, userId])
 
   useEffect(() => {
     if (ref.current) ref.current.muted = muted

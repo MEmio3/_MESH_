@@ -21,6 +21,7 @@ const LS_INPUT = 'mesh.audio.input'
 const LS_OUTPUT = 'mesh.audio.output'
 const LS_IN_VOL = 'mesh.audio.inputVolume'
 const LS_OUT_VOL = 'mesh.audio.outputVolume'
+const LS_USER_VOLUMES = 'mesh.audio.userVolumes'
 
 function readLS(key: string, fallback: string | null = null): string | null {
   try { return localStorage.getItem(key) ?? fallback } catch { return fallback }
@@ -37,17 +38,35 @@ function readNum(key: string, fallback: number): number {
   const n = Number(raw)
   return Number.isFinite(n) ? n : fallback
 }
+function readUserVolumes(): Record<string, number> {
+  const raw = readLS(LS_USER_VOLUMES)
+  if (!raw) return {}
+  try {
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    const next: Record<string, number> = {}
+    for (const [userId, value] of Object.entries(parsed)) {
+      const numeric = Number(value)
+      if (Number.isFinite(numeric)) next[userId] = Math.max(0, Math.min(200, Math.round(numeric)))
+    }
+    return next
+  } catch {
+    return {}
+  }
+}
 
 interface AudioPrefsState {
   inputDeviceId: string | null   // microphone
   outputDeviceId: string | null  // speaker / headphones
   inputVolume: number            // 0..100
   outputVolume: number           // 0..100
+  userVolumes: Record<string, number> // per remote user, 0..200
 
   setInputDevice: (deviceId: string | null) => Promise<void>
   setOutputDevice: (deviceId: string | null) => void
   setInputVolume: (value: number) => void
   setOutputVolume: (value: number) => void
+  setUserVolume: (userId: string, value: number) => void
 }
 
 export const useAudioPrefsStore = create<AudioPrefsState>((set, get) => ({
@@ -55,6 +74,7 @@ export const useAudioPrefsStore = create<AudioPrefsState>((set, get) => ({
   outputDeviceId: readLS(LS_OUTPUT),
   inputVolume: readNum(LS_IN_VOL, 100),
   outputVolume: readNum(LS_OUT_VOL, 100),
+  userVolumes: readUserVolumes(),
 
   setInputDevice: async (deviceId) => {
     writeLS(LS_INPUT, deviceId)
@@ -86,7 +106,15 @@ export const useAudioPrefsStore = create<AudioPrefsState>((set, get) => ({
     const clamped = Math.max(0, Math.min(100, Math.round(value)))
     writeLS(LS_OUT_VOL, String(clamped))
     set({ outputVolume: clamped })
-    applyVolumeToAllSinks(clamped / 100)
+    applyVolumeToAllSinks()
+  },
+
+  setUserVolume: (userId, value) => {
+    const clamped = Math.max(0, Math.min(200, Math.round(value)))
+    const next = { ...get().userVolumes, [userId]: clamped }
+    writeLS(LS_USER_VOLUMES, JSON.stringify(next))
+    set({ userVolumes: next })
+    applyVolumeToAllSinks()
   }
 }))
 
@@ -98,15 +126,15 @@ export const useAudioPrefsStore = create<AudioPrefsState>((set, get) => ({
  * and volume settings are applied automatically.
  * --------------------------------------------------------- */
 type Sink = HTMLMediaElement & { setSinkId?: (id: string) => Promise<void> }
-const sinks = new Set<Sink>()
+const sinks = new Map<Sink, string | null>()
 
-export function registerAudioSink(el: HTMLMediaElement | null): () => void {
+export function registerAudioSink(el: HTMLMediaElement | null, userId: string | null = null): () => void {
   if (!el) return () => { /* no-op */ }
-  sinks.add(el as Sink)
+  sinks.set(el as Sink, userId)
   // Apply current settings immediately.
-  const { outputDeviceId, outputVolume } = useAudioPrefsStore.getState()
+  const { outputDeviceId } = useAudioPrefsStore.getState()
   applySinkDevice(el as Sink, outputDeviceId)
-  el.volume = outputVolume / 100
+  applySinkVolume(el as Sink, userId)
   return () => { sinks.delete(el as Sink) }
 }
 
@@ -119,9 +147,15 @@ function applySinkDevice(el: Sink, deviceId: string | null): void {
 }
 
 function applyOutputToAllSinks(deviceId: string | null): void {
-  sinks.forEach((el) => applySinkDevice(el, deviceId))
+  sinks.forEach((_userId, el) => applySinkDevice(el, deviceId))
 }
 
-function applyVolumeToAllSinks(vol: number): void {
-  sinks.forEach((el) => { el.volume = vol })
+function applySinkVolume(el: Sink, userId: string | null): void {
+  const { outputVolume, userVolumes } = useAudioPrefsStore.getState()
+  const userVolume = userId ? (userVolumes[userId] ?? 100) : 100
+  el.volume = Math.max(0, Math.min(1, (outputVolume / 100) * (userVolume / 100)))
+}
+
+function applyVolumeToAllSinks(): void {
+  sinks.forEach((userId, el) => applySinkVolume(el, userId))
 }

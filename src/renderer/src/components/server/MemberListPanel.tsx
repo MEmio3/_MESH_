@@ -1,10 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
-import { ChevronRight, Search, Check } from 'lucide-react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { AtSign, Ban, ChevronRight, Search, Check, Copy, MessageSquare, MicOff, Phone, Shield, UserMinus, UserRound, Volume2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
 import { useIdentityStore } from '@/stores/identity.store'
 import { useServersStore } from '@/stores/servers.store'
 import { useAvatarStore } from '@/stores/avatar.store'
+import { useCallStore } from '@/stores/call.store'
+import { useMessagesStore } from '@/stores/messages.store'
+import { useAudioPrefsStore } from '@/stores/audioPrefs.store'
 import { useLiveStatus } from '@/lib/useLiveStatus'
 import { resolveRoleNames } from '@/lib/roleNames'
 import { UserProfileCard } from '@/components/profile/UserProfileCard'
@@ -30,11 +34,14 @@ interface MenuState {
 }
 
 function MemberListPanel({ serverId, members }: MemberListPanelProps): JSX.Element {
+  const navigate = useNavigate()
   const identity = useIdentityStore((s) => s.identity)
   const muteMember = useServersStore((s) => s.muteMember)
   const kickMember = useServersStore((s) => s.kickMember)
   const banMember = useServersStore((s) => s.banMember)
   const setMemberRole = useServersStore((s) => s.setMemberRole)
+  const ensureConversation = useMessagesStore((s) => s.ensureConversationForFriend)
+  const startOutgoingCall = useCallStore((s) => s.startOutgoing)
 
   const [menu, setMenu] = useState<MenuState | null>(null)
   // "Roles ▸" submenu flyout — scales to any number of roles via search +
@@ -75,10 +82,13 @@ function MemberListPanel({ serverId, members }: MemberListPanelProps): JSX.Eleme
   const canKick = hasPerm(myPerms, PERM.kickMembers)
   const canBan = hasPerm(myPerms, PERM.banMembers)
   const canManageRoles = hasPerm(myPerms, PERM.manageRoles)
-  const canModerate = canMute || canKick || canBan || canManageRoles
   const isHost = selfRole === 'host'
   const selfAvatar = useAvatarStore((s) => s.self)
   const avatarsByUser = useAvatarStore((s) => s.byUser)
+  const userVolumes = useAudioPrefsStore((s) => s.userVolumes)
+  const setUserVolume = useAudioPrefsStore((s) => s.setUserVolume)
+  const menuTargetVolume = menu ? (userVolumes[menu.target.userId] ?? 100) : 100
+  const canModerateTarget = !!menu && menu.target.role !== 'host' && menu.target.userId !== selfId
 
   useEffect(() => {
     const close = (e: MouseEvent): void => {
@@ -100,10 +110,44 @@ function MemberListPanel({ serverId, members }: MemberListPanelProps): JSX.Eleme
 
   function openMenu(e: React.MouseEvent, target: ServerMember): void {
     e.preventDefault()
-    if (!canModerate) return
+    e.stopPropagation()
     // The menu opens for any target so roles can be assigned to anyone —
     // but moderation actions (mute/kick/ban) are hidden for self and host.
-    setMenu({ x: e.clientX, y: e.clientY, target })
+    setMenu({
+      x: Math.max(8, Math.min(e.clientX, window.innerWidth - 260)),
+      y: Math.max(8, Math.min(e.clientY, window.innerHeight - 420)),
+      target
+    })
+  }
+
+  function insertMention(target: ServerMember): void {
+    window.dispatchEvent(new CustomEvent('mesh:insert-mention', { detail: { text: `@${target.username}` } }))
+    setMenu(null)
+  }
+
+  async function openDm(target: ServerMember): Promise<void> {
+    await ensureConversation(target.userId)
+    navigate(`/channels/@me/dm_${target.userId}`)
+    setMenu(null)
+  }
+
+  function openProfileFromMenu(target: ServerMember): void {
+    setProfilePop({
+      userId: target.userId,
+      username: target.username,
+      y: Math.min((menu?.y ?? 120) - 72, window.innerHeight - 540)
+    })
+    setMenu(null)
+  }
+
+  function startVoiceCall(target: ServerMember): void {
+    startOutgoingCall(target.userId, target.username, 'voice')
+    setMenu(null)
+  }
+
+  function copyUserId(target: ServerMember): void {
+    navigator.clipboard.writeText(target.userId).catch(() => {})
+    setMenu(null)
   }
 
   return (
@@ -158,59 +202,70 @@ function MemberListPanel({ serverId, members }: MemberListPanelProps): JSX.Eleme
         <div
           ref={menuRef}
           style={{ top: menu.y, left: menu.x }}
-          className="fixed z-[100] min-w-[180px] bg-mesh-bg-elevated border border-mesh-border/50 rounded-lg shadow-xl py-1.5 animate-in fade-in-0 zoom-in-95 duration-100 flex flex-col"
+          onContextMenu={(e) => e.preventDefault()}
+          className="fixed z-[100] w-60 rounded-xl border border-mesh-border/60 bg-mesh-bg-elevated/98 py-1.5 shadow-[0_24px_70px_rgba(0,0,0,0.55)] backdrop-blur animate-in fade-in-0 zoom-in-95 duration-100"
         >
-          {menu.target.role !== 'host' && menu.target.userId !== selfId && (
+          <MemberMenuButton icon={<UserRound className="h-4 w-4" />} onClick={() => openProfileFromMenu(menu.target)}>
+            Profile
+          </MemberMenuButton>
+          <MemberMenuButton icon={<AtSign className="h-4 w-4" />} onClick={() => insertMention(menu.target)}>
+            Mention
+          </MemberMenuButton>
+
+          {menu.target.userId !== selfId && (
             <>
-              {canMute && (
-                <button
-                  onClick={() => { muteMember(serverId, menu.target.userId, !menu.target.isMuted); setMenu(null) }}
-                  className="flex items-center gap-2.5 w-[calc(100%-8px)] px-2.5 py-1.5 text-sm rounded-sm mx-1 text-left transition-colors text-mesh-text-secondary hover:bg-mesh-green hover:text-white"
-                >
-                  {menu.target.isMuted ? 'Unmute' : 'Mute'}
-                </button>
-              )}
-              {canKick && (
-                <button
-                  onClick={() => { kickMember(serverId, menu.target.userId); setMenu(null) }}
-                  className="flex items-center gap-2.5 w-[calc(100%-8px)] px-2.5 py-1.5 text-sm rounded-sm mx-1 text-left transition-colors text-red-400 hover:bg-red-500 hover:text-white"
-                >
-                  Kick
-                </button>
-              )}
-              {canBan && !isHost && (
-                <button
-                  onClick={() => { banMember(serverId, menu.target.userId); setMenu(null) }}
-                  className="flex items-center gap-2.5 w-[calc(100%-8px)] px-2.5 py-1.5 text-sm rounded-sm mx-1 text-left transition-colors text-red-400 hover:bg-red-500 hover:text-white"
-                >
-                  Ban
-                </button>
-              )}
+              <MemberMenuButton icon={<MessageSquare className="h-4 w-4" />} onClick={() => { openDm(menu.target).catch(() => {}) }}>
+                Message
+              </MemberMenuButton>
+              <MemberMenuButton icon={<Phone className="h-4 w-4" />} onClick={() => startVoiceCall(menu.target)}>
+                Start Voice Call
+              </MemberMenuButton>
             </>
           )}
+
+          <MemberMenuSeparator />
+          <div className="mx-2 rounded-lg px-2 py-2">
+            <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-mesh-text-secondary">
+              <Volume2 className="h-3.5 w-3.5 text-mesh-text-muted" />
+              <span className="flex-1">User Volume</span>
+              <span className="font-mono text-[10px] text-mesh-text-muted">{menuTargetVolume}%</span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={200}
+              value={menuTargetVolume}
+              onChange={(e) => setUserVolume(menu.target.userId, Number(e.currentTarget.value))}
+              className="w-full accent-mesh-green"
+            />
+          </div>
+
+          {canMute && canModerateTarget && (
+            <MemberMenuButton
+              icon={<MicOff className="h-4 w-4" />}
+              onClick={() => { muteMember(serverId, menu.target.userId, !menu.target.isMuted); setMenu(null) }}
+            >
+              {menu.target.isMuted ? 'Unmute' : 'Mute'}
+            </MemberMenuButton>
+          )}
+
           {isHost && menu.target.role !== 'host' && (
             <>
-              <div className="h-px bg-mesh-border/50 my-1 mx-2" />
-              <button
-                onClick={() => { banMember(serverId, menu.target.userId); setMenu(null) }}
-                className="flex items-center gap-2.5 w-[calc(100%-8px)] px-2.5 py-1.5 text-sm rounded-sm mx-1 text-left transition-colors text-red-400 hover:bg-red-500 hover:text-white"
-              >
-                Ban
-              </button>
+              <MemberMenuSeparator />
               {menu.target.role === 'member' ? (
-                <button
+                <MemberMenuButton
+                  icon={<Shield className="h-4 w-4" />}
                   onClick={() => { setMemberRole(serverId, menu.target.userId, 'moderator'); setMenu(null) }}
-                  className="flex items-center gap-2.5 w-[calc(100%-8px)] px-2.5 py-1.5 text-sm rounded-sm mx-1 text-left transition-colors text-mesh-text-secondary hover:bg-mesh-green hover:text-white"
                 >
                   Promote to {roleLabels.moderator}
-                </button>
+                </MemberMenuButton>
               ) : (
-                <button
+                <MemberMenuButton
+                  icon={<Shield className="h-4 w-4" />}
                   onClick={() => { setMemberRole(serverId, menu.target.userId, 'member'); setMenu(null) }}
-                  className="flex items-center gap-2.5 w-[calc(100%-8px)] px-2.5 py-1.5 text-sm rounded-sm mx-1 text-left transition-colors text-mesh-text-secondary hover:bg-mesh-green hover:text-white"
                 >
                   Demote to {roleLabels.member}
-                </button>
+                </MemberMenuButton>
               )}
             </>
           )}
@@ -219,20 +274,16 @@ function MemberListPanel({ serverId, members }: MemberListPanelProps): JSX.Eleme
               server with hundreds of roles still gets a compact menu. */}
           {canManageRoles && customRoles.length > 0 && (
             <>
-              <div className="h-px bg-mesh-border/50 my-1 mx-2" />
+              <MemberMenuSeparator />
               <div className="relative">
-                <button
+                <MemberMenuButton
                   onClick={() => setRolesFlyout((v) => !v)}
-                  className={cn(
-                    'flex items-center gap-2.5 w-[calc(100%-8px)] px-2.5 py-1.5 text-sm rounded-sm mx-1 text-left transition-colors',
-                    rolesFlyout
-                      ? 'bg-mesh-bg-tertiary text-mesh-text-primary'
-                      : 'text-mesh-text-secondary hover:bg-mesh-bg-tertiary hover:text-mesh-text-primary'
-                  )}
+                  active={rolesFlyout}
+                  icon={<Shield className="h-4 w-4" />}
+                  trailing={<ChevronRight className="h-3.5 w-3.5 shrink-0" />}
                 >
-                  <span className="flex-1">Roles</span>
-                  <ChevronRight className="h-3.5 w-3.5 shrink-0" />
-                </button>
+                  Roles
+                </MemberMenuButton>
 
                 {rolesFlyout && (
                   <div className="absolute right-full -top-1 mr-1 w-56 rounded-lg bg-mesh-bg-elevated border border-mesh-border/60 shadow-2xl py-1.5 z-[110]">
@@ -290,10 +341,77 @@ function MemberListPanel({ serverId, members }: MemberListPanelProps): JSX.Eleme
               </div>
             </>
           )}
+
+          {(canKick || canBan) && canModerateTarget && (
+            <>
+              <MemberMenuSeparator />
+              {canKick && (
+                <MemberMenuButton
+                  danger
+                  icon={<UserMinus className="h-4 w-4" />}
+                  onClick={() => { kickMember(serverId, menu.target.userId); setMenu(null) }}
+                >
+                  Kick
+                </MemberMenuButton>
+              )}
+              {canBan && (
+                <MemberMenuButton
+                  danger
+                  icon={<Ban className="h-4 w-4" />}
+                  onClick={() => { banMember(serverId, menu.target.userId); setMenu(null) }}
+                >
+                  Ban
+                </MemberMenuButton>
+              )}
+            </>
+          )}
+
+          <MemberMenuSeparator />
+          <MemberMenuButton icon={<Copy className="h-4 w-4" />} onClick={() => copyUserId(menu.target)}>
+            Copy User ID
+          </MemberMenuButton>
         </div>
       )}
     </div>
   )
+}
+
+function MemberMenuButton({
+  children,
+  icon,
+  trailing,
+  danger,
+  active,
+  onClick
+}: {
+  children: ReactNode
+  icon?: ReactNode
+  trailing?: ReactNode
+  danger?: boolean
+  active?: boolean
+  onClick: () => void
+}): JSX.Element {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'mx-1 flex w-[calc(100%-8px)] items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-sm font-medium transition-colors',
+        danger
+          ? 'text-red-400 hover:bg-red-500 hover:text-white'
+          : active
+            ? 'bg-mesh-bg-tertiary text-mesh-text-primary'
+            : 'text-mesh-text-secondary hover:bg-mesh-bg-tertiary hover:text-mesh-text-primary'
+      )}
+    >
+      {icon && <span className="grid h-4 w-4 shrink-0 place-items-center">{icon}</span>}
+      <span className="min-w-0 flex-1 truncate">{children}</span>
+      {trailing}
+    </button>
+  )
+}
+
+function MemberMenuSeparator(): JSX.Element {
+  return <div className="my-1 mx-2 h-px bg-mesh-border/50" />
 }
 
 /**

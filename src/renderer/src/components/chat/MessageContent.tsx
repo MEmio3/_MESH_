@@ -285,7 +285,24 @@ function CodeBlock({ code, language }: { code: string; language: string }): JSX.
 
 function TextSegment({ text }: { text: string }): JSX.Element | null {
   if (!text) return null
-  return <span className="whitespace-pre-wrap break-words">{text}</span>
+  const parts = text.split(/(@[\p{L}\p{N}_][\p{L}\p{N}_.-]{0,40})/gu)
+
+  return (
+    <span className="whitespace-pre-wrap break-words">
+      {parts.map((part, index) =>
+        part.startsWith('@') ? (
+          <span
+            key={`${part}-${index}`}
+            className="rounded-md border border-mesh-green/20 bg-mesh-green/15 px-1 font-semibold text-mesh-green"
+          >
+            {part}
+          </span>
+        ) : (
+          <span key={`${index}-${part.slice(0, 8)}`}>{part}</span>
+        )
+      )}
+    </span>
+  )
 }
 
 function MessageContent({ content, className }: MessageContentProps): JSX.Element {

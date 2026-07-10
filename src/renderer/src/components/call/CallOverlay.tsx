@@ -149,7 +149,7 @@ function CallOverlay(): JSX.Element | null {
     }
   }, [localStream])
 
-  useEffect(() => registerAudioSink(audioRef.current), [remoteStream])
+  useEffect(() => registerAudioSink(audioRef.current, peerId), [remoteStream, peerId])
 
   useEffect(() => {
     if (status !== 'active') setSharePickerOpen(false)

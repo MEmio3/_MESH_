@@ -36,7 +36,7 @@ function VoiceParticipantTile({ participant, stream }: VoiceParticipantTileProps
   // volume applies (unless this tile is the local user's own preview).
   useEffect(() => {
     if (participant.userId === selfId) return
-    return registerAudioSink(videoRef.current)
+    return registerAudioSink(videoRef.current, participant.userId)
   }, [participant.userId, selfId, stream])
 
   const hasVideo = stream && stream.getVideoTracks().length > 0

@@ -10,6 +10,7 @@ import { normalizeReactions } from './messages.store'
 import { notify } from '@/lib/notify'
 import { playServerMessage } from '@/lib/sounds'
 import { mediaEngine } from '@/lib/media-engine'
+import { resolveRoleNames } from '@/lib/roleNames'
 
 /** Who is sitting in which voice channel, with identity carried inline so the
  *  sidebar never has to race a separate roster sync to render a name. */
@@ -100,6 +101,52 @@ function toServer(r: {
     onlineMemberCount: r.onlineMemberCount,
     roleNames
   }
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function mentionMatches(content: string, label: string): boolean {
+  const clean = label.trim()
+  if (!clean) return false
+  const variants = new Set([clean, clean.replace(/\s+/g, '')].filter(Boolean))
+  for (const variant of variants) {
+    const pattern = new RegExp(`(^|[\\s([{"'])@${escapeRegex(variant)}(?=$|[\\s.,!?;:)\\]}"'])`, 'i')
+    if (pattern.test(content)) return true
+  }
+  return false
+}
+
+function matchingMentionForSelf(args: {
+  content: string
+  selfId: string
+  server?: Server
+  members: ServerMember[]
+  roles: ServerRoleDef[]
+}): string | null {
+  const { content, selfId, server, members, roles } = args
+  if (mentionMatches(content, 'everyone')) return 'everyone'
+
+  const selfMember = members.find((member) => member.userId === selfId)
+  if (!selfMember) return null
+
+  if (mentionMatches(content, selfMember.username)) return selfMember.username
+
+  const roleNames = resolveRoleNames(server?.roleNames)
+  const tierNames = [selfMember.role, roleNames[selfMember.role]]
+  if (tierNames.some((roleName) => mentionMatches(content, roleName))) {
+    return roleNames[selfMember.role]
+  }
+
+  const matchedCustomRole = roles.find((role) =>
+    selfMember.roleIds.includes(role.id) && mentionMatches(content, role.name)
+  )
+  return matchedCustomRole?.name ?? null
+}
+
+function serverMessageRoute(serverId: string, channelId?: string | null): string {
+  return channelId ? `/channels/${serverId}/${channelId}` : `/channels/${serverId}`
 }
 
 export const useServersStore = create<ServersStore>((set, get) => ({
@@ -841,7 +888,31 @@ export const useServersStore = create<ServersStore>((set, get) => ({
       // Soft ding for fresh server messages — suppress for self-sent and for
       // dedupe hits (messages we've already seen via echo/refresh).
       const selfId = useIdentityStore.getState().identity?.userId
-      if (appended && p.message.senderId !== selfId) playServerMessage()
+      if (appended && p.message.senderId !== selfId) {
+        playServerMessage()
+        if (selfId) {
+          const state = get()
+          const server = state.servers.find((sv) => sv.id === p.serverId)
+          const mention = matchingMentionForSelf({
+            content: p.message.content,
+            selfId,
+            server,
+            members: state.serverMembers[p.serverId] || [],
+            roles: state.serverRoles[p.serverId] || []
+          })
+          if (mention) {
+            notify({
+              type: 'server-message',
+              title: mention === 'everyone'
+                ? `@everyone in ${server?.name ?? 'server'}`
+                : `${p.message.senderName} mentioned you`,
+              body: p.message.content.slice(0, 140),
+              route: serverMessageRoute(p.serverId, p.message.channelId ?? null),
+              force: true
+            })
+          }
+        }
+      }
     }))
 
     unsubs.push(window.api.signaling.onServerEvent('member-muted', async (payload) => {

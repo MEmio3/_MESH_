@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useRef, useState } from 'react'
-import { Check, CheckCheck, Clock, Pencil, Reply, SmilePlus, Trash2 } from 'lucide-react'
+import { Pencil, Reply, SmilePlus, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
 import type { Message } from '@/types/messages'
@@ -9,14 +9,6 @@ import { ReactionPicker } from './ReactionPicker'
 import { ReactionBar } from './ReactionBar'
 import { useIdentityStore } from '@/stores/identity.store'
 import { useAvatarStore } from '@/stores/avatar.store'
-
-function StatusTick({ status }: { status: Message['status'] }): JSX.Element | null {
-  if (status === 'sending') return <Clock className="mesh-status-pending h-3 w-3 text-mesh-text-muted" />
-  if (status === 'sent') return <Check className="h-3 w-3 text-mesh-text-muted" />
-  if (status === 'delivered') return <CheckCheck className="h-3 w-3 text-mesh-text-muted" />
-  if (status === 'read') return <CheckCheck className="h-3 w-3 text-mesh-green" />
-  return null
-}
 
 interface MessageBubbleProps {
   message: Message
@@ -308,11 +300,6 @@ function MessageBubble({ message, isGrouped, isOwnMessage, canDelete, onEdit, on
             />
           )}
         </div>
-        {isOwnMessage && !message.isDeleted && (
-          <span className="shrink-0 pt-1" title={message.status}>
-            <StatusTick status={message.status} />
-          </span>
-        )}
       </div>
     )
   }
@@ -344,11 +331,6 @@ function MessageBubble({ message, isGrouped, isOwnMessage, canDelete, onEdit, on
             selfId={selfId}
             onToggle={(emojiId) => onToggleReaction(message.id, emojiId)}
           />
-        )}
-        {isOwnMessage && !message.isDeleted && (
-          <span className="ml-1.5 inline-flex align-middle" title={message.status}>
-            <StatusTick status={message.status} />
-          </span>
         )}
       </div>
     </div>
