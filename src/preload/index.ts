@@ -111,10 +111,36 @@ const api = {
     removeHost: (serverUrl: string): Promise<{ success: boolean; hosts: string[] }> =>
       ipcRenderer.invoke('signaling:remove-host', { serverUrl }),
     listHosts: (): Promise<string[]> => ipcRenderer.invoke('signaling:list-hosts'),
+    listHostStatuses: (): Promise<Array<{
+      url: string
+      role: 'primary' | 'secondary'
+      state: 'connecting' | 'connected' | 'reconnecting' | 'offline'
+      attempt: number
+      retryAt: number | null
+      lastConnectedAt: number | null
+      lastDisconnectedAt: number | null
+      reason: string | null
+      error: string | null
+    }>> => ipcRenderer.invoke('signaling:list-host-statuses'),
     onHostsChanged: (cb: (hosts: string[]) => void): (() => void) => {
       const h = (_e: Electron.IpcRendererEvent, hosts: string[]): void => cb(hosts)
       ipcRenderer.on('signaling:hosts-changed', h)
       return () => ipcRenderer.removeListener('signaling:hosts-changed', h)
+    },
+    onHostStatusesChanged: (cb: (statuses: Array<{
+      url: string
+      role: 'primary' | 'secondary'
+      state: 'connecting' | 'connected' | 'reconnecting' | 'offline'
+      attempt: number
+      retryAt: number | null
+      lastConnectedAt: number | null
+      lastDisconnectedAt: number | null
+      reason: string | null
+      error: string | null
+    }>) => void): (() => void) => {
+      const h = (_e: Electron.IpcRendererEvent, statuses: Parameters<typeof cb>[0]): void => cb(statuses)
+      ipcRenderer.on('signaling:host-statuses-changed', h)
+      return () => ipcRenderer.removeListener('signaling:host-statuses-changed', h)
     },
 
     onConnected: (cb: () => void): (() => void) => {

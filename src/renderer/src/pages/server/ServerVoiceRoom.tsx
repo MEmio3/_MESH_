@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { AlertTriangle, MicOff, Radio, ScreenShare, Sparkles, Users, Volume2 } from 'lucide-react'
+import { AlertTriangle, MicOff, PauseCircle, Radio, ScreenShare, Sparkles, Users, Volume2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useVoiceStore } from '@/stores/voice.store'
 import { useIdentityStore } from '@/stores/identity.store'
@@ -33,6 +33,7 @@ function ServerVoiceRoom({ server }: ServerVoiceRoomProps): JSX.Element {
     participants,
     remoteStreams,
     streamingUsers,
+    pausedStreamUsers,
     localMediaStream,
     currentStreamSource,
     joinRoom
@@ -130,6 +131,7 @@ function ServerVoiceRoom({ server }: ServerVoiceRoomProps): JSX.Element {
           <StreamGrid
             streamers={streamers}
             remoteStreams={remoteStreams}
+            pausedStreamUsers={pausedStreamUsers}
             localMediaStream={localMediaStream}
             selfSourceKind={selfSourceKind}
             selfId={selfId}
@@ -177,6 +179,7 @@ function VoiceStat({
 interface StreamGridProps {
   streamers: VoiceParticipant[]
   remoteStreams: Map<string, MediaStream>
+  pausedStreamUsers: Set<string>
   localMediaStream: MediaStream | null
   selfSourceKind: 'screen' | 'window' | 'camera' | null
   selfId: string | undefined
@@ -185,6 +188,7 @@ interface StreamGridProps {
 function StreamGrid({
   streamers,
   remoteStreams,
+  pausedStreamUsers,
   localMediaStream,
   selfSourceKind,
   selfId
@@ -211,6 +215,7 @@ function StreamGrid({
             stream={isSelf ? localMediaStream : remoteStreams.get(p.userId) || null}
             isSelf={isSelf}
             isCameraStream={isSelf && selfSourceKind === 'camera'}
+            isPaused={pausedStreamUsers.has(p.userId)}
           />
         )
       })}
@@ -223,9 +228,10 @@ interface StreamTileProps {
   stream: MediaStream | null
   isSelf: boolean
   isCameraStream?: boolean
+  isPaused?: boolean
 }
 
-function StreamTile({ participant, stream, isSelf, isCameraStream }: StreamTileProps): JSX.Element {
+function StreamTile({ participant, stream, isSelf, isCameraStream, isPaused }: StreamTileProps): JSX.Element {
   const videoRef = useRef<HTMLVideoElement>(null)
   const openStreamViewer = useVoiceStore((s) => s.openStreamViewer)
 
@@ -260,7 +266,8 @@ function StreamTile({ participant, stream, isSelf, isCameraStream }: StreamTileP
         playsInline
         muted
         className={cn(
-          'w-full h-full bg-black',
+          'w-full h-full bg-black transition-opacity',
+          isPaused && 'opacity-35',
           isCameraStream ? '-scale-x-100 object-cover' : 'object-contain'
         )}
       />
@@ -273,10 +280,29 @@ function StreamTile({ participant, stream, isSelf, isCameraStream }: StreamTileP
       )}
 
       {/* LIVE badge — quiet technical indicator, not an alarm */}
-      <div className="mesh-live-badge absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full border border-red-400/35 bg-black/70 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider leading-none text-red-300 backdrop-blur-sm">
-        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-400" />
-        Live
+      <div
+        className={cn(
+          'absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full border bg-black/70 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider leading-none backdrop-blur-sm',
+          isPaused
+            ? 'border-amber-300/35 text-amber-200'
+            : 'mesh-live-badge border-red-400/35 text-red-300'
+        )}
+      >
+        <span className={cn('h-1.5 w-1.5 rounded-full', isPaused ? 'bg-amber-300' : 'animate-pulse bg-red-400')} />
+        {isPaused ? 'Paused' : 'Live'}
       </div>
+
+      {isPaused && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/45 backdrop-blur-[2px]">
+          <div className="flex flex-col items-center gap-2 rounded-2xl border border-white/10 bg-black/70 px-5 py-4 text-center shadow-2xl">
+            <PauseCircle className="h-8 w-8 text-amber-200" />
+            <div className="text-sm font-bold text-white">Stream Paused</div>
+            <div className="max-w-[220px] text-xs text-white/55">
+              Waiting for the shared window to come back into focus.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Hover hint — Discord-style "click to view" */}
       <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover:bg-black/30">

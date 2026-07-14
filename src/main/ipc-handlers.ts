@@ -1195,7 +1195,7 @@ export function registerServerHandlers(): void {
   // the signaling broadcast so every member receives the actual bytes — the
   // old path stuffed a data-URL into the content string for images only and
   // reduced every other file to a "[File: ...]" placeholder.
-  ipcMain.handle('server:send-message', async (_e, payload: {
+  ipcMain.handle('server:send-message', async (event, payload: {
     serverId: string
     senderId: string
     senderName: string
@@ -1254,7 +1254,7 @@ export function registerServerHandlers(): void {
       senderName: payload.senderName,
       content: payload.content,
       timestamp,
-      status: 'sent',
+      status: 'sending',
       channelId: payload.channelId ?? null,
       fileId: payload.file?.fileId ?? null,
       fileName: payload.file?.fileName ?? null,
@@ -1268,7 +1268,7 @@ export function registerServerHandlers(): void {
       replyToSenderName: payload.replyTo?.senderName ?? null,
       replyToContent: payload.replyTo?.content ?? null
     })
-    socketClient.emitSignaling('server:message', {
+    const envelope = {
       serverId: payload.serverId,
       message: {
         id,
@@ -1288,8 +1288,22 @@ export function registerServerHandlers(): void {
             }
           : null
       }
+    }
+    const delivery = socketClient.emitReliableSignaling('server:message', envelope, id, (result) => {
+      const status = result.success ? 'delivered' : 'failed'
+      db.updateServerMessageStatus(id, status)
+      setTimeout(() => {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('signaling:server:message-status', {
+            serverId: payload.serverId,
+            messageId: id,
+            status,
+            error: result.error ?? null
+          })
+        }
+      }, 0)
     })
-    return { success: true, messageId: id }
+    return { success: true, messageId: id, queued: delivery.queued }
   })
 
   // Called by renderer when server:message event arrives — persist inbound.
@@ -1745,6 +1759,9 @@ export function registerSignalingHandlers(): void {
   })
   ipcMain.handle('signaling:list-hosts', () => {
     return socketClient.listConnectedHosts()
+  })
+  ipcMain.handle('signaling:list-host-statuses', () => {
+    return socketClient.listHostConnectionStatuses()
   })
 
   ipcMain.handle('signaling:is-connected', () => {

@@ -253,6 +253,8 @@ interface ServerEntry {
   roleNames: { host?: string; moderator?: string; member?: string } | null
   /** Host's custom role definitions (Discord-style), opaque here. */
   roles: unknown | null
+  /** Recently accepted client message ids make resend-after-reconnect safe. */
+  acceptedMessageIds: Map<string, number>
 }
 const servers = new Map<string, ServerEntry>()
 
@@ -363,7 +365,7 @@ const voiceRoomMembers = new Map<string, Map<string, string>>() // roomId → (u
 // disconnect can clean up every room this socket was in (not just the
 // last-joined `socket.data.roomId`).
 const socketVoiceRooms = new Map<string, Set<string>>() // socketId → Set<roomId>
-const activeVoiceStreams = new Map<string, Map<string, { kind?: 'screen' | 'window' | 'camera' }>>() // roomId → userId → stream info
+const activeVoiceStreams = new Map<string, Map<string, { kind?: 'screen' | 'window' | 'camera'; paused?: boolean }>>() // roomId → userId → stream info
 
 interface VoiceUdpEndpoint {
   address: string
@@ -476,7 +478,8 @@ function replayActiveStreamsToSocket(roomId: string, socketId: string, joiningUs
       serverId: voice.serverId,
       channelId: voice.channelId,
       userId,
-      kind: info.kind
+      kind: info.kind,
+      paused: !!info.paused
     })
   }
 }
@@ -843,7 +846,8 @@ io.on('connection', (socket) => {
         passwordHash: payload.passwordHash,
         layout: payload.layout ?? null,
         roleNames: payload.roleNames ?? null,
-        roles: payload.roles ?? null
+        roles: payload.roles ?? null,
+        acceptedMessageIds: new Map()
       }
       servers.set(payload.serverId, entry)
       console.log(`[server] registered: ${payload.serverId} by ${payload.hostUserId}`)
@@ -1074,16 +1078,36 @@ io.on('connection', (socket) => {
   socket.on('server:message', (payload: {
     serverId: string
     message: { id: string; senderId: string; senderName: string; content: string; timestamp: number; channelId?: string | null; replyTo?: { messageId: string; senderName: string; content: string } | null }
-  }) => {
+  }, ack?: (result: { success: boolean; duplicate?: boolean; error?: string }) => void) => {
+    const respond = (result: { success: boolean; duplicate?: boolean; error?: string }): void => {
+      if (typeof ack === 'function') ack(result)
+    }
     const entry = servers.get(payload.serverId)
-    if (!entry) return
-    const m = entry.members.get(payload.message.senderId)
-    if (!m) return
-    if (m.isMuted) {
-      socket.emit('server:error', { serverId: payload.serverId, reason: 'You are muted.' })
+    if (!entry) {
+      respond({ success: false, error: 'Server is offline.' })
       return
     }
+    const m = entry.members.get(payload.message.senderId)
+    if (!m) {
+      respond({ success: false, error: 'You are not a member of this server.' })
+      return
+    }
+    if (m.isMuted) {
+      socket.emit('server:error', { serverId: payload.serverId, reason: 'You are muted.' })
+      respond({ success: false, error: 'You are muted.' })
+      return
+    }
+    if (entry.acceptedMessageIds.has(payload.message.id)) {
+      respond({ success: true, duplicate: true })
+      return
+    }
+    entry.acceptedMessageIds.set(payload.message.id, Date.now())
+    if (entry.acceptedMessageIds.size > 5000) {
+      const oldest = entry.acceptedMessageIds.keys().next().value as string | undefined
+      if (oldest) entry.acceptedMessageIds.delete(oldest)
+    }
     io.to(roomName(payload.serverId)).emit('server:message', payload)
+    respond({ success: true })
   })
 
   // Moderation — permission-based: host always; the legacy moderator tier
@@ -1228,7 +1252,7 @@ io.on('connection', (socket) => {
   // Voice stream state (screen/camera). Media frames are relayed below, but
   // the UI needs an explicit stop signal because a canvas capture stream can
   // remain "live" after the sender stops producing frames.
-  socket.on('stream:start', (serverId: string, payload: { userId?: string; kind?: 'screen' | 'window' | 'camera' }) => {
+  socket.on('stream:start', (serverId: string, payload: { userId?: string; kind?: 'screen' | 'window' | 'camera'; paused?: boolean }) => {
     const voice = activeVoiceRoomForSocket(socket.id, serverId)
     if (!voice || !socket.rooms.has(voice.roomId)) return
     let streams = activeVoiceStreams.get(voice.roomId)
@@ -1236,12 +1260,28 @@ io.on('connection', (socket) => {
       streams = new Map()
       activeVoiceStreams.set(voice.roomId, streams)
     }
-    streams.set(socket.data.userId, { kind: payload?.kind })
+    streams.set(socket.data.userId, { kind: payload?.kind, paused: !!payload?.paused })
     io.to(roomName(serverId)).emit('server:stream-start', {
       serverId,
       channelId: voice.channelId,
       userId: socket.data.userId,
-      kind: payload?.kind
+      kind: payload?.kind,
+      paused: !!payload?.paused
+    })
+  })
+
+  socket.on('stream:pause', (serverId: string, payload: { paused?: boolean }) => {
+    const voice = activeVoiceRoomForSocket(socket.id, serverId)
+    if (!voice || !socket.rooms.has(voice.roomId)) return
+    const streams = activeVoiceStreams.get(voice.roomId)
+    const info = streams?.get(socket.data.userId)
+    if (!info) return
+    info.paused = !!payload?.paused
+    io.to(roomName(serverId)).emit('server:stream-pause', {
+      serverId,
+      channelId: voice.channelId,
+      userId: socket.data.userId,
+      paused: info.paused
     })
   })
 

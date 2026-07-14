@@ -19,6 +19,7 @@ import { useServerAvatarStore } from '@/stores/serverAvatar.store'
 import { handleIncomingPeerMessage, useMessagesStore } from '@/stores/messages.store'
 import { useSettingsStore } from '@/stores/settings.store'
 import { useCallStore } from '@/stores/call.store'
+import { useVoiceStore } from '@/stores/voice.store'
 import { initializeAllStores } from '@/stores/init'
 import { webrtcManager } from '@/lib/webrtc'
 import { CallOverlay } from '@/components/call/CallOverlay'
@@ -68,6 +69,8 @@ function App(): JSX.Element {
         selfUserId: identity.userId,
         selfUsername: identity.username,
         selfAvatarColor: (identity as unknown as { avatarPath?: string | null }).avatarPath ?? null
+      }).then(() => {
+        setTimeout(() => useVoiceStore.getState().restoreAfterReconnect(), 350)
       }).catch(() => { /* retried on next reconnect */ })
       // Re-deliver any pending outgoing friend requests now that we're on a
       // host — heals requests that were stranded because the recipient was

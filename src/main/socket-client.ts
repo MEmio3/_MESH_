@@ -14,6 +14,61 @@ let connectingPromise: Promise<void> | null = null
 const intentionalDisconnects = new WeakSet<Socket>()
 const auxiliarySockets = new Map<string, Socket>()
 
+export type HostConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'offline'
+export interface HostConnectionSnapshot {
+  url: string
+  role: 'primary' | 'secondary'
+  state: HostConnectionState
+  attempt: number
+  retryAt: number | null
+  lastConnectedAt: number | null
+  lastDisconnectedAt: number | null
+  reason: string | null
+  error: string | null
+}
+
+const hostConnectionStates = new Map<string, HostConnectionSnapshot>()
+
+function publishHostStates(): void {
+  sendToRenderer('signaling:host-statuses-changed', listHostConnectionStatuses())
+}
+
+function updateHostState(
+  url: string,
+  role: HostConnectionSnapshot['role'],
+  patch: Partial<Omit<HostConnectionSnapshot, 'url' | 'role'>>
+): void {
+  const normalized = normalizeUrl(url)
+  const previous = hostConnectionStates.get(normalized)
+  hostConnectionStates.set(normalized, {
+    url: normalized,
+    role,
+    state: previous?.state ?? 'connecting',
+    attempt: previous?.attempt ?? 0,
+    retryAt: previous?.retryAt ?? null,
+    lastConnectedAt: previous?.lastConnectedAt ?? null,
+    lastDisconnectedAt: previous?.lastDisconnectedAt ?? null,
+    reason: previous?.reason ?? null,
+    error: previous?.error ?? null,
+    ...patch
+  })
+  publishHostStates()
+}
+
+function removeHostState(url: string): void {
+  hostConnectionStates.delete(normalizeUrl(url))
+  publishHostStates()
+}
+
+function failReliableForHost(url: string, error: string): void {
+  const normalized = normalizeUrl(url)
+  for (const [key, item] of reliableOutbox) {
+    if (item.targetUrl !== normalized) continue
+    reliableOutbox.delete(key)
+    item.callback({ success: false, error })
+  }
+}
+
 // ── Multi-host (non-hoster attached to several hosts at once) ──
 // The "primary" connection lives in `socket`/`currentUrl` (kept for acks +
 // back-compat). These are ADDITIONAL remote host connections that carry the
@@ -32,14 +87,16 @@ function noteUserOnHost(userId: string | undefined, url: string): void {
   if (!set) { set = new Set(); userHosts.set(userId, set) }
   set.add(url)
 }
-function forgetHost(url: string): void {
+function forgetHost(url: string, forgetServerRoutes = true): void {
   const normalized = normalizeUrl(url)
   for (const [uid, set] of userHosts) {
     set.delete(normalized)
     if (set.size === 0) userHosts.delete(uid)
   }
-  for (const [serverId, hostUrl] of serverHosts) {
-    if (hostUrl === normalized) serverHosts.delete(serverId)
+  if (forgetServerRoutes) {
+    for (const [serverId, hostUrl] of serverHosts) {
+      if (hostUrl === normalized) serverHosts.delete(serverId)
+    }
   }
 }
 
@@ -88,6 +145,8 @@ function disconnectPrimarySocketForSwitch(notify = false): void {
   intentionalDisconnects.add(existing)
   try { existing.disconnect() } catch { /* ignore */ }
   cleanupHostRoute(previousUrl)
+  failReliableForHost(previousUrl, 'Disconnected from the message host.')
+  removeHostState(previousUrl)
   if (notify) sendToRenderer('signaling:disconnected', 'manual')
 }
 
@@ -139,6 +198,18 @@ function targetUserIdFor(event: string, args: unknown[]): string | null {
 const MAX_PENDING_EMITS = 200
 let pendingEmits: Array<{ event: string; args: unknown[] }> = []
 
+interface ReliableEmit {
+  key: string
+  event: string
+  arg: unknown
+  targetUrl: string
+  attempts: number
+  inFlight: boolean
+  callback: (response: { success: boolean; error?: string; duplicate?: boolean }) => void
+}
+const reliableOutbox = new Map<string, ReliableEmit>()
+const MAX_RELIABLE_ATTEMPTS = 5
+
 export function setMainWindow(win: BrowserWindow): void {
   mainWindow = win
   voiceUdp.setMainWindow(win)
@@ -175,6 +246,7 @@ const serverEvents = [
   'server:voice-occupants',
   'server:voice-join-denied',
   'server:stream-start',
+  'server:stream-pause',
   'server:stream-stop',
   'server:error'
 ]
@@ -240,20 +312,35 @@ function routeForEvent(event: string, args: unknown[]): { url: string; userId: s
     const forcedPort = event === 'server:unregister' && typeof (payload as { port?: unknown })?.port === 'number'
       ? (payload as { port: number }).port
       : undefined
-    return hostedRouteForServer(typeof payload?.serverId === 'string' ? payload.serverId : null, forcedPort)
+    const serverId = typeof payload?.serverId === 'string' ? payload.serverId : null
+    const hosted = hostedRouteForServer(serverId, forcedPort)
+    if (hosted) return hosted
+    const mappedUrl = serverId ? serverHosts.get(serverId) : null
+    return mappedUrl && currentUserId ? { url: mappedUrl, userId: currentUserId } : null
   }
   if (event === 'join-room' || event === 'leave-room') {
     const roomId = typeof args[0] === 'string' ? args[0] : ''
     const parts = roomId.split(':')
-    return parts[0] === 'voice' ? hostedRouteForServer(parts[1] ?? null) : null
+    if (parts[0] !== 'voice') return null
+    const serverId = parts[1] ?? null
+    const hosted = hostedRouteForServer(serverId)
+    const mappedUrl = serverId ? serverHosts.get(serverId) : null
+    return hosted ?? (mappedUrl && currentUserId ? { url: mappedUrl, userId: currentUserId } : null)
   }
   if (event.startsWith('media:')) {
     const roomId = typeof args[0] === 'string' ? args[0] : ''
     const parts = roomId.split(':')
-    return parts[0] === 'voice' ? hostedRouteForServer(parts[1] ?? null) : null
+    if (parts[0] !== 'voice') return null
+    const serverId = parts[1] ?? null
+    const hosted = hostedRouteForServer(serverId)
+    const mappedUrl = serverId ? serverHosts.get(serverId) : null
+    return hosted ?? (mappedUrl && currentUserId ? { url: mappedUrl, userId: currentUserId } : null)
   }
-  if (event === 'stream:start' || event === 'stream:stop') {
-    return hostedRouteForServer(typeof args[0] === 'string' ? args[0] : null)
+  if (event === 'stream:start' || event === 'stream:pause' || event === 'stream:stop') {
+    const serverId = typeof args[0] === 'string' ? args[0] : null
+    const hosted = hostedRouteForServer(serverId)
+    const mappedUrl = serverId ? serverHosts.get(serverId) : null
+    return hosted ?? (mappedUrl && currentUserId ? { url: mappedUrl, userId: currentUserId } : null)
   }
   return null
 }
@@ -263,6 +350,7 @@ function attachAuxiliaryHandlers(aux: Socket, userId: string, url: string): void
     aux.emit('register-user', userId)
     aux.emit('connection-role', 'auxiliary')
     replaySocialState(aux)
+    setTimeout(() => flushReliableOutbox(url), 700)
   })
   aux.on('connect_error', (err) => {
     console.warn('[socket-client] auxiliary connection failed:', err.message)
@@ -428,22 +516,71 @@ export function connectSecondaryHost(serverUrl: string): void {
   if (!url || !currentUserId) return
   if (url === normalizeUrl(currentUrl)) return          // already the primary
   if (secondaryHosts.has(url)) return                    // already attached
-  const sock = io(url, { transports: ['websocket'], reconnection: true })
+  updateHostState(url, 'secondary', {
+    state: 'connecting',
+    attempt: 0,
+    retryAt: null,
+    reason: null,
+    error: null
+  })
+  const sock = io(url, {
+    transports: ['websocket'],
+    reconnection: true,
+    reconnectionAttempts: Infinity,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 30000,
+    randomizationFactor: 0.25
+  })
   secondaryHosts.set(url, sock)
   sock.on('connect', () => {
     sock.emit('register-user', currentUserId)
     sock.emit('connection-role', 'secondary')
     replaySocialState(sock)
     voiceUdp.configureHost(url, currentUserId)
+    updateHostState(url, 'secondary', {
+      state: 'connected',
+      attempt: 0,
+      retryAt: null,
+      lastConnectedAt: Date.now(),
+      reason: null,
+      error: null
+    })
     sendToRenderer('signaling:connected')
     sendToRenderer('signaling:hosts-changed', listHostUrls())
+    setTimeout(() => flushReliableOutbox(url), 700)
   })
-  sock.on('disconnect', () => {
-    forgetHost(url)
+  sock.on('disconnect', (reason) => {
+    // Keep server affinity during a transient outage. Re-registration must
+    // still know which host owns each joined server after the socket returns.
+    forgetHost(url, false)
     voiceUdp.removeHost(url)
+    updateHostState(url, 'secondary', {
+      state: 'reconnecting',
+      retryAt: Date.now() + 1000,
+      lastDisconnectedAt: Date.now(),
+      reason,
+      error: null
+    })
     sendToRenderer('signaling:hosts-changed', listHostUrls())
   })
-  sock.on('connect_error', (err) => console.warn('[socket-client] secondary host failed:', url, err.message))
+  sock.io.on('reconnect_attempt', (attempt) => {
+    const delay = Math.min(1000 * Math.max(1, attempt), 30000)
+    updateHostState(url, 'secondary', {
+      state: attempt >= 5 ? 'offline' : 'reconnecting',
+      attempt,
+      retryAt: Date.now() + delay
+    })
+  })
+  sock.on('connect_error', (err) => {
+    const previous = hostConnectionStates.get(url)
+    const attempt = Math.max(1, previous?.attempt ?? 0)
+    updateHostState(url, 'secondary', {
+      state: attempt >= 5 ? 'offline' : 'reconnecting',
+      attempt,
+      error: err.message
+    })
+    console.warn('[socket-client] secondary host failed:', url, err.message)
+  })
   attachSecondaryHandlers(sock, url)
 }
 
@@ -456,11 +593,20 @@ export function disconnectSecondaryHost(serverUrl: string): void {
   secondaryHosts.delete(url)
   forgetHost(url)
   voiceUdp.removeHost(url)
+  failReliableForHost(url, 'Disconnected from the message host.')
+  removeHostState(url)
   sendToRenderer('signaling:hosts-changed', listHostUrls())
 }
 
 export function listConnectedHosts(): string[] {
   return listHostUrls()
+}
+
+export function listHostConnectionStatuses(): HostConnectionSnapshot[] {
+  return [...hostConnectionStates.values()].sort((a, b) => {
+    if (a.role !== b.role) return a.role === 'primary' ? -1 : 1
+    return a.url.localeCompare(b.url)
+  })
 }
 
 function auxiliarySocketFor(serverUrl: string, userId: string): Socket {
@@ -489,6 +635,57 @@ function emitOnSocket(target: Socket, event: string, args: unknown[]): void {
   target.once('connect', () => target.emit(event, ...args))
 }
 
+function dispatchReliable(item: ReliableEmit): void {
+  if (item.inFlight || !reliableOutbox.has(item.key)) return
+  let target = socketForHostUrl(item.targetUrl)
+  if (!target && item.targetUrl && currentUserId) {
+    target = auxiliarySocketFor(item.targetUrl, currentUserId)
+  }
+  if (!target?.connected) return
+
+  item.inFlight = true
+  target.timeout(6000).emit(item.event, item.arg, (
+    err: Error | null,
+    response?: { success?: boolean; error?: string; duplicate?: boolean }
+  ) => {
+    item.inFlight = false
+    if (!reliableOutbox.has(item.key)) return
+    if (!err && response?.success) {
+      reliableOutbox.delete(item.key)
+      item.callback({ success: true, duplicate: response.duplicate })
+      return
+    }
+    if (!err && response && response.success === false) {
+      const reason = response.error ?? 'Message was rejected.'
+      const transient = reason === 'Server is offline.' || reason === 'You are not a member of this server.'
+      if (transient && item.attempts + 1 < MAX_RELIABLE_ATTEMPTS) {
+        item.attempts += 1
+        setTimeout(() => dispatchReliable(item), Math.min(2000 * item.attempts, 6000))
+        return
+      }
+      reliableOutbox.delete(item.key)
+      item.callback({ success: false, error: reason })
+      return
+    }
+
+    if (!target?.connected) return
+    item.attempts += 1
+    if (item.attempts >= MAX_RELIABLE_ATTEMPTS) {
+      reliableOutbox.delete(item.key)
+      item.callback({ success: false, error: 'Delivery was not acknowledged.' })
+      return
+    }
+    setTimeout(() => dispatchReliable(item), Math.min(1500 * item.attempts, 5000))
+  })
+}
+
+function flushReliableOutbox(hostUrl?: string): void {
+  const normalized = hostUrl ? normalizeUrl(hostUrl) : null
+  for (const item of reliableOutbox.values()) {
+    if (!normalized || item.targetUrl === normalized) dispatchReliable(item)
+  }
+}
+
 export function connectToSignaling(serverUrl: string, userId: string): Promise<void> {
   const normalizedUrl = normalizeUrl(serverUrl)
   // Prevent duplicate connections
@@ -502,13 +699,33 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
   }
 
   isConnecting = true
-  currentUrl = normalizedUrl
-  currentUserId = userId
   clearReconnectTimer()
 
   if (socket) {
-    disconnectPrimarySocketForSwitch(false)
+    const isSwitch = normalizeUrl(currentUrl) !== normalizedUrl || currentUserId !== userId
+    if (isSwitch) {
+      disconnectPrimarySocketForSwitch(false)
+    } else {
+      // A reconnect replaces the old socket object, but must retain host
+      // affinity and connection history for recovery.
+      const stale = socket
+      try {
+        stale.removeAllListeners()
+        stale.disconnect()
+      } catch { /* ignore */ }
+      socket = null
+    }
   }
+
+  currentUrl = normalizedUrl
+  currentUserId = userId
+  const existingState = hostConnectionStates.get(normalizedUrl)
+  updateHostState(normalizedUrl, 'primary', {
+    state: existingState?.attempt ? 'reconnecting' : 'connecting',
+    retryAt: null,
+    reason: null,
+    error: null
+  })
 
   socket = io(normalizedUrl, {
     transports: ['websocket'],
@@ -522,6 +739,14 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
     clearReconnectTimer()
     reconnectAttempts = 0
     sendToRenderer('signaling:reconnect-status', { state: 'connected' })
+    updateHostState(normalizedUrl, 'primary', {
+      state: 'connected',
+      attempt: 0,
+      retryAt: null,
+      lastConnectedAt: Date.now(),
+      reason: null,
+      error: null
+    })
     socket!.emit('register-user', userId)
     socket!.emit('connection-role', 'primary')
     replaySocialState(socket!)
@@ -537,6 +762,7 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
     }
     sendToRenderer('signaling:connected')
     sendToRenderer('signaling:hosts-changed', listHostUrls())
+    setTimeout(() => flushReliableOutbox(normalizedUrl), 700)
   })
 
   socket.on('disconnect', (reason) => {
@@ -547,8 +773,15 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
     isConnecting = false
     connectingPromise = null
     sendToRenderer('signaling:disconnected', reason)
-    forgetHost(normalizeUrl(currentUrl))
-    voiceUdp.removeHost(currentUrl)
+    forgetHost(normalizedUrl, false)
+    voiceUdp.removeHost(normalizedUrl)
+    updateHostState(normalizedUrl, 'primary', {
+      state: 'reconnecting',
+      retryAt: Date.now() + 1000,
+      lastDisconnectedAt: Date.now(),
+      reason,
+      error: null
+    })
     sendToRenderer('signaling:hosts-changed', listHostUrls())
     tryReconnect()
   })
@@ -557,6 +790,10 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
     isConnecting = false
     connectingPromise = null
     sendToRenderer('signaling:error', err.message)
+    updateHostState(normalizedUrl, 'primary', {
+      state: reconnectAttempts >= 5 ? 'offline' : 'reconnecting',
+      error: err.message
+    })
     // A socket that never connected fires connect_error, NOT disconnect —
     // without retrying here, an app started before the signaling host was
     // up stayed offline forever.
@@ -699,7 +936,14 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
       intentionalDisconnects.add(activeSocket)
       try { activeSocket.disconnect() } catch { /* ignore */ }
       if (socket === activeSocket) socket = null
-      cleanupHostRoute(normalizedUrl)
+      forgetHost(normalizedUrl, false)
+      voiceUdp.removeHost(normalizedUrl)
+      sendToRenderer('signaling:hosts-changed', listHostUrls())
+      updateHostState(normalizedUrl, 'primary', {
+        state: reconnectAttempts >= 5 ? 'offline' : 'reconnecting',
+        error: err.message,
+        reason: 'timeout'
+      })
       sendToRenderer('signaling:error', err.message)
       tryReconnect()
       reject(err)
@@ -734,6 +978,11 @@ function tryReconnect(): void {
   sendToRenderer('signaling:reconnect-status', { state: 'reconnecting', attempt: reconnectAttempts, max: null })
 
   const delay = Math.min(5000 * reconnectAttempts, 30000)
+  updateHostState(currentUrl, 'primary', {
+    state: reconnectAttempts >= 5 ? 'offline' : 'reconnecting',
+    attempt: reconnectAttempts,
+    retryAt: Date.now() + delay
+  })
   reconnectTimer = setTimeout(() => {
     if (socket?.connected) return
     connectToSignaling(currentUrl, currentUserId).catch(() => {})
@@ -755,8 +1004,9 @@ export function emitSignaling(event: string, ...args: unknown[]): void {
   const route = routeForEvent(event, args)
   if (route) {
     const routeUrl = normalizeUrl(route.url)
-    if (socket?.connected && normalizeUrl(currentUrl) === routeUrl && currentUserId === route.userId) {
-      emitOnSocket(socket, event, args)
+    const existing = socketForHostUrl(routeUrl)
+    if (existing) {
+      emitOnSocket(existing, event, args)
       return
     }
     emitOnSocket(auxiliarySocketFor(routeUrl, route.userId), event, args)
@@ -804,6 +1054,29 @@ export function emitSignalingWithAck(
   else socket.emit(event, arg, cb)
 }
 
+export function emitReliableSignaling(
+  event: string,
+  arg: unknown,
+  key: string,
+  callback: (response: { success: boolean; error?: string; duplicate?: boolean }) => void
+): { queued: boolean } {
+  const route = routeForEvent(event, [arg])
+  const targetUrl = normalizeUrl(route?.url || currentUrl)
+  const item: ReliableEmit = {
+    key,
+    event,
+    arg,
+    targetUrl,
+    attempts: 0,
+    inFlight: false,
+    callback
+  }
+  reliableOutbox.set(key, item)
+  dispatchReliable(item)
+  const target = socketForHostUrl(targetUrl)
+  return { queued: !target?.connected }
+}
+
 export function emitVoiceUdpAudio(roomId: string, meta: unknown, payload: unknown): void {
   if (!currentUserId) return
   const targetUrl = voiceUdpTargetUrl(roomId)
@@ -821,7 +1094,7 @@ export function emitVoiceUdpPing(roomId: string, sentAt: number): void {
 }
 
 export function isConnected(): boolean {
-  return socket?.connected ?? false
+  return Boolean(socket?.connected || [...secondaryHosts.values()].some((candidate) => candidate.connected))
 }
 
 export function getSocketId(): string | null {

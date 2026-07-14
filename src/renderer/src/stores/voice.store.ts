@@ -41,6 +41,7 @@ interface VoiceStore {
   participants: VoiceParticipant[]
   remoteStreams: Map<string, MediaStream>
   streamingUsers: Set<string>   // userIds currently streaming video/screen
+  pausedStreamUsers: Set<string> // live streams whose window/tab source is currently paused
   localMediaStream: MediaStream | null // reactive handle to self-preview stream
   isMuted: boolean
   isDeafened: boolean
@@ -65,6 +66,7 @@ interface VoiceStore {
 
   joinRoom: (serverId: string, channelId?: string | null) => Promise<void>
   leaveRoom: () => void
+  restoreAfterReconnect: () => void
   addParticipant: (participant: VoiceParticipant) => void
   removeParticipant: (userId: string) => void
   setRemoteStream: (userId: string, stream: MediaStream) => void
@@ -75,6 +77,8 @@ interface VoiceStore {
 
   // Streaming state
   setStreaming: (userId: string, streaming: boolean) => void
+  setStreamPaused: (userId: string, paused: boolean) => void
+  setLocalStreamPaused: (paused: boolean) => void
   setStreamQuality: (quality: StreamQuality) => void
   startStreamFromSource: (source: StreamSource, quality: StreamQuality) => Promise<void>
   stopStream: () => void
@@ -136,6 +140,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   participants: [],
   remoteStreams: new Map(),
   streamingUsers: new Set(),
+  pausedStreamUsers: new Set(),
   localMediaStream: null,
   isMuted: false,
   isDeafened: false,
@@ -213,7 +218,8 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       // previous channel must not leak into the new one's sidebar list.
       participants: [self],
       remoteStreams: new Map(),
-      streamingUsers: new Set()
+      streamingUsers: new Set(),
+      pausedStreamUsers: new Set()
     })
     setLocalVoiceOccupant(serverId, nextChannelId, identity)
 
@@ -272,6 +278,22 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     if (!isSwitching) playVoiceSelfJoin()
   },
 
+  restoreAfterReconnect: () => {
+    const state = get()
+    if (!state.isConnected || !state.currentServerId) return
+    const roomId = voiceRoomId(state.currentServerId, state.currentChannelId) ?? `voice:${state.currentServerId}:legacy`
+    window.api.signaling.emit('join-room', roomId)
+
+    const selfId = useIdentityStore.getState().identity?.userId
+    if (selfId && (state.isScreenSharing || state.isCameraOn) && state.currentStreamSource) {
+      window.api.signaling.emit('stream:start', state.currentServerId, {
+        userId: selfId,
+        kind: state.currentStreamSource.kind,
+        paused: state.pausedStreamUsers.has(selfId)
+      })
+    }
+  },
+
   leaveRoom: () => {
     const state = get()
     const identity = useIdentityStore.getState().identity
@@ -294,6 +316,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       participants: [],
       remoteStreams: new Map(),
       streamingUsers: new Set(),
+      pausedStreamUsers: new Set(),
       localMediaStream: null,
       isMuted: false,
       isDeafened: false,
@@ -321,10 +344,13 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       remoteStreams.delete(userId)
       const streamingUsers = new Set(s.streamingUsers)
       streamingUsers.delete(userId)
+      const pausedStreamUsers = new Set(s.pausedStreamUsers)
+      pausedStreamUsers.delete(userId)
       return {
         participants: s.participants.filter((p) => p.userId !== userId),
         remoteStreams,
-        streamingUsers
+        streamingUsers,
+        pausedStreamUsers
       }
     })
   },
@@ -375,10 +401,12 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
 
       const streamingUsers = new Set(s.streamingUsers)
       streamingUsers.delete(userId)
+      const pausedStreamUsers = new Set(s.pausedStreamUsers)
+      pausedStreamUsers.delete(userId)
       const participants = s.participants.map((p) =>
         p.userId === userId ? { ...p, isScreenSharing: false, isCameraOn: false } : p
       )
-      return { remoteStreams, streamingUsers, participants }
+      return { remoteStreams, streamingUsers, pausedStreamUsers, participants }
     })
   },
 
@@ -434,12 +462,35 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       const streamingUsers = new Set(s.streamingUsers)
       if (streaming) streamingUsers.add(userId)
       else streamingUsers.delete(userId)
+      const pausedStreamUsers = new Set(s.pausedStreamUsers)
+      if (!streaming) pausedStreamUsers.delete(userId)
       // Mirror onto the participant record's isScreenSharing flag for the side panel
       const participants = s.participants.map((p) =>
         p.userId === userId ? { ...p, isScreenSharing: streaming } : p
       )
-      return { streamingUsers, participants }
+      return { streamingUsers, pausedStreamUsers, participants }
     })
+  },
+
+  setStreamPaused: (userId, paused) => {
+    set((s) => {
+      const pausedStreamUsers = new Set(s.pausedStreamUsers)
+      if (paused) pausedStreamUsers.add(userId)
+      else pausedStreamUsers.delete(userId)
+      return { pausedStreamUsers }
+    })
+  },
+
+  setLocalStreamPaused: (paused) => {
+    const selfId = useIdentityStore.getState().identity?.userId
+    const serverId = get().currentServerId
+    if (!selfId || !serverId) return
+    const state = get()
+    if (!state.isScreenSharing || state.currentStreamSource?.kind !== 'window') return
+    const alreadyPaused = state.pausedStreamUsers.has(selfId)
+    if (alreadyPaused === paused) return
+    get().setStreamPaused(selfId, paused)
+    window.api.signaling.emit('stream:pause', serverId, { userId: selfId, paused })
   },
 
   setStreamQuality: (quality) => set({ streamQuality: quality }),
@@ -458,6 +509,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     }
     mediaEngine.stopVideo()
     set({ localMediaStream: null, isScreenSharing: false, isCameraOn: false })
+    if (selfId) get().setStreamPaused(selfId, false)
 
     // Encoder bitrate scales with the chosen quality.
     const videoBitrate = quality === 'HD' ? 6_000_000 : 2_500_000
@@ -511,7 +563,8 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
         }
       })
       await mediaEngine.attachVideoStream(stream, 'screen', videoBitrate)
-      stream.getVideoTracks()[0]?.addEventListener('ended', () => {
+      const videoTrack = stream.getVideoTracks()[0]
+      videoTrack?.addEventListener('ended', () => {
         get().stopStream()
       })
       set({
@@ -523,6 +576,14 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
         previewVisible: true
       })
       if (selfId) get().setStreaming(selfId, true)
+      if (source.kind === 'window' && videoTrack) {
+        const setPausedFromTrack = (paused: boolean): void => {
+          get().setLocalStreamPaused(paused)
+        }
+        videoTrack.addEventListener('mute', () => setPausedFromTrack(true))
+        videoTrack.addEventListener('unmute', () => setPausedFromTrack(false))
+        setPausedFromTrack(videoTrack.muted)
+      }
     }
 
     // Notify peers so they can render a LIVE badge even before media tracks arrive
@@ -530,7 +591,8 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     if (serverId && selfId) {
       window.api.signaling.emit('stream:start', serverId, {
         userId: selfId,
-        kind: source.kind
+        kind: source.kind,
+        paused: selfId ? get().pausedStreamUsers.has(selfId) : false
       })
     }
     playStreamStart()

@@ -908,6 +908,10 @@ export function insertServerMessage(msg: ServerMessageRow): void {
   getDb().prepare('INSERT OR REPLACE INTO server_messages (id, server_id, sender_id, sender_name, content, timestamp, status, file_id, file_name, file_size, file_type, file_path, channel_id, reply_to_id, reply_to_sender_name, reply_to_content) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(msg.id, msg.serverId, msg.senderId, msg.senderName, msg.content, msg.timestamp, msg.status, msg.fileId, msg.fileName, msg.fileSize, msg.fileType, msg.filePath, msg.channelId ?? null, msg.replyToId ?? null, msg.replyToSenderName ?? null, msg.replyToContent ?? null)
 }
 
+export function updateServerMessageStatus(id: string, status: string): void {
+  getDb().prepare('UPDATE server_messages SET status = ? WHERE id = ?').run(status, id)
+}
+
 export function getServerMessagesByChannel(serverId: string, channelId: string, limit = 50, before?: number): ServerMessageRow[] {
   const d = getDb()
   if (before) {

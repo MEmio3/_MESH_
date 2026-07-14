@@ -24,7 +24,7 @@ export interface Message {
   senderName: string
   content: string
   timestamp: number
-  status: 'sending' | 'sent' | 'delivered' | 'read'
+  status: 'sending' | 'sent' | 'delivered' | 'read' | 'failed'
   file?: FileAttachment | null
   editedAt?: number | null
   isDeleted?: boolean

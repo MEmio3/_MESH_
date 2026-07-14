@@ -736,7 +736,7 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
         if (idx === -1) return conv
         const messages = conv.messages.slice()
         // Status only ever progresses: sending → sent → delivered → read.
-        const rank: Record<Message['status'], number> = { sending: 0, sent: 1, delivered: 2, read: 3 }
+        const rank: Record<Message['status'], number> = { failed: -1, sending: 0, sent: 1, delivered: 2, read: 3 }
         if (rank[status] <= rank[messages[idx].status]) return conv
         messages[idx] = { ...messages[idx], status }
         const lastMessage = conv.lastMessage && conv.lastMessage.id === messageId

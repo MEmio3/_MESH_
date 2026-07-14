@@ -319,7 +319,7 @@ export const useServersStore = create<ServersStore>((set, get) => ({
         senderName: identity.username,
         content,
         timestamp: Date.now(),
-        status: 'sent',
+        status: 'sending',
         channelId: channelId ?? null,
         replyTo: replyTo ?? null
       }
@@ -381,7 +381,7 @@ export const useServersStore = create<ServersStore>((set, get) => ({
         senderName: identity.username,
         content: `[File: ${file.fileName}]`,
         timestamp: Date.now(),
-        status: 'sent',
+        status: 'sending',
         channelId: channelId ?? null,
         file
       }
@@ -935,6 +935,25 @@ export const useServersStore = create<ServersStore>((set, get) => ({
       }
     }))
 
+    unsubs.push(window.api.signaling.onServerEvent('message-status', (payload) => {
+      const p = payload as {
+        serverId?: string
+        messageId?: string
+        status?: 'delivered' | 'failed'
+        error?: string | null
+      }
+      if (!p.serverId || !p.messageId || !p.status) return
+      set((s) => ({
+        serverMessages: {
+          ...s.serverMessages,
+          [p.serverId!]: (s.serverMessages[p.serverId!] || []).map((message) =>
+            message.id === p.messageId ? { ...message, status: p.status! } : message
+          )
+        },
+        lastError: p.status === 'failed' ? (p.error || 'Message delivery failed.') : s.lastError
+      }))
+    }))
+
     unsubs.push(window.api.signaling.onServerEvent('member-muted', async (payload) => {
       const p = payload as { serverId: string; userId: string; mute: boolean }
       await window.api.server.applyModeration({ serverId: p.serverId, kind: 'mute', targetId: p.userId, mute: p.mute })
@@ -1133,14 +1152,27 @@ export const useServersStore = create<ServersStore>((set, get) => ({
     }))
 
     unsubs.push(window.api.signaling.onServerEvent('stream-start', async (payload) => {
-      const p = payload as { serverId?: string; userId?: string; channelId?: string }
+      const p = payload as { serverId?: string; userId?: string; channelId?: string; paused?: boolean }
       if (!p.serverId || !p.userId) return
       const { useVoiceStore } = await import('./voice.store')
       const vs = useVoiceStore.getState()
       const currentChannel = vs.currentChannelId ?? 'legacy'
       if (vs.isConnected && vs.currentServerId === p.serverId && (!p.channelId || p.channelId === currentChannel)) {
         vs.setStreaming(p.userId, true)
+        vs.setStreamPaused(p.userId, !!p.paused)
         mediaEngine.requestKeyframe(p.userId)
+      }
+    }))
+
+    unsubs.push(window.api.signaling.onServerEvent('stream-pause', async (payload) => {
+      const p = payload as { serverId?: string; userId?: string; channelId?: string; paused?: boolean }
+      if (!p.serverId || !p.userId) return
+      const { useVoiceStore } = await import('./voice.store')
+      const vs = useVoiceStore.getState()
+      const currentChannel = vs.currentChannelId ?? 'legacy'
+      if (vs.isConnected && vs.currentServerId === p.serverId && (!p.channelId || p.channelId === currentChannel)) {
+        vs.setStreamPaused(p.userId, !!p.paused)
+        if (!p.paused) mediaEngine.requestKeyframe(p.userId)
       }
     }))
 

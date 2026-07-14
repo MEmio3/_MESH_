@@ -58,6 +58,18 @@ interface ProbeRow {
   loading?: boolean
 }
 
+interface HostConnectionStatus {
+  url: string
+  role: 'primary' | 'secondary'
+  state: 'connecting' | 'connected' | 'reconnecting' | 'offline'
+  attempt: number
+  retryAt: number | null
+  lastConnectedAt: number | null
+  lastDisconnectedAt: number | null
+  reason: string | null
+  error: string | null
+}
+
 interface NetworkScanResult {
   signature: {
     localIp: string | null
@@ -144,7 +156,7 @@ function NetworkCenterPage(): JSX.Element {
   const [showDiagnostics, setShowDiagnostics] = useState(false)
   // Every host we're attached to at once (primary + any additional). A
   // non-hoster can join several hosts and reach people on all of them.
-  const [connectedHosts, setConnectedHosts] = useState<string[]>([])
+  const [hostConnections, setHostConnections] = useState<HostConnectionStatus[]>([])
 
   const activeUrl = normalizeNetworkUrl(network.signalingUrl || 'http://localhost:3000')
   const hostedServers = servers.filter((server) => server.role === 'host')
@@ -245,6 +257,33 @@ function NetworkCenterPage(): JSX.Element {
     }
   }
 
+  async function copyDiagnosticReport(): Promise<void> {
+    const report = {
+      generatedAt: new Date().toISOString(),
+      primaryHost: activeUrl,
+      connections: hostConnections,
+      hosting: {
+        running: hostStatus.running,
+        ports: hostStatus.ports ?? (hostStatus.running ? [hostStatus.port] : []),
+        error: hostStatus.error
+      },
+      relay: relayStatus ? {
+        running: relayStatus.running,
+        scope: relayStatus.scope,
+        connections: relayStatus.connections,
+        remoteRelays: remoteRelays.length,
+        error: relayStatus.error
+      } : null,
+      network: netSig ? {
+        behindCgnat: netSig.interpretation.behindCgnat,
+        directlyReachable: netSig.interpretation.directlyReachable,
+        explanation: netSig.interpretation.explanation
+      } : null
+    }
+    await navigator.clipboard.writeText(JSON.stringify(report, null, 2))
+    setNotice('Connection diagnostic report copied. It contains no messages, passwords, or private keys.')
+  }
+
   useEffect(() => {
     setUrlDraft(activeUrl)
   }, [activeUrl])
@@ -254,13 +293,16 @@ function NetworkCenterPage(): JSX.Element {
   }, [savedHostPort, hostStatus.running])
 
   useEffect(() => {
-    window.api.signaling.listHosts().then(setConnectedHosts).catch(() => {})
-    return window.api.signaling.onHostsChanged(setConnectedHosts)
+    window.api.signaling.listHostStatuses().then(setHostConnections).catch(() => {})
+    return window.api.signaling.onHostStatusesChanged(setHostConnections)
   }, [])
 
   // Additional hosts beyond the active/primary one.
-  const secondaryHosts = connectedHosts.filter(
-    (h) => normalizeNetworkUrl(h).toLowerCase() !== activeUrl.toLowerCase()
+  const secondaryHosts = hostConnections.filter(
+    (host) => host.role === 'secondary' && normalizeNetworkUrl(host.url).toLowerCase() !== activeUrl.toLowerCase()
+  )
+  const primaryConnection = hostConnections.find(
+    (host) => host.role === 'primary' && normalizeNetworkUrl(host.url).toLowerCase() === activeUrl.toLowerCase()
   )
 
   useEffect(() => {
@@ -344,7 +386,7 @@ function NetworkCenterPage(): JSX.Element {
     if (!identity) { setNotice('Create your profile first, then connect.'); return }
     const url = normalizeNetworkUrl(resolveConnectionInput(urlInput))
     if (!url) { setNotice('Enter a MESH code or IP:port to add.'); return }
-    if (url.toLowerCase() === activeUrl.toLowerCase() || secondaryHosts.some((h) => normalizeNetworkUrl(h).toLowerCase() === url.toLowerCase())) {
+    if (url.toLowerCase() === activeUrl.toLowerCase() || secondaryHosts.some((h) => normalizeNetworkUrl(h.url).toLowerCase() === url.toLowerCase())) {
       setNotice(`Already connected to ${hostFromUrl(url)}.`)
       return
     }
@@ -563,14 +605,18 @@ function NetworkCenterPage(): JSX.Element {
     }))
   }
 
-  const connectionLabel = reconnectState === 'connecting'
-    ? 'Connecting'
-    : isConnected
-      ? 'Connected'
-      : 'Offline'
-  const connectionTone = reconnectState === 'connecting'
+  const connectionLabel = primaryConnection?.state === 'reconnecting'
+    ? 'Reconnecting'
+    : primaryConnection?.state === 'offline'
+      ? 'Offline, retrying'
+      : primaryConnection?.state === 'connecting' || reconnectState === 'connecting'
+        ? 'Connecting'
+        : primaryConnection?.state === 'connected' || isConnected
+          ? 'Connected'
+          : 'Offline'
+  const connectionTone = primaryConnection?.state === 'reconnecting' || primaryConnection?.state === 'connecting'
     ? 'busy'
-    : isConnected
+    : primaryConnection?.state === 'connected' || isConnected
       ? 'online'
       : 'offline'
 
@@ -594,10 +640,16 @@ function NetworkCenterPage(): JSX.Element {
               </div>
             </div>
           </div>
-          <Button variant="secondary" onClick={refreshStatus}>
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Refresh
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" onClick={() => void copyDiagnosticReport()} title="Copy connection diagnostics">
+              <Copy className="mr-2 h-4 w-4" />
+              Copy report
+            </Button>
+            <Button variant="secondary" onClick={refreshStatus}>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Refresh
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -646,12 +698,23 @@ function NetworkCenterPage(): JSX.Element {
                   <span className="text-[11px] text-mesh-text-muted">{secondaryHosts.length}</span>
                 </div>
                 <div className="space-y-1.5">
-                  {secondaryHosts.map((h) => (
-                    <div key={h} className="flex items-center gap-2.5 rounded-md border border-mesh-border/60 bg-mesh-bg-primary/65 px-3 py-1.5">
-                      <StatusDot tone="online" />
-                      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-mesh-text-primary">{hostFromUrl(h)}</span>
+                  {secondaryHosts.map((host) => (
+                    <div key={host.url} className="flex items-center gap-2.5 rounded-md border border-mesh-border/60 bg-mesh-bg-primary/65 px-3 py-2">
+                      <StatusDot tone={host.state === 'connected' ? 'online' : host.state === 'offline' ? 'offline' : 'busy'} />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-mono text-[11px] text-mesh-text-primary">{hostFromUrl(host.url)}</div>
+                        <div className="mt-0.5 truncate text-[10px] text-mesh-text-muted" title={host.error || host.reason || undefined}>
+                          {host.state === 'connected'
+                            ? 'Connected'
+                            : host.state === 'connecting'
+                              ? 'Connecting'
+                              : host.state === 'reconnecting'
+                                ? `Reconnecting${host.attempt ? `, attempt ${host.attempt}` : ''}`
+                                : `Offline, retrying automatically${host.attempt ? ` (attempt ${host.attempt})` : ''}`}
+                        </div>
+                      </div>
                       <button
-                        onClick={() => removeHost(h)}
+                        onClick={() => removeHost(host.url)}
                         className="text-[11px] text-mesh-danger/80 transition-colors hover:text-mesh-danger"
                       >
                         Disconnect

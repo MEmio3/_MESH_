@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { X, Minimize2, Maximize2, Square, Eye } from 'lucide-react'
+import { X, Minimize2, Maximize2, Square, Eye, PauseCircle } from 'lucide-react'
 import { useVoiceStore } from '@/stores/voice.store'
+import { useIdentityStore } from '@/stores/identity.store'
 import { cn } from '@/lib/utils'
 
 /**
@@ -20,12 +21,14 @@ function SelfPreviewPiP(): JSX.Element | null {
   const localMediaStream = useVoiceStore((s) => s.localMediaStream)
   const previewVisible = useVoiceStore((s) => s.previewVisible)
   const currentStreamSource = useVoiceStore((s) => s.currentStreamSource)
+  const pausedStreamUsers = useVoiceStore((s) => s.pausedStreamUsers)
   const hidePreview = useVoiceStore((s) => s.hidePreview)
   const showPreview = useVoiceStore((s) => s.showPreview)
   const stopStream = useVoiceStore((s) => s.stopStream)
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const [collapsed, setCollapsed] = useState(false)
+  const selfId = useIdentityStore((s) => s.identity?.userId)
   const [pos, setPos] = useState<{ x: number; y: number }>(() => ({
     x: typeof window !== 'undefined' ? window.innerWidth - 340 : 20,
     y: typeof window !== 'undefined' ? window.innerHeight - 240 : 20
@@ -91,6 +94,7 @@ function SelfPreviewPiP(): JSX.Element | null {
           : 'Stream'
 
   const isCamera = currentStreamSource?.kind === 'camera'
+  const isPaused = selfId ? pausedStreamUsers.has(selfId) : false
 
   // When hidden: show a compact pill so the user can bring the preview back.
   if (!previewVisible) {
@@ -101,9 +105,14 @@ function SelfPreviewPiP(): JSX.Element | null {
         className="fixed z-[150] bottom-4 right-4 flex items-center gap-2 rounded-full bg-black/85 hover:bg-black border border-mesh-border px-3 py-2 text-xs font-semibold text-white shadow-xl"
         title="Show self preview"
       >
-        <span className="inline-flex items-center gap-1 rounded bg-red-500 px-1.5 py-0.5 text-[9px] font-bold uppercase leading-none">
-          <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
-          Live
+        <span
+          className={cn(
+            'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase leading-none',
+            isPaused ? 'bg-amber-400 text-black' : 'bg-red-500 text-white'
+          )}
+        >
+          <span className={cn('h-1.5 w-1.5 rounded-full', isPaused ? 'bg-black/70' : 'animate-pulse bg-white')} />
+          {isPaused ? 'Paused' : 'Live'}
         </span>
         <Eye className="h-3.5 w-3.5" />
         Show preview
@@ -128,9 +137,14 @@ function SelfPreviewPiP(): JSX.Element | null {
         onPointerUp={onHeaderPointerUp}
       >
         <div className="flex items-center gap-1.5 min-w-0 pointer-events-none">
-          <span className="inline-flex items-center gap-1 rounded bg-red-500 px-1.5 py-0.5 text-[9px] font-bold uppercase leading-none text-white">
-            <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
-            Live
+          <span
+            className={cn(
+              'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase leading-none',
+              isPaused ? 'bg-amber-400 text-black' : 'bg-red-500 text-white'
+            )}
+          >
+            <span className={cn('h-1.5 w-1.5 rounded-full', isPaused ? 'bg-black/70' : 'animate-pulse bg-white')} />
+            {isPaused ? 'Paused' : 'Live'}
           </span>
           <span className="text-xs text-mesh-text-secondary truncate">{kindLabel} preview</span>
         </div>
@@ -166,10 +180,19 @@ function SelfPreviewPiP(): JSX.Element | null {
           muted
           playsInline
           className={cn(
-            'w-full h-full bg-black',
+            'w-full h-full bg-black transition-opacity',
+            isPaused && 'opacity-35',
             isCamera ? '-scale-x-100 object-cover' : 'object-contain'
           )}
         />
+        {isPaused && !collapsed && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/45 backdrop-blur-[2px]">
+            <div className="flex flex-col items-center gap-2 rounded-xl border border-white/10 bg-black/75 px-4 py-3 text-center shadow-2xl">
+              <PauseCircle className="h-7 w-7 text-amber-200" />
+              <div className="text-xs font-bold text-white">Stream Paused</div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Source hint — so users know what remote peers are seeing */}

@@ -182,7 +182,9 @@ interface SignalingAPI {
   addHost: (serverUrl: string) => Promise<{ success: boolean; hosts: string[] }>
   removeHost: (serverUrl: string) => Promise<{ success: boolean; hosts: string[] }>
   listHosts: () => Promise<string[]>
+  listHostStatuses: () => Promise<HostConnectionStatus[]>
   onHostsChanged: (cb: (hosts: string[]) => void) => () => void
+  onHostStatusesChanged: (cb: (statuses: HostConnectionStatus[]) => void) => () => void
 
   onConnected: (cb: () => void) => () => void
   onMediaAudio: (cb: (userId: string, meta: unknown, payload: ArrayBuffer) => void) => () => void
@@ -218,6 +220,18 @@ interface SignalingAPI {
   onPresenceSnapshot: (cb: (list: Array<{ userId: string; username: string; avatarColor: string | null }>, hostUrl?: string) => void) => () => void
   onStatusChanged: (cb: (payload: { userId: string; status: 'online' | 'idle' | 'offline'; lastSeen: number }) => void) => () => void
   onStatusSnapshot: (cb: (payload: Array<{ userId: string; status: 'online' | 'idle' | 'offline'; lastSeen: number }>) => void) => () => void
+}
+
+interface HostConnectionStatus {
+  url: string
+  role: 'primary' | 'secondary'
+  state: 'connecting' | 'connected' | 'reconnecting' | 'offline'
+  attempt: number
+  retryAt: number | null
+  lastConnectedAt: number | null
+  lastDisconnectedAt: number | null
+  reason: string | null
+  error: string | null
 }
 
 interface AvatarAPI {
@@ -256,7 +270,7 @@ interface ServerAPI {
   memberJoinedPersist: (p: unknown) => Promise<{ success: boolean }>
   leave: (p: { serverId: string; userId: string; destroy?: boolean }) => Promise<{ success: boolean }>
   removeLocal: (serverId: string) => Promise<{ success: boolean }>
-  sendMessage: (p: { serverId: string; senderId: string; senderName: string; content: string; channelId?: string | null; replyTo?: { messageId: string; senderName: string; content: string } | null; file?: { fileId: string; fileName: string; fileSize: number; fileType: string; base64: string; filePath?: string | null } | null }) => Promise<{ success: boolean; error?: string; messageId?: string }>
+  sendMessage: (p: { serverId: string; senderId: string; senderName: string; content: string; channelId?: string | null; replyTo?: { messageId: string; senderName: string; content: string } | null; file?: { fileId: string; fileName: string; fileSize: number; fileType: string; base64: string; filePath?: string | null } | null }) => Promise<{ success: boolean; error?: string; messageId?: string; queued?: boolean }>
   messageRemote: (p: { serverId: string; message: { id: string; senderId: string; senderName: string; content: string; timestamp: number; channelId?: string | null; replyTo?: { messageId: string; senderName: string; content: string } | null; file?: { fileId: string; fileName: string; fileSize: number; fileType: string; filePath?: string | null } | null } }) => Promise<{ success: boolean }>
   mute: (p: { serverId: string; actorId: string; targetId: string; mute: boolean }) => Promise<{ success: boolean }>
   kick: (p: { serverId: string; actorId: string; targetId: string }) => Promise<{ success: boolean }>

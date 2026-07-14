@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Maximize2 } from 'lucide-react'
+import { X, Maximize2, PauseCircle } from 'lucide-react'
 import { useVoiceStore } from '@/stores/voice.store'
 import { useIdentityStore } from '@/stores/identity.store'
 import { useServersStore } from '@/stores/servers.store'
@@ -18,6 +18,7 @@ function StreamViewerModal(): JSX.Element | null {
   const remoteStreams = useVoiceStore((s) => s.remoteStreams)
   const localMediaStream = useVoiceStore((s) => s.localMediaStream)
   const currentStreamSource = useVoiceStore((s) => s.currentStreamSource)
+  const pausedStreamUsers = useVoiceStore((s) => s.pausedStreamUsers)
   const currentServerId = useVoiceStore((s) => s.currentServerId)
   const participants = useVoiceStore((s) => s.participants)
   const selfId = useIdentityStore((s) => s.identity?.userId)
@@ -28,6 +29,7 @@ function StreamViewerModal(): JSX.Element | null {
 
   const isSelf = viewingUserId === selfId
   const stream = isSelf ? localMediaStream : viewingUserId ? remoteStreams.get(viewingUserId) ?? null : null
+  const isPaused = viewingUserId ? pausedStreamUsers.has(viewingUserId) : false
   const participant = participants.find((p) => p.userId === viewingUserId)
   const isCamera = isSelf && currentStreamSource?.kind === 'camera'
   const displayName =
@@ -83,9 +85,16 @@ function StreamViewerModal(): JSX.Element | null {
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-2.5 bg-black/80 border-b border-mesh-border/40">
               <div className="flex items-center gap-2.5">
-                <span className="inline-flex items-center gap-1.5 rounded-sm border border-mesh-danger/40 bg-black/50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider leading-none text-mesh-danger">
-                  <span className="h-1 w-1 rounded-full bg-mesh-danger animate-pulse" />
-                  Live
+                <span
+                  className={cn(
+                    'inline-flex items-center gap-1.5 rounded-sm border bg-black/50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider leading-none',
+                    isPaused
+                      ? 'border-amber-300/40 text-amber-200'
+                      : 'border-mesh-danger/40 text-mesh-danger'
+                  )}
+                >
+                  <span className={cn('h-1 w-1 rounded-full', isPaused ? 'bg-amber-300' : 'animate-pulse bg-mesh-danger')} />
+                  {isPaused ? 'Paused' : 'Live'}
                 </span>
                 <span className="text-sm font-semibold text-white truncate">
                   {displayName}
@@ -111,10 +120,24 @@ function StreamViewerModal(): JSX.Element | null {
                 playsInline
                 muted
                 className={cn(
-                  'w-full h-full bg-black',
+                  'w-full h-full bg-black transition-opacity',
+                  isPaused && 'opacity-35',
                   isCamera ? '-scale-x-100 object-contain' : 'object-contain'
                 )}
               />
+              {isPaused && (
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/45 backdrop-blur-[2px]">
+                  <div className="flex flex-col items-center gap-3 rounded-2xl border border-white/10 bg-black/75 px-6 py-5 text-center shadow-2xl">
+                    <PauseCircle className="h-10 w-10 text-amber-200" />
+                    <div>
+                      <div className="text-base font-bold text-white">Stream Paused</div>
+                      <div className="mt-1 max-w-xs text-xs text-white/55">
+                        Waiting for the shared window to come back into focus.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
               {!stream && (
                 <div className="absolute inset-0 flex items-center justify-center">
                   <span className="text-sm text-white/60">
