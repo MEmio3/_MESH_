@@ -1,4 +1,4 @@
-import { Phone, Video, Search, UserRound } from 'lucide-react'
+import { Phone, Pin, Search, UserRound, Video } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { UserAvatar } from '@/components/ui/UserAvatar'
 import { Tooltip } from '@/components/ui/Tooltip'
@@ -10,9 +10,11 @@ interface ChatHeaderProps {
   conversation: Conversation
   profileOpen?: boolean
   onToggleProfile?: () => void
+  toolMode?: 'search' | 'pins' | null
+  onOpenTools?: (mode: 'search' | 'pins') => void
 }
 
-function ChatHeader({ conversation, profileOpen, onToggleProfile }: ChatHeaderProps): JSX.Element {
+function ChatHeader({ conversation, profileOpen, onToggleProfile, toolMode, onOpenTools }: ChatHeaderProps): JSX.Element {
   const startOutgoing = useCallStore((s) => s.startOutgoing)
   const status = useLiveStatus(conversation.recipientId, 'offline')
   return (
@@ -51,8 +53,25 @@ function ChatHeader({ conversation, profileOpen, onToggleProfile }: ChatHeaderPr
           </button>
         </Tooltip>
         <Tooltip content="Search" side="bottom">
-          <button className="mesh-icon-button mesh-icon-search h-8 w-8 rounded-md flex items-center justify-center text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary transition-colors">
+          <button
+            onClick={() => onOpenTools?.('search')}
+            className={cn(
+              'mesh-icon-button mesh-icon-search h-8 w-8 rounded-md flex items-center justify-center transition-colors',
+              toolMode === 'search' ? 'bg-mesh-bg-tertiary text-mesh-text-primary' : 'text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary'
+            )}
+          >
             <Search className="h-4.5 w-4.5" />
+          </button>
+        </Tooltip>
+        <Tooltip content="Pinned Messages" side="bottom">
+          <button
+            onClick={() => onOpenTools?.('pins')}
+            className={cn(
+              'mesh-icon-button h-8 w-8 rounded-md flex items-center justify-center transition-colors',
+              toolMode === 'pins' ? 'bg-mesh-bg-tertiary text-mesh-green' : 'text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary'
+            )}
+          >
+            <Pin className="h-4.5 w-4.5" />
           </button>
         </Tooltip>
         {onToggleProfile && (

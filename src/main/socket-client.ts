@@ -181,7 +181,7 @@ function replaySocialState(target: Socket): void {
 // Peer-targeted realtime events: route to the host where the peer is present.
 function targetUserIdFor(event: string, args: unknown[]): string | null {
   if (
-    event === 'dm-message' || event === 'dm-edit' || event === 'dm-delete' || event === 'dm-reaction' ||
+    event === 'dm-message' || event === 'dm-edit' || event === 'dm-delete' || event === 'dm-pin' || event === 'dm-reaction' ||
     event === 'call-invite' || event === 'call-accept' || event === 'call-reject' ||
     event === 'call-end' || event === 'call-video-state'
   ) {
@@ -229,6 +229,7 @@ const serverEvents = [
   'server:message',
   'server:message-edit',
   'server:message-delete',
+  'server:message-pin',
   'server:message-reaction',
   'server:member-muted',
   'server:member-kicked',
@@ -383,6 +384,9 @@ function attachAuxiliaryHandlers(aux: Socket, userId: string, url: string): void
   aux.on('dm-delete', (fromUserId: string, payload: unknown) => {
     sendToRenderer('signaling:dm-delete', fromUserId, payload)
   })
+  aux.on('dm-pin', (fromUserId: string, payload: unknown) => {
+    sendToRenderer('signaling:dm-pin', fromUserId, payload)
+  })
   aux.on('dm-reaction', (fromUserId: string, payload: unknown) => {
     sendToRenderer('signaling:dm-reaction', fromUserId, payload)
   })
@@ -467,6 +471,7 @@ function attachSecondaryHandlers(sock: Socket, url: string): void {
   sock.on('dm-message', (fromUserId: string, message: string) => { noteUserOnHost(fromUserId, url); fwd('dm-message', fromUserId, message) })
   sock.on('dm-edit', (fromUserId: string, payload: unknown) => fwd('dm-edit', fromUserId, payload))
   sock.on('dm-delete', (fromUserId: string, payload: unknown) => fwd('dm-delete', fromUserId, payload))
+  sock.on('dm-pin', (fromUserId: string, payload: unknown) => fwd('dm-pin', fromUserId, payload))
   sock.on('dm-reaction', (fromUserId: string, payload: unknown) => fwd('dm-reaction', fromUserId, payload))
 
   sock.on('call-invite', (fromUserId: string, callData: unknown) => { noteUserOnHost(fromUserId, url); fwd('call-invite', fromUserId, callData) })
@@ -831,6 +836,10 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
 
   socket.on('dm-delete', (fromUserId: string, payload: unknown) => {
     sendToRenderer('signaling:dm-delete', fromUserId, payload)
+  })
+
+  socket.on('dm-pin', (fromUserId: string, payload: unknown) => {
+    sendToRenderer('signaling:dm-pin', fromUserId, payload)
   })
 
   socket.on('dm-reaction', (fromUserId: string, payload: unknown) => {

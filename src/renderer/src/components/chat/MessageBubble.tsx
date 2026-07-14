@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useRef, useState } from 'react'
-import { Pencil, Reply, SmilePlus, Trash2 } from 'lucide-react'
+import { Pencil, Pin, PinOff, Reply, SmilePlus, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
 import type { Message } from '@/types/messages'
@@ -15,9 +15,11 @@ interface MessageBubbleProps {
   isGrouped: boolean
   isOwnMessage: boolean
   canDelete?: boolean
+  canPin?: boolean
   onEdit?: (messageId: string, newContent: string) => void
   onDelete?: (messageId: string) => void
   onToggleReaction?: (messageId: string, emojiId: string) => void
+  onTogglePin?: (messageId: string, pinned: boolean) => void
   onReply?: (message: Message) => void
   onJumpToMessage?: (messageId: string) => void
 }
@@ -117,7 +119,9 @@ function MessageActionBar({
   onReply,
   onEdit,
   onDelete,
-  onToggleReaction
+  onToggleReaction,
+  onTogglePin,
+  canPin
 }: {
   message: Message
   canEdit: boolean
@@ -126,6 +130,8 @@ function MessageActionBar({
   onEdit: () => void
   onDelete: () => void
   onToggleReaction?: (messageId: string, emojiId: string) => void
+  onTogglePin?: (messageId: string, pinned: boolean) => void
+  canPin: boolean
 }): JSX.Element | null {
   const [showPicker, setShowPicker] = useState(false)
   const pickerBtnRef = useRef<HTMLButtonElement>(null)
@@ -154,6 +160,14 @@ function MessageActionBar({
             />
           )}
         </div>
+      )}
+      {canPin && onTogglePin && (
+        <ActionButton
+          onClick={() => onTogglePin(message.id, !message.isPinned)}
+          title={message.isPinned ? 'Unpin Message' : 'Pin Message'}
+        >
+          {message.isPinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+        </ActionButton>
       )}
       {canEdit && (
         <ActionButton onClick={onEdit} title="Edit Message">
@@ -209,7 +223,7 @@ function ReplyQuote({
   )
 }
 
-function MessageBubble({ message, isGrouped, isOwnMessage, canDelete, onEdit, onDelete, onToggleReaction, onReply, onJumpToMessage }: MessageBubbleProps): JSX.Element {
+function MessageBubble({ message, isGrouped, isOwnMessage, canDelete, canPin, onEdit, onDelete, onToggleReaction, onTogglePin, onReply, onJumpToMessage }: MessageBubbleProps): JSX.Element {
   const [isEditing, setIsEditing] = useState(false)
   const selfId = useIdentityStore((s) => s.identity?.userId)
   const selfAvatar = useAvatarStore((s) => s.self)
@@ -293,6 +307,8 @@ function MessageBubble({ message, isGrouped, isOwnMessage, canDelete, onEdit, on
       onEdit={() => setIsEditing(true)}
       onDelete={commitDelete}
       onToggleReaction={onToggleReaction}
+      onTogglePin={onTogglePin}
+      canPin={canPin ?? !!onTogglePin}
     />
   )
 
@@ -338,6 +354,11 @@ function MessageBubble({ message, isGrouped, isOwnMessage, canDelete, onEdit, on
           <span className="shrink-0 text-[10px] text-mesh-text-muted">
             {formatFullTime(message.timestamp)}
           </span>
+          {message.isPinned && (
+            <span className="inline-flex items-center text-mesh-green" title="Pinned message">
+              <Pin className="h-3 w-3 fill-current/20" />
+            </span>
+          )}
         </div>
         {renderBody()}
         {!message.isDeleted && message.reactions && selfId && onToggleReaction && (

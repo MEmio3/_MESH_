@@ -5,7 +5,7 @@ import { ChevronDown, MessageCircle, Sparkles } from 'lucide-react'
 import { useIdentityStore } from '@/stores/identity.store'
 import { useFriendsStore } from '@/stores/friends.store'
 import { useServersStore } from '@/stores/servers.store'
-import { useCallback, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 
 interface MessageFeedProps {
   messages: Message[]
@@ -13,7 +13,11 @@ interface MessageFeedProps {
   onEditMessage?: (messageId: string, newContent: string) => void
   onDeleteMessage?: (messageId: string) => void
   onToggleReaction?: (messageId: string, emojiId: string) => void
+  onTogglePin?: (messageId: string, pinned: boolean) => void
   onReply?: (msg: Message) => void
+  canPinMessage?: (msg: Message) => boolean
+  focusMessageId?: string | null
+  onFocusConsumed?: () => void
   /**
    * Predicate: can the local user delete this specific message?
    * Default is sender-only (handled inside MessageBubble).
@@ -62,7 +66,7 @@ function resolveMessagesWithNames(messages: Message[], namesByUserId: Map<string
   })
 }
 
-function MessageFeed({ messages, recipientName: _recipientName, onEditMessage, onDeleteMessage, onToggleReaction, onReply, canDeleteMessage }: MessageFeedProps): JSX.Element {
+function MessageFeed({ messages, recipientName: _recipientName, onEditMessage, onDeleteMessage, onToggleReaction, onTogglePin, onReply, canDeleteMessage, canPinMessage, focusMessageId, onFocusConsumed }: MessageFeedProps): JSX.Element {
   const { containerRef, isAtBottom, scrollToBottom } = useScrollAnchor()
   const messageRefs = useRef(new Map<string, HTMLDivElement>())
   const identity = useIdentityStore((s) => s.identity)
@@ -92,6 +96,16 @@ function MessageFeed({ messages, recipientName: _recipientName, onEditMessage, o
       window.setTimeout(() => target.classList.remove('mesh-reply-target'), 1600)
     }, 80)
   }, [])
+
+  useEffect(() => {
+    if (!focusMessageId) return
+    const timeout = window.setTimeout(() => {
+      if (!messageRefs.current.has(focusMessageId)) return
+      jumpToMessage(focusMessageId)
+      onFocusConsumed?.()
+    }, 80)
+    return () => window.clearTimeout(timeout)
+  }, [displayMessages, focusMessageId, jumpToMessage, onFocusConsumed])
 
   if (displayMessages.length === 0) {
     return (
@@ -150,9 +164,11 @@ function MessageFeed({ messages, recipientName: _recipientName, onEditMessage, o
                 onEdit={onEditMessage}
                 onDelete={onDeleteMessage}
                 onToggleReaction={onToggleReaction}
+                onTogglePin={onTogglePin}
                 onReply={onReply}
                 onJumpToMessage={jumpToMessage}
                 canDelete={canDeleteMessage ? canDeleteMessage(msg) : undefined}
+                canPin={canPinMessage ? canPinMessage(msg) : undefined}
               />
             </div>
           )

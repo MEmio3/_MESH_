@@ -1354,6 +1354,10 @@ io.on('connection', (socket) => {
     deliverOrQueue(targetUserId, 'dm-delete', socket.data.userId, payload)
   })
 
+  socket.on('dm-pin', (targetUserId: string, payload: { messageId: string; pinned: boolean }) => {
+    deliverOrQueue(targetUserId, 'dm-pin', socket.data.userId, payload)
+  })
+
   // DM reactions — forward add/remove to the other party.
   socket.on('dm-reaction', (targetUserId: string, payload: { messageId: string; emojiId: string; userId: string; add: boolean }) => {
     deliverOrQueue(targetUserId, 'dm-reaction', socket.data.userId, payload)
@@ -1384,6 +1388,12 @@ io.on('connection', (socket) => {
       // Just relay and let the client handle authorization (the client already checks senderId).
     }
     io.to(roomName(payload.serverId)).emit('server:message-delete', payload)
+  })
+
+  socket.on('server:message-pin', (payload: { serverId: string; messageId: string; actorId: string; pinned: boolean }) => {
+    const entry = servers.get(payload.serverId)
+    if (!entry || !actorPermitted(entry, payload.actorId, PERM.manageMessages)) return
+    io.to(roomName(payload.serverId)).emit('server:message-pin', payload)
   })
 
   // Call signaling

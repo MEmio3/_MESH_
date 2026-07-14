@@ -56,6 +56,10 @@ const api = {
     },
     messages: {
       list: (args: { conversationId: string; limit?: number; before?: number }) => ipcRenderer.invoke('db:messages:list', args),
+      search: (args: { conversationId: string; options?: { query?: string; author?: string; kind?: 'all' | 'files' | 'images' | 'links' | 'code'; after?: number; before?: number; limit?: number } }) => ipcRenderer.invoke('db:messages:search', args),
+      pinned: (args: { conversationId: string; limit?: number }) => ipcRenderer.invoke('db:messages:pinned', args),
+      context: (args: { conversationId: string; messageId: string; radius?: number }) => ipcRenderer.invoke('db:messages:context', args),
+      setPinned: (id: string, pinned: boolean) => ipcRenderer.invoke('db:messages:set-pinned', { id, pinned }),
       send: (msg: unknown) => ipcRenderer.invoke('db:messages:send', msg),
       updateStatus: (id: string, status: string) => ipcRenderer.invoke('db:messages:update-status', { id, status }),
       edit: (id: string, content: string, editedAt: number) => ipcRenderer.invoke('db:messages:edit', { id, content, editedAt }),
@@ -73,6 +77,10 @@ const api = {
     },
     serverMessages: {
       list: (args: { serverId: string; limit?: number; before?: number }) => ipcRenderer.invoke('db:server-messages:list', args),
+      search: (args: { serverId: string; channelId?: string | null; includeLegacy?: boolean; options?: { query?: string; author?: string; kind?: 'all' | 'files' | 'images' | 'links' | 'code'; after?: number; before?: number; limit?: number } }) => ipcRenderer.invoke('db:server-messages:search', args),
+      pinned: (args: { serverId: string; channelId?: string | null; includeLegacy?: boolean; limit?: number }) => ipcRenderer.invoke('db:server-messages:pinned', args),
+      context: (args: { serverId: string; messageId: string; channelId?: string | null; includeLegacy?: boolean; radius?: number }) => ipcRenderer.invoke('db:server-messages:context', args),
+      setPinned: (id: string, pinned: boolean) => ipcRenderer.invoke('db:server-messages:set-pinned', { id, pinned }),
       send: (msg: unknown) => ipcRenderer.invoke('db:server-messages:send', msg),
       edit: (id: string, content: string, editedAt: number) => ipcRenderer.invoke('db:server-messages:edit', { id, content, editedAt }),
       delete: (id: string) => ipcRenderer.invoke('db:server-messages:delete', id)
@@ -238,6 +246,11 @@ const api = {
       const h = (_e: Electron.IpcRendererEvent, fromUserId: string, payload: { messageId: string }): void => cb(fromUserId, payload)
       ipcRenderer.on('signaling:dm-delete', h)
       return () => ipcRenderer.removeListener('signaling:dm-delete', h)
+    },
+    onDmPin: (cb: (fromUserId: string, payload: { messageId: string; pinned: boolean }) => void): (() => void) => {
+      const h = (_e: Electron.IpcRendererEvent, fromUserId: string, payload: { messageId: string; pinned: boolean }): void => cb(fromUserId, payload)
+      ipcRenderer.on('signaling:dm-pin', h)
+      return () => ipcRenderer.removeListener('signaling:dm-pin', h)
     },
     onDmReaction: (cb: (fromUserId: string, payload: { messageId: string; emojiId: string; add: boolean; userId: string; reactions?: Record<string, string[]> }) => void): (() => void) => {
       const h = (_e: Electron.IpcRendererEvent, fromUserId: string, payload: { messageId: string; emojiId: string; add: boolean; userId: string; reactions?: Record<string, string[]> }): void => cb(fromUserId, payload)
@@ -413,10 +426,14 @@ const api = {
       ipcRenderer.invoke('server:edit-message', payload),
     deleteMessage: (payload: { serverId: string; messageId: string; actorId: string }): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke('server:delete-message', payload),
+    setMessagePinned: (payload: { serverId: string; messageId: string; actorId: string; pinned: boolean }): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('server:set-message-pinned', payload),
     applyMessageEdit: (payload: { serverId: string; messageId: string; content: string; editedAt: number }): Promise<{ success: boolean }> =>
       ipcRenderer.invoke('server:apply-message-edit', payload),
     applyMessageDelete: (payload: { serverId: string; messageId: string }): Promise<{ success: boolean }> =>
       ipcRenderer.invoke('server:apply-message-delete', payload),
+    applyMessagePin: (payload: { serverId: string; messageId: string; pinned: boolean }): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('server:apply-message-pin', payload),
 
     // Channels / Categories
     listChannels: (serverId: string) =>

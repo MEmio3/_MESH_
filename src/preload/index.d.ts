@@ -113,8 +113,47 @@ interface DbConversationsAPI {
   close: (id: string) => Promise<void>
 }
 
+type MessageSearchKind = 'all' | 'files' | 'images' | 'links' | 'code'
+
+interface MessageSearchOptions {
+  query?: string
+  author?: string
+  kind?: MessageSearchKind
+  after?: number
+  before?: number
+  limit?: number
+}
+
+interface MessageDbShape {
+  id: string
+  conversationId: string
+  senderId: string
+  senderName: string
+  content: string
+  timestamp: number
+  status: string
+  fileId?: string | null
+  fileName?: string | null
+  fileSize?: number | null
+  fileType?: string | null
+  filePath?: string | null
+  editedAt?: number | null
+  isDeleted?: number
+  reactions?: string
+  replyToId?: string | null
+  replyToSenderName?: string | null
+  replyToContent?: string | null
+  isPinned?: number
+  serverId?: string
+  channelId?: string | null
+}
+
 interface DbMessagesAPI {
-  list: (args: { conversationId: string; limit?: number; before?: number }) => Promise<{ id: string; conversationId: string; senderId: string; senderName: string; content: string; timestamp: number; status: string; fileId?: string | null; fileName?: string | null; fileSize?: number | null; fileType?: string | null; filePath?: string | null; editedAt?: number | null; isDeleted?: number; replyToId?: string | null; replyToSenderName?: string | null; replyToContent?: string | null }[]>
+  list: (args: { conversationId: string; limit?: number; before?: number }) => Promise<MessageDbShape[]>
+  search: (args: { conversationId: string; options?: MessageSearchOptions }) => Promise<MessageDbShape[]>
+  pinned: (args: { conversationId: string; limit?: number }) => Promise<MessageDbShape[]>
+  context: (args: { conversationId: string; messageId: string; radius?: number }) => Promise<MessageDbShape[]>
+  setPinned: (id: string, pinned: boolean) => Promise<void>
   send: (msg: unknown) => Promise<void>
   updateStatus: (id: string, status: string) => Promise<void>
   edit: (id: string, content: string, editedAt: number) => Promise<void>
@@ -134,7 +173,11 @@ interface DbServerMembersAPI {
 }
 
 interface DbServerMessagesAPI {
-  list: (args: { serverId: string; limit?: number; before?: number }) => Promise<{ id: string; serverId: string; senderId: string; senderName: string; content: string; timestamp: number; status: string; fileId?: string | null; fileName?: string | null; fileSize?: number | null; fileType?: string | null; filePath?: string | null; editedAt?: number | null; isDeleted?: number; reactions?: string; channelId?: string | null; replyToId?: string | null; replyToSenderName?: string | null; replyToContent?: string | null }[]>
+  list: (args: { serverId: string; limit?: number; before?: number }) => Promise<MessageDbShape[]>
+  search: (args: { serverId: string; channelId?: string | null; includeLegacy?: boolean; options?: MessageSearchOptions }) => Promise<MessageDbShape[]>
+  pinned: (args: { serverId: string; channelId?: string | null; includeLegacy?: boolean; limit?: number }) => Promise<MessageDbShape[]>
+  context: (args: { serverId: string; messageId: string; channelId?: string | null; includeLegacy?: boolean; radius?: number }) => Promise<MessageDbShape[]>
+  setPinned: (id: string, pinned: boolean) => Promise<void>
   send: (msg: unknown) => Promise<void>
   edit: (id: string, content: string, editedAt: number) => Promise<void>
   delete: (id: string) => Promise<void>
@@ -202,6 +245,7 @@ interface SignalingAPI {
   onDmMessage: (cb: (fromUserId: string, message: string) => void) => () => void
   onDmEdit: (cb: (fromUserId: string, payload: { messageId: string; content: string; editedAt: number }) => void) => () => void
   onDmDelete: (cb: (fromUserId: string, payload: { messageId: string }) => void) => () => void
+  onDmPin: (cb: (fromUserId: string, payload: { messageId: string; pinned: boolean }) => void) => () => void
   onDmReaction: (cb: (fromUserId: string, payload: { messageId: string; emojiId: string; add: boolean; userId: string; reactions?: Record<string, string[]> }) => void) => () => void
   onCallInvite: (cb: (fromUserId: string, callData: unknown) => void) => () => void
   onCallAccept: (cb: (fromUserId: string) => void) => () => void
@@ -280,8 +324,10 @@ interface ServerAPI {
   reregisterMine: (p: { selfUserId: string; selfUsername?: string; selfAvatarColor?: string | null }) => Promise<{ success: boolean; count: number }>
   editMessage: (p: { serverId: string; messageId: string; senderId: string; content: string }) => Promise<{ success: boolean; editedAt?: number }>
   deleteMessage: (p: { serverId: string; messageId: string; actorId: string }) => Promise<{ success: boolean; error?: string }>
+  setMessagePinned: (p: { serverId: string; messageId: string; actorId: string; pinned: boolean }) => Promise<{ success: boolean; error?: string }>
   applyMessageEdit: (p: { serverId: string; messageId: string; content: string; editedAt: number }) => Promise<{ success: boolean }>
   applyMessageDelete: (p: { serverId: string; messageId: string }) => Promise<{ success: boolean }>
+  applyMessagePin: (p: { serverId: string; messageId: string; pinned: boolean }) => Promise<{ success: boolean }>
 
   // Channels / Categories
   listChannels: (serverId: string) => Promise<{

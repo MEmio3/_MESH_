@@ -1,16 +1,17 @@
-import { useEffect, useState } from 'react'
-import { Hash, Users, Search, Bell } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { Hash, Pin, Search, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useServersStore } from '@/stores/servers.store'
 import { useIdentityStore } from '@/stores/identity.store'
 import { MessageFeed } from '@/components/chat/MessageFeed'
 import { MessageInput } from '@/components/chat/MessageInput'
+import { MessageToolsPanel, type MessageToolsMode } from '@/components/chat/MessageToolsPanel'
 import { MemberListPanel } from '@/components/server/MemberListPanel'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { useServerLayout } from '@/stores/channels.store'
 import { PERM, effectivePermissions, hasPerm, resolveChannelPerm, type ChannelPermKey } from '../../../../shared/permissions'
 import type { Server } from '@/types/server'
-import type { Message } from '@/types/messages'
+import type { Message, MessageSearchOptions } from '@/types/messages'
 
 interface ServerTextChannelProps {
   server: Server
@@ -34,6 +35,8 @@ interface ServerTextChannelProps {
 function ServerTextChannel({ server, channelName, channelId, isDefaultChannel }: ServerTextChannelProps): JSX.Element {
   const displayName = channelName || server.textChannelName
   const [showMembers, setShowMembers] = useState(true)
+  const [toolsMode, setToolsMode] = useState<MessageToolsMode | null>(null)
+  const [focusMessageId, setFocusMessageId] = useState<string | null>(null)
   const [replyTarget, setReplyTarget] = useState<Message | null>(null)
   useEffect(() => setReplyTarget(null), [server.id, channelId])
   const allMessages = useServersStore((s) => s.serverMessages[server.id] || [])
@@ -48,6 +51,10 @@ function ServerTextChannel({ server, channelName, channelId, isDefaultChannel }:
   const editServerMessage = useServersStore((s) => s.editServerMessage)
   const deleteServerMessage = useServersStore((s) => s.deleteServerMessage)
   const toggleServerReaction = useServersStore((s) => s.toggleServerReaction)
+  const searchServerMessages = useServersStore((s) => s.searchServerMessages)
+  const loadPinnedServerMessages = useServersStore((s) => s.loadPinnedServerMessages)
+  const revealServerMessage = useServersStore((s) => s.revealServerMessage)
+  const setServerMessagePinned = useServersStore((s) => s.setServerMessagePinned)
   const selfId = useIdentityStore((s) => s.identity?.userId)
   const selfMember = members.find((m) => m.userId === selfId)
   const customRoles = useServersStore((s) => s.serverRoles[server.id]) ?? []
@@ -76,8 +83,29 @@ function ServerTextChannel({ server, channelName, channelId, isDefaultChannel }:
     selfMember?.role === 'moderator' ||
     hasPerm(myPerms, PERM.manageMessages) ||
     chanPerm('manageMessages')
+  const canPinMessages =
+    selfMember?.role === 'host' ||
+    selfMember?.role === 'moderator' ||
+    hasPerm(myPerms, PERM.manageMessages)
   const canSend = chanPerm('sendMessages')
   const canAttach = chanPerm('attachFiles')
+
+  const handleSearch = useCallback((options: MessageSearchOptions): Promise<Message[]> =>
+    searchServerMessages(server.id, channelId, !!isDefaultChannel, options),
+  [channelId, isDefaultChannel, searchServerMessages, server.id])
+
+  const handleLoadPinned = useCallback((): Promise<Message[]> =>
+    loadPinnedServerMessages(server.id, channelId, !!isDefaultChannel),
+  [channelId, isDefaultChannel, loadPinnedServerMessages, server.id])
+
+  const handleJumpToResult = useCallback(async (message: Message): Promise<void> => {
+    await revealServerMessage(server.id, message.id, channelId, !!isDefaultChannel)
+    setFocusMessageId(message.id)
+  }, [channelId, isDefaultChannel, revealServerMessage, server.id])
+
+  const handleTogglePin = useCallback(async (messageId: string, pinned: boolean): Promise<void> => {
+    await setServerMessagePinned(server.id, messageId, pinned)
+  }, [server.id, setServerMessagePinned])
 
   return (
     <div className="flex h-full">
@@ -98,21 +126,36 @@ function ServerTextChannel({ server, channelName, channelId, isDefaultChannel }:
           
           <div className="flex items-center gap-2 shrink-0 ml-4">
             <Tooltip content="Search" side="bottom">
-              <button className="mesh-icon-button mesh-icon-search h-8 w-8 rounded flex items-center justify-center text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary transition-colors">
+              <button
+                onClick={() => setToolsMode((current) => current === 'search' ? null : 'search')}
+                className={cn(
+                  'mesh-icon-button mesh-icon-search h-8 w-8 rounded flex items-center justify-center transition-colors',
+                  toolsMode === 'search' ? 'bg-mesh-bg-tertiary text-mesh-text-primary' : 'text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary'
+                )}
+              >
                 <Search className="h-[18px] w-[18px]" />
               </button>
             </Tooltip>
-            <Tooltip content="Inbox" side="bottom">
-              <button className="mesh-icon-button mesh-icon-bell h-8 w-8 rounded flex items-center justify-center text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary transition-colors">
-                <Bell className="h-[18px] w-[18px]" />
+            <Tooltip content="Pinned Messages" side="bottom">
+              <button
+                onClick={() => setToolsMode((current) => current === 'pins' ? null : 'pins')}
+                className={cn(
+                  'mesh-icon-button h-8 w-8 rounded flex items-center justify-center transition-colors',
+                  toolsMode === 'pins' ? 'bg-mesh-bg-tertiary text-mesh-green' : 'text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary'
+                )}
+              >
+                <Pin className="h-[18px] w-[18px]" />
               </button>
             </Tooltip>
             <Tooltip content={showMembers ? 'Hide Members' : 'Show Members'} side="bottom">
               <button
-                onClick={() => setShowMembers(!showMembers)}
+                onClick={() => {
+                  setToolsMode(null)
+                  setShowMembers(!showMembers)
+                }}
                 className={cn(
                   "mesh-icon-button mesh-icon-users h-8 w-8 rounded flex items-center justify-center transition-colors",
-                  showMembers 
+                  showMembers && !toolsMode
                     ? "text-mesh-text-primary bg-mesh-bg-tertiary" 
                     : "text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary"
                 )}
@@ -130,8 +173,12 @@ function ServerTextChannel({ server, channelName, channelId, isDefaultChannel }:
           onEditMessage={(messageId, newContent) => editServerMessage(server.id, messageId, newContent)}
           onDeleteMessage={(messageId) => deleteServerMessage(server.id, messageId)}
           onToggleReaction={(messageId, emojiId) => toggleServerReaction(server.id, messageId, emojiId)}
+          onTogglePin={handleTogglePin}
           onReply={setReplyTarget}
           canDeleteMessage={(msg) => msg.senderId === selfId || isModerator}
+          canPinMessage={() => canPinMessages}
+          focusMessageId={focusMessageId}
+          onFocusConsumed={() => setFocusMessageId(null)}
         />
 
         {/* Input — real file attachments, relayed through the signaling host
@@ -161,7 +208,20 @@ function ServerTextChannel({ server, channelName, channelId, isDefaultChannel }:
       </div>
 
       {/* Member list */}
-      {showMembers && <MemberListPanel serverId={server.id} members={members} />}
+      {toolsMode ? (
+        <MessageToolsPanel
+          mode={toolsMode}
+          scopeLabel={`#${displayName}`}
+          liveMessages={messages}
+          canPin={canPinMessages}
+          onModeChange={setToolsMode}
+          onClose={() => setToolsMode(null)}
+          onSearch={handleSearch}
+          onLoadPinned={handleLoadPinned}
+          onJump={handleJumpToResult}
+          onTogglePin={handleTogglePin}
+        />
+      ) : showMembers && <MemberListPanel serverId={server.id} members={members} />}
     </div>
   )
 }

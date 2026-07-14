@@ -8,10 +8,11 @@ import { ChatHeader } from '@/components/chat/ChatHeader'
 import { MessageFeed } from '@/components/chat/MessageFeed'
 import { MessageContent } from '@/components/chat/MessageContent'
 import { MessageInput } from '@/components/chat/MessageInput'
+import { MessageToolsPanel, type MessageToolsMode } from '@/components/chat/MessageToolsPanel'
 import { UserProfileCard } from '@/components/profile/UserProfileCard'
 import { Avatar } from '@/components/ui/Avatar'
 import { webrtcManager } from '@/lib/webrtc'
-import type { Message } from '@/types/messages'
+import type { Message, MessageSearchOptions } from '@/types/messages'
 import type { MessageRequestThreadMessage } from '@/types/social'
 
 /**
@@ -34,6 +35,10 @@ function DmConversationPage(): JSX.Element {
   const editMessage = useMessagesStore((s) => s.editMessage)
   const deleteMessage = useMessagesStore((s) => s.deleteMessage)
   const toggleReaction = useMessagesStore((s) => s.toggleReaction)
+  const searchMessages = useMessagesStore((s) => s.searchMessages)
+  const loadPinnedMessages = useMessagesStore((s) => s.loadPinnedMessages)
+  const revealMessage = useMessagesStore((s) => s.revealMessage)
+  const setMessagePinned = useMessagesStore((s) => s.setMessagePinned)
   const markAsRead = useMessagesStore((s) => s.markAsRead)
   const setActiveConversation = useMessagesStore((s) => s.setActiveConversation)
   const ensureConversationForFriend = useMessagesStore((s) => s.ensureConversationForFriend)
@@ -42,6 +47,8 @@ function DmConversationPage(): JSX.Element {
   const [showProfile, setShowProfile] = useState(() => {
     try { return localStorage.getItem('mesh.dm.profileOpen') !== '0' } catch { return true }
   })
+  const [toolsMode, setToolsMode] = useState<MessageToolsMode | null>(null)
+  const [focusMessageId, setFocusMessageId] = useState<string | null>(null)
 
   const messageRequests = useFriendsStore((s) => s.messageRequests)
   const loadMessageRequestThread = useFriendsStore((s) => s.loadMessageRequestThread)
@@ -180,6 +187,27 @@ function DmConversationPage(): JSX.Element {
     ? [...historyMessages, ...conversation.messages].sort((a, b) => a.timestamp - b.timestamp)
     : []
 
+  const handleSearch = useCallback((options: MessageSearchOptions): Promise<Message[]> => {
+    if (!conversation) return Promise.resolve([])
+    return searchMessages(conversation.id, options)
+  }, [conversation, searchMessages])
+
+  const handleLoadPinned = useCallback((): Promise<Message[]> => {
+    if (!conversation) return Promise.resolve([])
+    return loadPinnedMessages(conversation.id)
+  }, [conversation, loadPinnedMessages])
+
+  const handleJumpToResult = useCallback(async (message: Message): Promise<void> => {
+    if (!conversation) return
+    await revealMessage(conversation.id, message.id)
+    setFocusMessageId(message.id)
+  }, [conversation, revealMessage])
+
+  const handleTogglePin = useCallback(async (messageId: string, pinned: boolean): Promise<void> => {
+    if (!conversation || messageId.startsWith('mrhist_')) return
+    await setMessagePinned(conversation.id, messageId, pinned)
+  }, [conversation, setMessagePinned])
+
   useEffect(() => {
     if (conversation || !request || !otherUserId) return
     let cancelled = false
@@ -317,7 +345,10 @@ function DmConversationPage(): JSX.Element {
       <ChatHeader
         conversation={displayConversation ?? conversation}
         profileOpen={showProfile}
+        toolMode={toolsMode}
+        onOpenTools={(mode) => setToolsMode((current) => current === mode ? null : mode)}
         onToggleProfile={() => {
+          setToolsMode(null)
           setShowProfile((v) => {
             try { localStorage.setItem('mesh.dm.profileOpen', v ? '0' : '1') } catch { /* ignore */ }
             return !v
@@ -341,7 +372,11 @@ function DmConversationPage(): JSX.Element {
           if (messageId.startsWith('mrhist_')) return
           toggleReaction(conversation.id, messageId, emojiId)
         }}
+        onTogglePin={handleTogglePin}
+        canPinMessage={(message) => !message.id.startsWith('mrhist_')}
         onReply={setReplyTarget}
+        focusMessageId={focusMessageId}
+        onFocusConsumed={() => setFocusMessageId(null)}
       />
 
       {/* Typing indicator */}
@@ -376,7 +411,20 @@ function DmConversationPage(): JSX.Element {
       </div>
 
       {/* Docked profile panel — Discord-style, toggled from the header. */}
-      {showProfile && (
+      {toolsMode ? (
+        <MessageToolsPanel
+          mode={toolsMode}
+          scopeLabel={`@${(displayConversation ?? conversation).recipientName}`}
+          liveMessages={mergedMessages}
+          canPin
+          onModeChange={setToolsMode}
+          onClose={() => setToolsMode(null)}
+          onSearch={handleSearch}
+          onLoadPinned={handleLoadPinned}
+          onJump={handleJumpToResult}
+          onTogglePin={handleTogglePin}
+        />
+      ) : showProfile && (
         <UserProfileCard
           userId={conversation.recipientId}
           username={(displayConversation ?? conversation).recipientName}

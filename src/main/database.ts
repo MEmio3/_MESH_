@@ -10,6 +10,7 @@ import type {
   BlockedUserRow,
   ConversationRow,
   MessageRow,
+  MessageSearchQuery,
   ServerRow,
   ServerMemberRow,
   ServerMessageRow,
@@ -79,6 +80,8 @@ function migrateSchema(): void {
     if (!msgNames.has('reply_to_id')) d.exec('ALTER TABLE messages ADD COLUMN reply_to_id TEXT')
     if (!msgNames.has('reply_to_sender_name')) d.exec('ALTER TABLE messages ADD COLUMN reply_to_sender_name TEXT')
     if (!msgNames.has('reply_to_content')) d.exec('ALTER TABLE messages ADD COLUMN reply_to_content TEXT')
+    if (!msgNames.has('is_pinned')) d.exec('ALTER TABLE messages ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0')
+    d.exec('CREATE INDEX IF NOT EXISTS idx_messages_conv_pinned_ts ON messages(conversation_id, is_pinned, timestamp)')
   }
 
   const convCols = d.prepare("PRAGMA table_info('conversations')").all() as { name: string }[]
@@ -105,6 +108,8 @@ function migrateSchema(): void {
     if (!smsgNames.has('reply_to_id')) d.exec('ALTER TABLE server_messages ADD COLUMN reply_to_id TEXT')
     if (!smsgNames.has('reply_to_sender_name')) d.exec('ALTER TABLE server_messages ADD COLUMN reply_to_sender_name TEXT')
     if (!smsgNames.has('reply_to_content')) d.exec('ALTER TABLE server_messages ADD COLUMN reply_to_content TEXT')
+    if (!smsgNames.has('is_pinned')) d.exec('ALTER TABLE server_messages ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0')
+    d.exec('CREATE INDEX IF NOT EXISTS idx_srv_messages_channel_pinned_ts ON server_messages(server_id, channel_id, is_pinned, timestamp)')
   }
 
   const srvCols = d.prepare("PRAGMA table_info('servers')").all() as { name: string }[]
@@ -224,6 +229,7 @@ function createTables(): void {
       content TEXT NOT NULL,
       timestamp INTEGER NOT NULL,
       status TEXT NOT NULL DEFAULT 'sent',
+      is_pinned INTEGER NOT NULL DEFAULT 0,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id)
     );
     CREATE INDEX IF NOT EXISTS idx_messages_conv_ts ON messages(conversation_id, timestamp);
@@ -304,6 +310,7 @@ function createTables(): void {
       content TEXT NOT NULL,
       timestamp INTEGER NOT NULL,
       status TEXT NOT NULL DEFAULT 'sent',
+      is_pinned INTEGER NOT NULL DEFAULT 0,
       FOREIGN KEY (server_id) REFERENCES servers(id)
     );
     CREATE INDEX IF NOT EXISTS idx_srv_messages_srv_ts ON server_messages(server_id, timestamp);
@@ -585,7 +592,7 @@ export function deleteConversationWith(recipientId: string): void {
 
 // ── Messages ──
 
-const MSG_COLS = 'id, conversation_id AS conversationId, sender_id AS senderId, sender_name AS senderName, content, timestamp, status, file_id AS fileId, file_name AS fileName, file_size AS fileSize, file_type AS fileType, file_path AS filePath, edited_at AS editedAt, is_deleted AS isDeleted, reactions, reply_to_id AS replyToId, reply_to_sender_name AS replyToSenderName, reply_to_content AS replyToContent'
+const MSG_COLS = 'id, conversation_id AS conversationId, sender_id AS senderId, sender_name AS senderName, content, timestamp, status, file_id AS fileId, file_name AS fileName, file_size AS fileSize, file_type AS fileType, file_path AS filePath, edited_at AS editedAt, is_deleted AS isDeleted, reactions, reply_to_id AS replyToId, reply_to_sender_name AS replyToSenderName, reply_to_content AS replyToContent, is_pinned AS isPinned'
 
 export function getMessages(conversationId: string, limit = 50, before?: number): MessageRow[] {
   if (before) {
@@ -595,7 +602,7 @@ export function getMessages(conversationId: string, limit = 50, before?: number)
 }
 
 export function insertMessage(msg: MessageRow): void {
-  getDb().prepare('INSERT OR REPLACE INTO messages (id, conversation_id, sender_id, sender_name, content, timestamp, status, file_id, file_name, file_size, file_type, file_path, reply_to_id, reply_to_sender_name, reply_to_content) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(msg.id, msg.conversationId, msg.senderId, msg.senderName, msg.content, msg.timestamp, msg.status, msg.fileId, msg.fileName, msg.fileSize, msg.fileType, msg.filePath, msg.replyToId ?? null, msg.replyToSenderName ?? null, msg.replyToContent ?? null)
+  getDb().prepare('INSERT OR REPLACE INTO messages (id, conversation_id, sender_id, sender_name, content, timestamp, status, file_id, file_name, file_size, file_type, file_path, reply_to_id, reply_to_sender_name, reply_to_content, is_pinned) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(msg.id, msg.conversationId, msg.senderId, msg.senderName, msg.content, msg.timestamp, msg.status, msg.fileId, msg.fileName, msg.fileSize, msg.fileType, msg.filePath, msg.replyToId ?? null, msg.replyToSenderName ?? null, msg.replyToContent ?? null, msg.isPinned ?? 0)
 }
 
 export function updateMessageStatus(id: string, status: string): void {
@@ -613,6 +620,81 @@ export function deleteMessage(id: string): void {
 export function getMessage(id: string): MessageRow | null {
   const row = getDb().prepare(`SELECT ${MSG_COLS} FROM messages WHERE id = ?`).get(id) as MessageRow | undefined
   return row ?? null
+}
+
+function appendSearchFilters(
+  where: string[],
+  values: Array<string | number>,
+  options: MessageSearchQuery
+): void {
+  const query = options.query?.trim()
+  if (query) {
+    const term = `%${query}%`
+    where.push('(content LIKE ? COLLATE NOCASE OR sender_name LIKE ? COLLATE NOCASE OR COALESCE(file_name, \'\') LIKE ? COLLATE NOCASE)')
+    values.push(term, term, term)
+  }
+  const author = options.author?.trim()
+  if (author) {
+    where.push('sender_name LIKE ? COLLATE NOCASE')
+    values.push(`%${author}%`)
+  }
+  if (options.after) {
+    where.push('timestamp >= ?')
+    values.push(options.after)
+  }
+  if (options.before) {
+    where.push('timestamp <= ?')
+    values.push(options.before)
+  }
+  switch (options.kind) {
+    case 'files':
+      where.push('file_id IS NOT NULL')
+      break
+    case 'images':
+      where.push("(file_type LIKE 'image/%' OR content LIKE 'data:image/%')")
+      break
+    case 'links':
+      where.push("(content LIKE '%http://%' OR content LIKE '%https://%')")
+      break
+    case 'code':
+      where.push("content LIKE '%```%'")
+      break
+  }
+}
+
+export function searchMessages(conversationId: string, options: MessageSearchQuery = {}): MessageRow[] {
+  const where = ['conversation_id = ?', 'is_deleted = 0']
+  const values: Array<string | number> = [conversationId]
+  appendSearchFilters(where, values, options)
+  values.push(Math.min(Math.max(options.limit ?? 100, 1), 250))
+  return getDb().prepare(
+    `SELECT ${MSG_COLS} FROM messages WHERE ${where.join(' AND ')} ORDER BY timestamp DESC LIMIT ?`
+  ).all(...values) as MessageRow[]
+}
+
+export function getPinnedMessages(conversationId: string, limit = 100): MessageRow[] {
+  return getDb().prepare(
+    `SELECT ${MSG_COLS} FROM messages WHERE conversation_id = ? AND is_pinned = 1 AND is_deleted = 0 ORDER BY timestamp DESC LIMIT ?`
+  ).all(conversationId, Math.min(Math.max(limit, 1), 250)) as MessageRow[]
+}
+
+export function setMessagePinned(id: string, pinned: boolean): void {
+  getDb().prepare('UPDATE messages SET is_pinned = ? WHERE id = ?').run(pinned ? 1 : 0, id)
+}
+
+export function getMessageContext(conversationId: string, messageId: string, radius = 25): MessageRow[] {
+  const target = getDb().prepare(
+    'SELECT timestamp FROM messages WHERE id = ? AND conversation_id = ?'
+  ).get(messageId, conversationId) as { timestamp: number } | undefined
+  if (!target) return []
+  const safeRadius = Math.min(Math.max(radius, 1), 50)
+  const before = getDb().prepare(
+    `SELECT ${MSG_COLS} FROM messages WHERE conversation_id = ? AND timestamp <= ? ORDER BY timestamp DESC LIMIT ?`
+  ).all(conversationId, target.timestamp, safeRadius + 1) as MessageRow[]
+  const after = getDb().prepare(
+    `SELECT ${MSG_COLS} FROM messages WHERE conversation_id = ? AND timestamp > ? ORDER BY timestamp ASC LIMIT ?`
+  ).all(conversationId, target.timestamp, safeRadius) as MessageRow[]
+  return [...before.reverse(), ...after]
 }
 
 function mutateReactions(
@@ -895,7 +977,7 @@ export function updateServerMemberStatus(serverId: string, userId: string, statu
 
 // ── Server Messages ──
 
-const SMSG_COLS = 'id, server_id AS serverId, sender_id AS senderId, sender_name AS senderName, content, timestamp, status, file_id AS fileId, file_name AS fileName, file_size AS fileSize, file_type AS fileType, file_path AS filePath, edited_at AS editedAt, is_deleted AS isDeleted, reactions, channel_id AS channelId, reply_to_id AS replyToId, reply_to_sender_name AS replyToSenderName, reply_to_content AS replyToContent'
+const SMSG_COLS = 'id, server_id AS serverId, sender_id AS senderId, sender_name AS senderName, content, timestamp, status, file_id AS fileId, file_name AS fileName, file_size AS fileSize, file_type AS fileType, file_path AS filePath, edited_at AS editedAt, is_deleted AS isDeleted, reactions, channel_id AS channelId, reply_to_id AS replyToId, reply_to_sender_name AS replyToSenderName, reply_to_content AS replyToContent, is_pinned AS isPinned'
 
 export function getServerMessages(serverId: string, limit = 50, before?: number): ServerMessageRow[] {
   if (before) {
@@ -905,7 +987,7 @@ export function getServerMessages(serverId: string, limit = 50, before?: number)
 }
 
 export function insertServerMessage(msg: ServerMessageRow): void {
-  getDb().prepare('INSERT OR REPLACE INTO server_messages (id, server_id, sender_id, sender_name, content, timestamp, status, file_id, file_name, file_size, file_type, file_path, channel_id, reply_to_id, reply_to_sender_name, reply_to_content) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(msg.id, msg.serverId, msg.senderId, msg.senderName, msg.content, msg.timestamp, msg.status, msg.fileId, msg.fileName, msg.fileSize, msg.fileType, msg.filePath, msg.channelId ?? null, msg.replyToId ?? null, msg.replyToSenderName ?? null, msg.replyToContent ?? null)
+  getDb().prepare('INSERT OR REPLACE INTO server_messages (id, server_id, sender_id, sender_name, content, timestamp, status, file_id, file_name, file_size, file_type, file_path, channel_id, reply_to_id, reply_to_sender_name, reply_to_content, is_pinned) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(msg.id, msg.serverId, msg.senderId, msg.senderName, msg.content, msg.timestamp, msg.status, msg.fileId, msg.fileName, msg.fileSize, msg.fileType, msg.filePath, msg.channelId ?? null, msg.replyToId ?? null, msg.replyToSenderName ?? null, msg.replyToContent ?? null, msg.isPinned ?? 0)
 }
 
 export function updateServerMessageStatus(id: string, status: string): void {
@@ -918,6 +1000,76 @@ export function getServerMessagesByChannel(serverId: string, channelId: string, 
     return d.prepare(`SELECT ${SMSG_COLS} FROM server_messages WHERE server_id = ? AND channel_id = ? AND timestamp < ? ORDER BY timestamp DESC LIMIT ?`).all(serverId, channelId, before, limit) as ServerMessageRow[]
   }
   return d.prepare(`SELECT ${SMSG_COLS} FROM server_messages WHERE server_id = ? AND channel_id = ? ORDER BY timestamp DESC LIMIT ?`).all(serverId, channelId, limit) as ServerMessageRow[]
+}
+
+function appendServerChannelScope(
+  where: string[],
+  values: Array<string | number>,
+  channelId?: string | null,
+  includeLegacy = false
+): void {
+  if (!channelId) return
+  where.push(includeLegacy ? '(channel_id = ? OR channel_id IS NULL)' : 'channel_id = ?')
+  values.push(channelId)
+}
+
+export function searchServerMessages(
+  serverId: string,
+  channelId: string | null | undefined,
+  includeLegacy: boolean,
+  options: MessageSearchQuery = {}
+): ServerMessageRow[] {
+  const where = ['server_id = ?', 'is_deleted = 0']
+  const values: Array<string | number> = [serverId]
+  appendServerChannelScope(where, values, channelId, includeLegacy)
+  appendSearchFilters(where, values, options)
+  values.push(Math.min(Math.max(options.limit ?? 100, 1), 250))
+  return getDb().prepare(
+    `SELECT ${SMSG_COLS} FROM server_messages WHERE ${where.join(' AND ')} ORDER BY timestamp DESC LIMIT ?`
+  ).all(...values) as ServerMessageRow[]
+}
+
+export function getPinnedServerMessages(
+  serverId: string,
+  channelId?: string | null,
+  includeLegacy = false,
+  limit = 100
+): ServerMessageRow[] {
+  const where = ['server_id = ?', 'is_pinned = 1', 'is_deleted = 0']
+  const values: Array<string | number> = [serverId]
+  appendServerChannelScope(where, values, channelId, includeLegacy)
+  values.push(Math.min(Math.max(limit, 1), 250))
+  return getDb().prepare(
+    `SELECT ${SMSG_COLS} FROM server_messages WHERE ${where.join(' AND ')} ORDER BY timestamp DESC LIMIT ?`
+  ).all(...values) as ServerMessageRow[]
+}
+
+export function setServerMessagePinned(id: string, pinned: boolean): void {
+  getDb().prepare('UPDATE server_messages SET is_pinned = ? WHERE id = ?').run(pinned ? 1 : 0, id)
+}
+
+export function getServerMessageContext(
+  serverId: string,
+  messageId: string,
+  channelId?: string | null,
+  includeLegacy = false,
+  radius = 25
+): ServerMessageRow[] {
+  const target = getDb().prepare(
+    'SELECT timestamp FROM server_messages WHERE id = ? AND server_id = ?'
+  ).get(messageId, serverId) as { timestamp: number } | undefined
+  if (!target) return []
+  const safeRadius = Math.min(Math.max(radius, 1), 50)
+  const where = ['server_id = ?']
+  const scopeValues: Array<string | number> = [serverId]
+  appendServerChannelScope(where, scopeValues, channelId, includeLegacy)
+  const before = getDb().prepare(
+    `SELECT ${SMSG_COLS} FROM server_messages WHERE ${where.join(' AND ')} AND timestamp <= ? ORDER BY timestamp DESC LIMIT ?`
+  ).all(...scopeValues, target.timestamp, safeRadius + 1) as ServerMessageRow[]
+  const after = getDb().prepare(
+    `SELECT ${SMSG_COLS} FROM server_messages WHERE ${where.join(' AND ')} AND timestamp > ? ORDER BY timestamp ASC LIMIT ?`
+  ).all(...scopeValues, target.timestamp, safeRadius) as ServerMessageRow[]
+  return [...before.reverse(), ...after]
 }
 
 export function updateMessageFilePath(messageId: string, filePath: string): void {

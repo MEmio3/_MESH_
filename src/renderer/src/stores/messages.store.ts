@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Conversation, Message, FileAttachment } from '@/types/messages'
+import type { Conversation, Message, FileAttachment, MessageSearchOptions } from '@/types/messages'
 import { useIdentityStore } from './identity.store'
 import { webrtcManager } from '@/lib/webrtc'
 import { notify } from '@/lib/notify'
@@ -42,9 +42,10 @@ type DbMessageRow = Message & {
   replyToId?: string | null
   replyToSenderName?: string | null
   replyToContent?: string | null
+  isPinned?: number | boolean
 }
 
-function mapDbMessageRow(row: DbMessageRow): Message {
+export function mapDbMessageRow(row: DbMessageRow): Message {
   const msg = { ...row } as DbMessageRow
   if (msg.fileId) {
     msg.file = {
@@ -56,6 +57,7 @@ function mapDbMessageRow(row: DbMessageRow): Message {
     }
   }
   msg.isDeleted = Boolean(msg.isDeleted)
+  msg.isPinned = Boolean(msg.isPinned)
   msg.reactions = normalizeReactions(msg.reactions)
   msg.replyTo = msg.replyToId
     ? {
@@ -89,6 +91,9 @@ interface MessagesStore {
 
   initialize: () => Promise<void>
   loadMessages: (conversationId: string) => Promise<void>
+  searchMessages: (conversationId: string, options: MessageSearchOptions) => Promise<Message[]>
+  loadPinnedMessages: (conversationId: string) => Promise<Message[]>
+  revealMessage: (conversationId: string, messageId: string) => Promise<void>
   ensureConversationForFriend: (friendUserId: string) => Promise<Conversation | null>
   setActiveConversation: (id: string | null) => void
   sendMessage: (conversationId: string, content: string, replyTo?: { messageId: string; senderName: string; content: string }) => void
@@ -105,6 +110,8 @@ interface MessagesStore {
   deleteMessage: (conversationId: string, messageId: string) => void
   applyRemoteEdit: (messageId: string, content: string, editedAt: number) => void
   applyRemoteDelete: (messageId: string) => void
+  setMessagePinned: (conversationId: string, messageId: string, pinned: boolean) => Promise<void>
+  applyRemotePin: (messageId: string, pinned: boolean) => void
   handleAck: (fromUserId: string, messageId: string, status: 'delivered' | 'read') => void
   toggleReaction: (conversationId: string, messageId: string, emojiId: string) => Promise<void>
   applyRemoteReaction: (messageId: string, emojiId: string, userId: string, add: boolean) => void
@@ -183,6 +190,27 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
           ? { ...conv, messages, lastMessage: messages.length > 0 ? messages[messages.length - 1] : null }
           : conv
       )
+    }))
+  },
+
+  searchMessages: async (conversationId, options) => {
+    const rows = await window.api.db.messages.search({ conversationId, options })
+    return rows.map((row) => mapDbMessageRow(row as DbMessageRow))
+  },
+
+  loadPinnedMessages: async (conversationId) => {
+    const rows = await window.api.db.messages.pinned({ conversationId, limit: 100 })
+    return rows.map((row) => mapDbMessageRow(row as DbMessageRow))
+  },
+
+  revealMessage: async (conversationId, messageId) => {
+    const rows = await window.api.db.messages.context({ conversationId, messageId, radius: 25 })
+    const context = rows.map((row) => mapDbMessageRow(row as DbMessageRow))
+    set((state) => ({
+      conversations: state.conversations.map((conv) => {
+        if (conv.id !== conversationId) return conv
+        return { ...conv, ...mergeMessages(context, conv.messages) }
+      })
     }))
   },
 
@@ -839,6 +867,29 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
     window.api.db.messages.delete(messageId)
   },
 
+  setMessagePinned: async (conversationId, messageId, pinned) => {
+    await window.api.db.messages.setPinned(messageId, pinned)
+    set((state) => ({
+      conversations: state.conversations.map((conv) =>
+        conv.id === conversationId
+          ? { ...conv, messages: conv.messages.map((m) => m.id === messageId ? { ...m, isPinned: pinned } : m) }
+          : conv
+      )
+    }))
+    const conv = get().conversations.find((item) => item.id === conversationId)
+    if (conv) window.api.signaling.emit('dm-pin', conv.recipientId, { messageId, pinned })
+  },
+
+  applyRemotePin: (messageId, pinned) => {
+    set((state) => ({
+      conversations: state.conversations.map((conv) => ({
+        ...conv,
+        messages: conv.messages.map((m) => m.id === messageId ? { ...m, isPinned: pinned } : m)
+      }))
+    }))
+    window.api.db.messages.setPinned(messageId, pinned)
+  },
+
   handleAck: (_fromUserId, messageId, status) => {
     get().updateMessageStatus(messageId, status)
   },
@@ -978,6 +1029,10 @@ export function handleIncomingPeerMessage(userId: string, message: string): void
     }
     if (parsed.type === 'dm-delete' && typeof parsed.messageId === 'string') {
       useMessagesStore.getState().applyRemoteDelete(parsed.messageId)
+      return
+    }
+    if (parsed.type === 'dm-pin' && typeof parsed.messageId === 'string' && typeof parsed.pinned === 'boolean') {
+      useMessagesStore.getState().applyRemotePin(parsed.messageId, parsed.pinned)
       return
     }
     if (parsed.type === 'dm-reaction' && typeof parsed.messageId === 'string') {

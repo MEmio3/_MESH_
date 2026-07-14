@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { Server, ServerMember, ServerRoleDef } from '@/types/server'
-import type { Message, FileAttachment, MessageReply } from '@/types/messages'
+import type { Message, FileAttachment, MessageReply, MessageSearchOptions } from '@/types/messages'
 import { useIdentityStore } from './identity.store'
 import { useAvatarStore } from './avatar.store'
 import { useServerAvatarStore } from './serverAvatar.store'
@@ -65,6 +65,10 @@ interface ServersStore {
   selfPermissions: (serverId: string) => number
   editServerMessage: (serverId: string, messageId: string, newContent: string) => Promise<void>
   deleteServerMessage: (serverId: string, messageId: string) => Promise<void>
+  searchServerMessages: (serverId: string, channelId: string | null | undefined, includeLegacy: boolean, options: MessageSearchOptions) => Promise<Message[]>
+  loadPinnedServerMessages: (serverId: string, channelId?: string | null, includeLegacy?: boolean) => Promise<Message[]>
+  revealServerMessage: (serverId: string, messageId: string, channelId?: string | null, includeLegacy?: boolean) => Promise<void>
+  setServerMessagePinned: (serverId: string, messageId: string, pinned: boolean) => Promise<void>
   toggleServerReaction: (serverId: string, messageId: string, emojiId: string) => Promise<void>
   applyRemoteServerReaction: (serverId: string, messageId: string, emojiId: string, userId: string, add: boolean) => void
   // Full-replace variant for authoritative server-reaction snapshots.
@@ -149,6 +153,52 @@ function serverMessageRoute(serverId: string, channelId?: string | null): string
   return channelId ? `/channels/${serverId}/${channelId}` : `/channels/${serverId}`
 }
 
+type ServerDbMessageRow = Message & {
+  serverId?: string
+  fileId?: string | null
+  fileName?: string | null
+  fileSize?: number | null
+  fileType?: string | null
+  filePath?: string | null
+  isDeleted?: number | boolean
+  isPinned?: number | boolean
+  reactions?: unknown
+  replyToId?: string | null
+  replyToSenderName?: string | null
+  replyToContent?: string | null
+}
+
+export function mapServerDbMessageRow(row: unknown): Message {
+  const msg = { ...(row as ServerDbMessageRow) }
+  msg.conversationId = msg.conversationId || msg.serverId || ''
+  if (msg.fileId) {
+    msg.file = {
+      fileId: msg.fileId,
+      fileName: msg.fileName || 'unknown',
+      fileSize: msg.fileSize || 0,
+      fileType: msg.fileType || 'application/octet-stream',
+      filePath: msg.filePath
+    }
+  }
+  msg.isDeleted = Boolean(msg.isDeleted)
+  msg.isPinned = Boolean(msg.isPinned)
+  msg.replyTo = msg.replyToId
+    ? {
+        messageId: msg.replyToId,
+        senderName: msg.replyToSenderName || 'Unknown user',
+        content: msg.replyToContent || ''
+      }
+    : null
+  msg.reactions = normalizeReactions(msg.reactions)
+  return msg as Message
+}
+
+function mergeServerMessageRows(current: Message[], incoming: Message[]): Message[] {
+  const byId = new Map<string, Message>()
+  for (const message of [...incoming, ...current]) byId.set(message.id, message)
+  return Array.from(byId.values()).sort((a, b) => a.timestamp - b.timestamp)
+}
+
 export const useServersStore = create<ServersStore>((set, get) => ({
   servers: [],
   serverMembers: {},
@@ -201,38 +251,7 @@ export const useServersStore = create<ServersStore>((set, get) => ({
       // into the store and renders as ghost "0"/"1" reaction chips.
       // Also rebuild the `file` object from the flat DB columns — without
       // this, file attachments vanished from history after every restart.
-      serverMessages[srv.id] = msgRows.reverse().map((m) => {
-        // Row → Message: server rows have no conversationId (serverId plays
-        // that role downstream), hence the unknown hop.
-        const msg = m as unknown as Message & {
-          fileId?: string | null
-          fileName?: string | null
-          fileSize?: number | null
-          fileType?: string | null
-          filePath?: string | null
-          replyToId?: string | null
-          replyToSenderName?: string | null
-          replyToContent?: string | null
-        }
-        if (msg.fileId) {
-          msg.file = {
-            fileId: msg.fileId,
-            fileName: msg.fileName || 'unknown',
-            fileSize: msg.fileSize || 0,
-            fileType: msg.fileType || 'application/octet-stream',
-            filePath: msg.filePath
-          }
-        }
-        msg.replyTo = msg.replyToId
-          ? {
-              messageId: msg.replyToId,
-              senderName: msg.replyToSenderName || 'Unknown user',
-              content: msg.replyToContent || ''
-            }
-          : null
-        msg.reactions = normalizeReactions(msg.reactions)
-        return msg as Message
-      })
+      serverMessages[srv.id] = msgRows.reverse().map(mapServerDbMessageRow)
     }
     set({ servers, serverMembers, serverMessages, serverRoles })
   },
@@ -509,6 +528,62 @@ export const useServersStore = create<ServersStore>((set, get) => ({
         ...s.serverMessages,
         [serverId]: (s.serverMessages[serverId] || []).map((m) =>
           m.id === messageId ? { ...m, content: '', isDeleted: true, file: null } : m
+        )
+      }
+    }))
+  },
+
+  searchServerMessages: async (serverId, channelId, includeLegacy, options) => {
+    const rows = await window.api.db.serverMessages.search({
+      serverId,
+      channelId,
+      includeLegacy,
+      options
+    })
+    return rows.map(mapServerDbMessageRow)
+  },
+
+  loadPinnedServerMessages: async (serverId, channelId, includeLegacy = false) => {
+    const rows = await window.api.db.serverMessages.pinned({
+      serverId,
+      channelId,
+      includeLegacy,
+      limit: 100
+    })
+    return rows.map(mapServerDbMessageRow)
+  },
+
+  revealServerMessage: async (serverId, messageId, channelId, includeLegacy = false) => {
+    const rows = await window.api.db.serverMessages.context({
+      serverId,
+      messageId,
+      channelId,
+      includeLegacy,
+      radius: 25
+    })
+    const context = rows.map(mapServerDbMessageRow)
+    set((state) => ({
+      serverMessages: {
+        ...state.serverMessages,
+        [serverId]: mergeServerMessageRows(state.serverMessages[serverId] || [], context)
+      }
+    }))
+  },
+
+  setServerMessagePinned: async (serverId, messageId, pinned) => {
+    const identity = useIdentityStore.getState().identity
+    if (!identity || !hasPerm(get().selfPermissions(serverId), PERM.manageMessages)) return
+    await window.api.server.setMessagePinned({
+      serverId,
+      messageId,
+      actorId: identity.userId,
+      pinned
+    })
+    set((state) => ({
+      serverMessages: {
+        ...state.serverMessages,
+        [serverId]: (state.serverMessages[serverId] || []).map((message) =>
+          message.id === messageId ? { ...message, isPinned: pinned } : message
         )
       }
     }))
@@ -1081,6 +1156,19 @@ export const useServersStore = create<ServersStore>((set, get) => ({
           ...s.serverMessages,
           [p.serverId]: (s.serverMessages[p.serverId] || []).map((m) =>
             m.id === p.messageId ? { ...m, content: '', isDeleted: true, file: null } : m
+          )
+        }
+      }))
+    }))
+
+    unsubs.push(window.api.signaling.onServerEvent('message-pin', async (payload) => {
+      const p = payload as { serverId: string; messageId: string; pinned: boolean }
+      await window.api.server.applyMessagePin(p)
+      set((s) => ({
+        serverMessages: {
+          ...s.serverMessages,
+          [p.serverId]: (s.serverMessages[p.serverId] || []).map((m) =>
+            m.id === p.messageId ? { ...m, isPinned: p.pinned } : m
           )
         }
       }))

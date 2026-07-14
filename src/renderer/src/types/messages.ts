@@ -30,8 +30,20 @@ export interface Message {
   isDeleted?: boolean
   reactions?: ReactionMap
   replyTo?: MessageReply | null
+  isPinned?: boolean
   /** For server messages: which channel this message belongs to. Null/undefined for DMs. */
   channelId?: string | null
+}
+
+export type MessageSearchKind = 'all' | 'files' | 'images' | 'links' | 'code'
+
+export interface MessageSearchOptions {
+  query?: string
+  author?: string
+  kind?: MessageSearchKind
+  after?: number
+  before?: number
+  limit?: number
 }
 
 export interface Conversation {

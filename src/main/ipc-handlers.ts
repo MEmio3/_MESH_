@@ -14,6 +14,7 @@ import type {
   MessageRequestRow,
   ConversationRow,
   MessageRow,
+  MessageSearchQuery,
   ServerRow,
   ServerMemberRow,
   ServerMessageRow,
@@ -171,6 +172,14 @@ export function registerDatabaseHandlers(): void {
   ipcMain.handle('db:messages:edit', (_e, args: { id: string; content: string; editedAt: number }) => db.editMessage(args.id, args.content, args.editedAt))
   ipcMain.handle('db:messages:delete', (_e, id: string) => db.deleteMessage(id))
   ipcMain.handle('db:messages:get', (_e, id: string) => db.getMessage(id))
+  ipcMain.handle('db:messages:search', (_e, args: { conversationId: string; options?: MessageSearchQuery }) =>
+    db.searchMessages(args.conversationId, args.options))
+  ipcMain.handle('db:messages:pinned', (_e, args: { conversationId: string; limit?: number }) =>
+    db.getPinnedMessages(args.conversationId, args.limit))
+  ipcMain.handle('db:messages:context', (_e, args: { conversationId: string; messageId: string; radius?: number }) =>
+    db.getMessageContext(args.conversationId, args.messageId, args.radius))
+  ipcMain.handle('db:messages:set-pinned', (_e, args: { id: string; pinned: boolean }) =>
+    db.setMessagePinned(args.id, args.pinned))
 
   // ── Server Messages Edit/Delete ──
   ipcMain.handle('db:server-messages:edit', (_e, args: { id: string; content: string; editedAt: number }) => db.editServerMessage(args.id, args.content, args.editedAt))
@@ -206,6 +215,27 @@ export function registerDatabaseHandlers(): void {
   // ── Server Messages ──
   ipcMain.handle('db:server-messages:list', (_e, args: { serverId: string; limit?: number; before?: number }) => db.getServerMessages(args.serverId, args.limit, args.before))
   ipcMain.handle('db:server-messages:send', (_e, msg: ServerMessageRow) => db.insertServerMessage(msg))
+  ipcMain.handle('db:server-messages:search', (_e, args: {
+    serverId: string
+    channelId?: string | null
+    includeLegacy?: boolean
+    options?: MessageSearchQuery
+  }) => db.searchServerMessages(args.serverId, args.channelId, !!args.includeLegacy, args.options))
+  ipcMain.handle('db:server-messages:pinned', (_e, args: {
+    serverId: string
+    channelId?: string | null
+    includeLegacy?: boolean
+    limit?: number
+  }) => db.getPinnedServerMessages(args.serverId, args.channelId, !!args.includeLegacy, args.limit))
+  ipcMain.handle('db:server-messages:context', (_e, args: {
+    serverId: string
+    messageId: string
+    channelId?: string | null
+    includeLegacy?: boolean
+    radius?: number
+  }) => db.getServerMessageContext(args.serverId, args.messageId, args.channelId, !!args.includeLegacy, args.radius))
+  ipcMain.handle('db:server-messages:set-pinned', (_e, args: { id: string; pinned: boolean }) =>
+    db.setServerMessagePinned(args.id, args.pinned))
 
   // ── Blocked Users ──
   ipcMain.handle('db:blocked:list', () => db.getBlockedUsers())
@@ -1503,6 +1533,17 @@ export function registerServerHandlers(): void {
     return { success: true }
   })
 
+  ipcMain.handle('server:set-message-pinned', async (_e, payload: {
+    serverId: string
+    messageId: string
+    actorId: string
+    pinned: boolean
+  }) => {
+    db.setServerMessagePinned(payload.messageId, payload.pinned)
+    socketClient.emitSignaling('server:message-pin', payload)
+    return { success: true }
+  })
+
   // Apply remote edit/delete (received via broadcast) to local DB.
   ipcMain.handle('server:apply-message-edit', async (_e, payload: {
     serverId: string
@@ -1519,6 +1560,15 @@ export function registerServerHandlers(): void {
     messageId: string
   }) => {
     db.deleteServerMessage(payload.messageId)
+    return { success: true }
+  })
+
+  ipcMain.handle('server:apply-message-pin', async (_e, payload: {
+    serverId: string
+    messageId: string
+    pinned: boolean
+  }) => {
+    db.setServerMessagePinned(payload.messageId, payload.pinned)
     return { success: true }
   })
 

@@ -146,6 +146,9 @@ function App(): JSX.Element {
     const offDel = window.api.signaling.onDmDelete((_fromUserId, payload) => {
       useMessagesStore.getState().applyRemoteDelete(payload.messageId)
     })
+    const offPin = window.api.signaling.onDmPin((_fromUserId, payload) => {
+      useMessagesStore.getState().applyRemotePin(payload.messageId, payload.pinned)
+    })
     const offReact = window.api.signaling.onDmReaction((_fromUserId, payload) => {
       // Prefer full-map replacement when the remote shipped the whole
       // reactions snapshot; fall back to delta merge for older peers.
@@ -164,7 +167,7 @@ function App(): JSX.Element {
         add: payload.add
       }).catch(console.error)
     })
-    return () => { offEdit(); offDel(); offReact() }
+    return () => { offEdit(); offDel(); offPin(); offReact() }
   }, [])
 
   useEffect(() => {

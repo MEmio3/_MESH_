@@ -95,6 +95,18 @@ export interface MessageRow {
   replyToId?: string | null
   replyToSenderName?: string | null
   replyToContent?: string | null
+  isPinned?: number
+}
+
+export type MessageSearchKind = 'all' | 'files' | 'images' | 'links' | 'code'
+
+export interface MessageSearchQuery {
+  query?: string
+  author?: string
+  kind?: MessageSearchKind
+  after?: number
+  before?: number
+  limit?: number
 }
 
 export interface FileTransferMeta {
@@ -200,6 +212,7 @@ export interface ServerMessageRow {
   replyToId?: string | null
   replyToSenderName?: string | null
   replyToContent?: string | null
+  isPinned?: number
 }
 
 // ── Relays ──
