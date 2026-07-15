@@ -150,6 +150,13 @@ const api = {
       lastHealthyAt: number | null
       consecutiveFailures: number
       transport: string | null
+      compatibilityStatus: 'checking' | 'compatible' | 'update-recommended' | 'incompatible' | 'legacy'
+      localAppVersion: string
+      remoteAppVersion: string | null
+      remoteProtocolVersion: number | null
+      remoteMinProtocolVersion: number | null
+      compatibilityMessage: string | null
+      lastCompatibilityCheckAt: number | null
     }>> => ipcRenderer.invoke('signaling:list-host-statuses'),
     checkHostHealth: (serverUrl?: string): Promise<Array<{
       url: string
@@ -169,6 +176,13 @@ const api = {
       lastHealthyAt: number | null
       consecutiveFailures: number
       transport: string | null
+      compatibilityStatus: 'checking' | 'compatible' | 'update-recommended' | 'incompatible' | 'legacy'
+      localAppVersion: string
+      remoteAppVersion: string | null
+      remoteProtocolVersion: number | null
+      remoteMinProtocolVersion: number | null
+      compatibilityMessage: string | null
+      lastCompatibilityCheckAt: number | null
     }>> => ipcRenderer.invoke('signaling:check-host-health', serverUrl ? { serverUrl } : undefined),
     onHostsChanged: (cb: (hosts: string[]) => void): (() => void) => {
       const h = (_e: Electron.IpcRendererEvent, hosts: string[]): void => cb(hosts)
@@ -193,6 +207,13 @@ const api = {
       lastHealthyAt: number | null
       consecutiveFailures: number
       transport: string | null
+      compatibilityStatus: 'checking' | 'compatible' | 'update-recommended' | 'incompatible' | 'legacy'
+      localAppVersion: string
+      remoteAppVersion: string | null
+      remoteProtocolVersion: number | null
+      remoteMinProtocolVersion: number | null
+      compatibilityMessage: string | null
+      lastCompatibilityCheckAt: number | null
     }>) => void): (() => void) => {
       const h = (_e: Electron.IpcRendererEvent, statuses: Parameters<typeof cb>[0]): void => cb(statuses)
       ipcRenderer.on('signaling:host-statuses-changed', h)

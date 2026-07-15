@@ -18,6 +18,8 @@ interface HostConnectionStatus {
   state: 'connecting' | 'connected' | 'reconnecting' | 'offline'
   healthQuality: 'checking' | 'healthy' | 'degraded' | 'unreachable'
   latencyMs: number | null
+  compatibilityStatus: 'checking' | 'compatible' | 'update-recommended' | 'incompatible' | 'legacy'
+  remoteAppVersion: string | null
 }
 
 function normalizeNetworkUrl(input: string): string {
@@ -67,7 +69,11 @@ function NetworkCenterSidePanel(): JSX.Element {
 
   const activeUrl = normalizeNetworkUrl(network.signalingUrl || 'http://localhost:3000')
   const primary = hostConnections.find((host) => host.role === 'primary' && normalizeNetworkUrl(host.url) === activeUrl)
-  const connectionTone = primary?.state === 'connected' && primary.healthQuality === 'healthy'
+  const connectionTone = primary?.compatibilityStatus === 'incompatible'
+    ? 'offline'
+    : primary && primary.compatibilityStatus !== 'compatible'
+      ? 'busy'
+    : primary?.state === 'connected' && primary.healthQuality === 'healthy'
     ? 'online'
     : primary?.state === 'connecting' || primary?.state === 'reconnecting' || primary?.healthQuality === 'checking' || primary?.healthQuality === 'degraded'
       ? 'busy'
@@ -76,7 +82,9 @@ function NetworkCenterSidePanel(): JSX.Element {
         : connected
           ? 'online'
           : 'offline'
-  const connectionValue = primary?.state === 'connected'
+  const connectionValue = primary?.compatibilityStatus === 'incompatible'
+    ? 'Incompatible version'
+    : primary?.state === 'connected'
     ? `${hostFromUrl(activeUrl)}${primary.latencyMs == null ? '' : ` - ${primary.latencyMs} ms`}`
     : primary?.state === 'reconnecting'
       ? 'Reconnecting'

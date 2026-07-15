@@ -352,6 +352,13 @@ interface HostConnectionStatus {
   lastHealthyAt: number | null
   consecutiveFailures: number
   transport: string | null
+  compatibilityStatus: 'checking' | 'compatible' | 'update-recommended' | 'incompatible' | 'legacy'
+  localAppVersion: string
+  remoteAppVersion: string | null
+  remoteProtocolVersion: number | null
+  remoteMinProtocolVersion: number | null
+  compatibilityMessage: string | null
+  lastCompatibilityCheckAt: number | null
 }
 
 interface AvatarAPI {

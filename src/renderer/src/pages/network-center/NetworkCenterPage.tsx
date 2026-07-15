@@ -76,6 +76,13 @@ interface HostConnectionStatus {
   lastHealthyAt: number | null
   consecutiveFailures: number
   transport: string | null
+  compatibilityStatus: 'checking' | 'compatible' | 'update-recommended' | 'incompatible' | 'legacy'
+  localAppVersion: string
+  remoteAppVersion: string | null
+  remoteProtocolVersion: number | null
+  remoteMinProtocolVersion: number | null
+  compatibilityMessage: string | null
+  lastCompatibilityCheckAt: number | null
 }
 
 interface NetworkScanResult {
@@ -152,6 +159,20 @@ function healthTone(host: HostConnectionStatus): 'online' | 'offline' | 'busy' {
   if (host.state === 'offline' || host.healthQuality === 'unreachable') return 'offline'
   if (host.state !== 'connected' || host.healthQuality === 'checking' || host.healthQuality === 'degraded') return 'busy'
   return 'online'
+}
+
+function compatibilityLabel(host: HostConnectionStatus): string {
+  if (host.compatibilityStatus === 'compatible') return 'Compatible'
+  if (host.compatibilityStatus === 'update-recommended') return 'Update recommended'
+  if (host.compatibilityStatus === 'incompatible') return 'Incompatible'
+  if (host.compatibilityStatus === 'legacy') return 'Legacy / unverified'
+  return 'Checking version'
+}
+
+function compatibilityTone(host: HostConnectionStatus): 'online' | 'offline' | 'busy' {
+  if (host.compatibilityStatus === 'compatible') return 'online'
+  if (host.compatibilityStatus === 'incompatible') return 'offline'
+  return 'busy'
 }
 
 function friendlyConnectionIssue(host: HostConnectionStatus): string | null {
@@ -668,20 +689,28 @@ function NetworkCenterPage(): JSX.Element {
     }))
   }
 
-  const connectionLabel = primaryConnection?.state === 'reconnecting'
-    ? 'Reconnecting'
-    : primaryConnection?.state === 'offline'
-      ? 'Offline, retrying'
-      : primaryConnection?.state === 'connecting' || reconnectState === 'connecting'
-        ? 'Connecting'
-        : primaryConnection?.state === 'connected' || isConnected
-          ? 'Connected'
-          : 'Offline'
-  const connectionTone = primaryConnection?.state === 'reconnecting' || primaryConnection?.state === 'connecting'
-    ? 'busy'
-    : primaryConnection?.state === 'connected' || isConnected
-      ? 'online'
-      : 'offline'
+  const connectionLabel = primaryConnection?.compatibilityStatus === 'incompatible'
+    ? 'Incompatible host'
+    : primaryConnection?.compatibilityStatus === 'checking'
+      ? 'Checking compatibility'
+    : primaryConnection?.state === 'reconnecting'
+      ? 'Reconnecting'
+      : primaryConnection?.state === 'offline'
+        ? 'Offline, retrying'
+        : primaryConnection?.state === 'connecting' || reconnectState === 'connecting'
+          ? 'Connecting'
+          : primaryConnection?.state === 'connected' || isConnected
+            ? 'Connected'
+            : 'Offline'
+  const connectionTone = primaryConnection?.compatibilityStatus === 'incompatible'
+    ? 'offline'
+    : primaryConnection?.compatibilityStatus === 'checking'
+      ? 'busy'
+    : primaryConnection?.state === 'reconnecting' || primaryConnection?.state === 'connecting'
+      ? 'busy'
+      : primaryConnection?.state === 'connected' || isConnected
+        ? 'online'
+        : 'offline'
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-mesh-bg-primary">
@@ -804,6 +833,25 @@ function NetworkCenterPage(): JSX.Element {
                               <HealthMetric label="Jitter" value={host.jitterMs == null ? '-' : `${host.jitterMs} ms`} />
                               <HealthMetric label="Recent loss" value={host.packetLossPct == null ? '-' : `${host.packetLossPct}%`} />
                               <HealthMetric label="Transport" value={host.transport ?? '-'} />
+                            </div>
+                            <div className="mt-2 flex items-start gap-1.5 text-[10px] leading-relaxed">
+                              <Shield className={cn(
+                                'mt-0.5 h-3 w-3 shrink-0',
+                                compatibilityTone(host) === 'online' ? 'text-mesh-green' : compatibilityTone(host) === 'busy' ? 'text-mesh-warning' : 'text-mesh-danger'
+                              )} />
+                              <div className="min-w-0">
+                                <span className={cn(
+                                  'font-semibold',
+                                  compatibilityTone(host) === 'online' ? 'text-mesh-green' : compatibilityTone(host) === 'busy' ? 'text-mesh-warning' : 'text-mesh-danger'
+                                )}>
+                                  {compatibilityLabel(host)}
+                                </span>
+                                <span className="text-mesh-text-muted">
+                                  {' '}MESH {host.localAppVersion}{host.remoteAppVersion ? ` / host ${host.remoteAppVersion}` : ''}
+                                  {host.remoteProtocolVersion != null ? ` - protocol ${host.remoteMinProtocolVersion}-${host.remoteProtocolVersion}` : ''}
+                                </span>
+                                {host.compatibilityMessage && <div className="mt-0.5 text-mesh-text-muted">{host.compatibilityMessage}</div>}
+                              </div>
                             </div>
                             <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-mesh-text-muted">
                               <span>Checked {relativeHealthTime(host.lastProbeAt)}</span>

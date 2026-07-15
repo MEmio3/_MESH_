@@ -7,7 +7,7 @@
  */
 
 import { networkInterfaces } from 'os'
-import { ipcMain } from 'electron'
+import { app, ipcMain } from 'electron'
 import { createSignalingInstance, type SignalingInstance } from '../server/signaling'
 
 // Every host port this machine is running, keyed by port. Multiple entries =
@@ -88,7 +88,7 @@ export async function startHost(port: number): Promise<{ success: boolean; error
   inFlight.add(port)
   try {
     lastError = null
-    const instance = createSignalingInstance(port)
+    const instance = createSignalingInstance(port, { appVersion: app.getVersion() })
     await instance.start()
     hosts.set(port, instance)
     console.log('[signaling-host] hosting on port', port, '· total hosts:', hosts.size)

@@ -1,7 +1,13 @@
 import { io, Socket } from 'socket.io-client'
-import { BrowserWindow } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import { getServer, getSetting } from './database'
 import * as voiceUdp from './voice-udp-client'
+import {
+  MESH_MIN_PROTOCOL_VERSION,
+  MESH_PROTOCOL_VERSION,
+  type CompatibilityResponse,
+  type CompatibilityStatus
+} from '../shared/protocol'
 
 let socket: Socket | null = null
 let mainWindow: BrowserWindow | null = null
@@ -35,6 +41,13 @@ export interface HostConnectionSnapshot {
   lastHealthyAt: number | null
   consecutiveFailures: number
   transport: string | null
+  compatibilityStatus: CompatibilityStatus
+  localAppVersion: string
+  remoteAppVersion: string | null
+  remoteProtocolVersion: number | null
+  remoteMinProtocolVersion: number | null
+  compatibilityMessage: string | null
+  lastCompatibilityCheckAt: number | null
 }
 
 const hostConnectionStates = new Map<string, HostConnectionSnapshot>()
@@ -70,6 +83,13 @@ function updateHostState(
     lastHealthyAt: previous?.lastHealthyAt ?? null,
     consecutiveFailures: previous?.consecutiveFailures ?? 0,
     transport: previous?.transport ?? null,
+    compatibilityStatus: previous?.compatibilityStatus ?? 'checking',
+    localAppVersion: previous?.localAppVersion ?? app.getVersion(),
+    remoteAppVersion: previous?.remoteAppVersion ?? null,
+    remoteProtocolVersion: previous?.remoteProtocolVersion ?? null,
+    remoteMinProtocolVersion: previous?.remoteMinProtocolVersion ?? null,
+    compatibilityMessage: previous?.compatibilityMessage ?? null,
+    lastCompatibilityCheckAt: previous?.lastCompatibilityCheckAt ?? null,
     ...patch
   })
   publishHostStates()
@@ -135,14 +155,24 @@ function socketForHostUrl(url: string): Socket | null {
   if (normalizeUrl(url) === normalizeUrl(currentUrl)) return socket
   return secondaryHosts.get(normalizeUrl(url)) ?? auxiliarySockets.get(normalizeUrl(url)) ?? null
 }
+function hostUrlForSocket(target: Socket): string | null {
+  if (target === socket) return currentUrl ? normalizeUrl(currentUrl) : null
+  for (const [url, candidate] of secondaryHosts) if (candidate === target) return url
+  for (const [url, candidate] of auxiliarySockets) if (candidate === target) return url
+  return null
+}
+function isHostUsable(url: string): boolean {
+  const compatibility = compatibilityForHost(url)
+  return compatibility !== 'checking' && compatibility !== 'incompatible'
+}
 function listHostUrls(): string[] {
   const urls = new Set<string>()
-  if (socket?.connected && currentUrl) urls.add(normalizeUrl(currentUrl))
+  if (socket?.connected && currentUrl && isHostUsable(currentUrl)) urls.add(normalizeUrl(currentUrl))
   for (const [url, s] of secondaryHosts) {
-    if (s.connected) urls.add(url)
+    if (s.connected && isHostUsable(url)) urls.add(url)
   }
   for (const [url, s] of auxiliarySockets) {
-    if (s.connected) urls.add(url)
+    if (s.connected && isHostUsable(url)) urls.add(url)
   }
   return [...urls]
 }
@@ -220,6 +250,10 @@ function targetUserIdFor(event: string, args: unknown[]): string | null {
 // Flushed right after register-user on the next successful connect.
 const MAX_PENDING_EMITS = 200
 let pendingEmits: Array<{ event: string; args: unknown[] }> = []
+
+function queuePendingEmit(event: string, args: unknown[]): void {
+  if (pendingEmits.length < MAX_PENDING_EMITS) pendingEmits.push({ event, args })
+}
 
 interface ReliableEmit {
   key: string
@@ -363,6 +397,67 @@ function markHostTransportDown(url: string, role: HostConnectionSnapshot['role']
     lastProbeAt: Date.now(),
     consecutiveFailures: (snapshot?.consecutiveFailures ?? 0) + 1
   })
+}
+
+function negotiateHostCompatibility(
+  url: string,
+  role: HostConnectionSnapshot['role'],
+  sock: Socket
+): Promise<boolean | null> {
+  const localAppVersion = app.getVersion()
+  updateHostState(url, role, {
+    compatibilityStatus: 'checking',
+    localAppVersion,
+    remoteAppVersion: null,
+    remoteProtocolVersion: null,
+    remoteMinProtocolVersion: null,
+    compatibilityMessage: 'Checking host compatibility.'
+  })
+
+  return new Promise((resolve) => {
+    sock.timeout(2500).emit('compatibility:hello', {
+      appVersion: localAppVersion,
+      protocolVersion: MESH_PROTOCOL_VERSION,
+      minProtocolVersion: MESH_MIN_PROTOCOL_VERSION
+    }, (err: Error | null, response?: CompatibilityResponse) => {
+      if (!sock.connected) {
+        resolve(null)
+        return
+      }
+      if (err || !response || typeof response.compatible !== 'boolean') {
+        updateHostState(url, role, {
+          compatibilityStatus: 'legacy',
+          localAppVersion,
+          compatibilityMessage: 'This host predates compatibility checks. Core features may work, but its protocol cannot be verified.',
+          lastCompatibilityCheckAt: Date.now()
+        })
+        resolve(true)
+        return
+      }
+
+      updateHostState(url, role, {
+        compatibilityStatus: response.status,
+        localAppVersion,
+        remoteAppVersion: response.hostAppVersion,
+        remoteProtocolVersion: response.hostProtocolVersion,
+        remoteMinProtocolVersion: response.hostMinProtocolVersion,
+        compatibilityMessage: response.message,
+        lastCompatibilityCheckAt: Date.now()
+      })
+      resolve(response.compatible)
+    })
+  })
+}
+
+function compatibilityForHost(url: string): CompatibilityStatus | null {
+  return hostConnectionStates.get(normalizeUrl(url))?.compatibilityStatus ?? null
+}
+
+function rejectIncompatibleHost(url: string): boolean {
+  if (compatibilityForHost(url) !== 'incompatible') return false
+  const message = `Cannot use ${normalizeUrl(url)} because its MESH protocol is incompatible.`
+  sendToRenderer('signaling:error', message)
+  return true
 }
 
 function noteServerOnHost(serverId: string | undefined, url: string): void {
@@ -650,8 +745,6 @@ export function connectSecondaryHost(serverUrl: string): void {
   sock.on('connect', () => {
     sock.emit('register-user', currentUserId)
     sock.emit('connection-role', 'secondary')
-    replaySocialState(sock)
-    voiceUdp.configureHost(url, currentUserId)
     updateHostState(url, 'secondary', {
       state: 'connected',
       attempt: 0,
@@ -663,10 +756,21 @@ export function connectSecondaryHost(serverUrl: string): void {
       consecutiveFailures: 0,
       transport: socketTransport(sock)
     })
-    sendToRenderer('signaling:connected')
     sendToRenderer('signaling:hosts-changed', listHostUrls())
     setTimeout(() => void checkHostHealth(url), 350)
-    setTimeout(() => flushReliableOutbox(url), 700)
+    void negotiateHostCompatibility(url, 'secondary', sock).then((compatible) => {
+      if (!sock.connected) return
+      if (compatible === false) {
+        failReliableForHost(url, 'This host uses an incompatible MESH protocol.')
+        sendToRenderer('signaling:error', `Additional host ${url} uses an incompatible MESH protocol.`)
+        return
+      }
+      replaySocialState(sock)
+      voiceUdp.configureHost(url, currentUserId)
+      sendToRenderer('signaling:connected')
+      sendToRenderer('signaling:hosts-changed', listHostUrls())
+      setTimeout(() => flushReliableOutbox(url), 150)
+    })
   })
   sock.on('disconnect', (reason) => {
     // Keep server affinity during a transient outage. Re-registration must
@@ -757,6 +861,13 @@ function emitOnSocket(target: Socket, event: string, args: unknown[]): void {
 
 function dispatchReliable(item: ReliableEmit): void {
   if (item.inFlight || !reliableOutbox.has(item.key)) return
+  const compatibility = compatibilityForHost(item.targetUrl)
+  if (compatibility === 'checking') return
+  if (compatibility === 'incompatible') {
+    reliableOutbox.delete(item.key)
+    item.callback({ success: false, error: 'This host uses an incompatible MESH protocol.' })
+    return
+  }
   let target = socketForHostUrl(item.targetUrl)
   if (!target && item.targetUrl && currentUserId) {
     target = auxiliarySocketFor(item.targetUrl, currentUserId)
@@ -853,13 +964,10 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
     reconnection: false
   })
   const activeSocket = socket
+  let compatibilityPromise: Promise<boolean | null> | null = null
 
   socket.on('connect', () => {
-    isConnecting = false
-    connectingPromise = null
     clearReconnectTimer()
-    reconnectAttempts = 0
-    sendToRenderer('signaling:reconnect-status', { state: 'connected' })
     updateHostState(normalizedUrl, 'primary', {
       state: 'connected',
       attempt: 0,
@@ -871,23 +979,37 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
       consecutiveFailures: 0,
       transport: socketTransport(socket!)
     })
-    socket!.emit('register-user', userId)
-    socket!.emit('connection-role', 'primary')
-    replaySocialState(socket!)
-    voiceUdp.configureHost(normalizedUrl, userId)
-    // Flush everything queued while we were offline, preserving order.
-    if (pendingEmits.length > 0) {
-      const toFlush = pendingEmits
-      pendingEmits = []
-      console.log(`[socket-client] flushing ${toFlush.length} queued emit(s)`)
-      for (const { event, args } of toFlush) {
-        socket!.emit(event, ...args)
-      }
-    }
-    sendToRenderer('signaling:connected')
+    activeSocket.emit('register-user', userId)
+    activeSocket.emit('connection-role', 'primary')
     sendToRenderer('signaling:hosts-changed', listHostUrls())
     setTimeout(() => void checkHostHealth(normalizedUrl), 350)
-    setTimeout(() => flushReliableOutbox(normalizedUrl), 700)
+    compatibilityPromise = negotiateHostCompatibility(normalizedUrl, 'primary', activeSocket)
+    void compatibilityPromise.then((compatible) => {
+      isConnecting = false
+      connectingPromise = null
+      if (!activeSocket.connected) return
+      if (compatible === false) {
+        sendToRenderer('signaling:reconnect-status', { state: 'failed' })
+        sendToRenderer('signaling:error', `Host ${normalizedUrl} uses an incompatible MESH protocol.`)
+        failReliableForHost(normalizedUrl, 'This host uses an incompatible MESH protocol.')
+        return
+      }
+
+      reconnectAttempts = 0
+      sendToRenderer('signaling:reconnect-status', { state: 'connected' })
+      replaySocialState(activeSocket)
+      voiceUdp.configureHost(normalizedUrl, userId)
+      // Flush everything queued while we were offline, preserving order.
+      if (pendingEmits.length > 0) {
+        const toFlush = pendingEmits
+        pendingEmits = []
+        console.log(`[socket-client] flushing ${toFlush.length} queued emit(s)`)
+        for (const { event, args } of toFlush) activeSocket.emit(event, ...args)
+      }
+      sendToRenderer('signaling:connected')
+      sendToRenderer('signaling:hosts-changed', listHostUrls())
+      setTimeout(() => flushReliableOutbox(normalizedUrl), 150)
+    })
   })
 
   socket.on('disconnect', (reason) => {
@@ -1080,8 +1202,13 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
     }, 8000)
 
     activeSocket.once('connect', () => {
-      clearTimeout(timeout)
-      resolve()
+      const negotiation = compatibilityPromise ?? Promise.resolve(true)
+      void negotiation.then((compatible) => {
+        clearTimeout(timeout)
+        if (compatible === true) resolve()
+        else if (compatible === false) reject(new Error(`Host ${normalizedUrl} uses an incompatible MESH protocol.`))
+        else reject(new Error(`Connection to ${normalizedUrl} closed during the compatibility check.`))
+      })
     })
     activeSocket.once('connect_error', (err) => {
       clearTimeout(timeout)
@@ -1134,6 +1261,11 @@ export function emitSignaling(event: string, ...args: unknown[]): void {
   const route = routeForEvent(event, args)
   if (route) {
     const routeUrl = normalizeUrl(route.url)
+    if (rejectIncompatibleHost(routeUrl)) return
+    if (compatibilityForHost(routeUrl) === 'checking') {
+      queuePendingEmit(event, args)
+      return
+    }
     const existing = socketForHostUrl(routeUrl)
     if (existing) {
       emitOnSocket(existing, event, args)
@@ -1148,7 +1280,12 @@ export function emitSignaling(event: string, ...args: unknown[]): void {
   if (isBroadcastEvent(event)) {
     const targets = allSocialSockets()
     if (targets.length > 0) {
-      for (const s of targets) emitOnSocket(s, event, args)
+      for (const s of targets) {
+        const hostUrl = hostUrlForSocket(s)
+        const compatibility = hostUrl ? compatibilityForHost(hostUrl) : null
+        if (compatibility === 'checking' || compatibility === 'incompatible') continue
+        emitOnSocket(s, event, args)
+      }
       return
     }
   }
@@ -1159,19 +1296,24 @@ export function emitSignaling(event: string, ...args: unknown[]): void {
     const target = targetUserIdFor(event, args)
     const hosts = target ? userHosts.get(target) : undefined
     if (hosts && hosts.size > 0) {
-      const s = socketForHostUrl([...hosts][0])
-      if (s) { emitOnSocket(s, event, args); return }
+      const hostUrl = [...hosts][0]
+      if (rejectIncompatibleHost(hostUrl)) return
+      const s = socketForHostUrl(hostUrl)
+      if (s && compatibilityForHost(hostUrl) !== 'checking') { emitOnSocket(s, event, args); return }
     }
   }
 
   if (socket?.connected) {
+    if (rejectIncompatibleHost(currentUrl)) return
+    if (compatibilityForHost(currentUrl) === 'checking') {
+      queuePendingEmit(event, args)
+      return
+    }
     emitOnSocket(socket, event, args)
     return
   }
   // Socket down — queue for the flush that follows the next connect.
-  if (pendingEmits.length < MAX_PENDING_EMITS) {
-    pendingEmits.push({ event, args })
-  }
+  queuePendingEmit(event, args)
 }
 
 export function emitSignalingWithAck(
@@ -1179,6 +1321,7 @@ export function emitSignalingWithAck(
   arg: unknown,
   cb: (response: unknown) => void
 ): void {
+  if (rejectIncompatibleHost(currentUrl)) { cb(null); return }
   if (!socket) { cb(null); return }
   if (arg === undefined) socket.emit(event, cb)
   else socket.emit(event, arg, cb)
@@ -1211,6 +1354,7 @@ export function emitVoiceUdpAudio(roomId: string, meta: unknown, payload: unknow
   if (!currentUserId) return
   const targetUrl = voiceUdpTargetUrl(roomId)
   if (!targetUrl) return
+  if (rejectIncompatibleHost(targetUrl)) return
   voiceUdp.configureHost(targetUrl, currentUserId)
   voiceUdp.sendAudio(targetUrl, roomId, meta, payload)
 }
@@ -1219,12 +1363,16 @@ export function emitVoiceUdpPing(roomId: string, sentAt: number): void {
   if (!currentUserId) return
   const targetUrl = voiceUdpTargetUrl(roomId)
   if (!targetUrl) return
+  if (rejectIncompatibleHost(targetUrl)) return
   voiceUdp.configureHost(targetUrl, currentUserId)
   voiceUdp.sendPing(targetUrl, roomId, sentAt)
 }
 
 export function isConnected(): boolean {
-  return Boolean(socket?.connected || [...secondaryHosts.values()].some((candidate) => candidate.connected))
+  return Boolean(
+    (socket?.connected && isHostUsable(currentUrl)) ||
+    [...secondaryHosts.entries()].some(([url, candidate]) => candidate.connected && isHostUsable(url))
+  )
 }
 
 export function getSocketId(): string | null {

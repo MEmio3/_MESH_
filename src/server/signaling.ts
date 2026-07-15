@@ -13,6 +13,12 @@ import dgram, { type RemoteInfo } from 'dgram'
 import fs from 'fs'
 import path from 'path'
 import { PERM, MODERATOR_BUNDLE } from '../shared/permissions'
+import {
+  MESH_MIN_PROTOCOL_VERSION,
+  MESH_PROTOCOL_VERSION,
+  evaluateCompatibility,
+  type CompatibilityHello
+} from '../shared/protocol'
 import { decodeVoiceUdpPacket, encodeVoiceUdpPacket } from '../shared/voice-udp-packet'
 
 export interface SignalingInstance {
@@ -22,6 +28,10 @@ export interface SignalingInstance {
   stop: () => Promise<void>
   isRunning: () => boolean
   readonly port: number
+}
+
+export interface SignalingInstanceOptions {
+  appVersion?: string
 }
 
 /**
@@ -34,7 +44,8 @@ export interface SignalingInstance {
  * every piece of state lived at module scope, which capped the machine at a
  * single host port.
  */
-export function createSignalingInstance(instancePort: number): SignalingInstance {
+export function createSignalingInstance(instancePort: number, options: SignalingInstanceOptions = {}): SignalingInstance {
+const hostAppVersion = options.appVersion ?? process.env.npm_package_version ?? 'development'
 const app = express()
 const httpServer = createServer(app)
 // maxHttpBufferSize: socket.io's default is 1MB and it DISCONNECTS a client
@@ -680,6 +691,35 @@ io.on('connection', (socket) => {
     socket.data.connectionRole = role === 'auxiliary' || role === 'secondary'
       ? role
       : 'primary'
+  })
+
+  socket.on('compatibility:hello', (payload: CompatibilityHello, acknowledge?: (response: ReturnType<typeof evaluateCompatibility>) => void) => {
+    if (typeof acknowledge !== 'function') return
+    const client = {
+      appVersion: typeof payload?.appVersion === 'string' ? payload.appVersion : 'unknown',
+      protocolVersion: Number.isInteger(payload?.protocolVersion) ? payload.protocolVersion : 0,
+      minProtocolVersion: Number.isInteger(payload?.minProtocolVersion) ? payload.minProtocolVersion : 0
+    }
+    const response = evaluateCompatibility(client, {
+      appVersion: hostAppVersion,
+      protocolVersion: MESH_PROTOCOL_VERSION,
+      minProtocolVersion: MESH_MIN_PROTOCOL_VERSION
+    })
+    socket.data.protocolCompatible = response.compatible
+    socket.data.clientAppVersion = client.appVersion
+    socket.data.clientProtocolVersion = client.protocolVersion
+    acknowledge(response)
+    if (!response.compatible) {
+      console.warn(`[compatibility] rejected protocol ${client.minProtocolVersion}-${client.protocolVersion} from ${socket.id}`)
+    }
+  })
+
+  socket.use(([event], next) => {
+    if (socket.data.protocolCompatible !== false || event === 'compatibility:hello' || event === 'health:ping') {
+      next()
+      return
+    }
+    next(new Error('This MESH protocol version is incompatible with the host.'))
   })
 
   // An acknowledged application event catches a stalled host even when the
