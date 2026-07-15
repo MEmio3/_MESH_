@@ -15,6 +15,9 @@ import type {
   ConversationRow,
   MessageRow,
   MessageSearchQuery,
+  InboxFilter,
+  InboxRecordInput,
+  InboxNotificationMode,
   ServerRow,
   ServerMemberRow,
   ServerMessageRow,
@@ -180,6 +183,20 @@ export function registerDatabaseHandlers(): void {
     db.getMessageContext(args.conversationId, args.messageId, args.radius))
   ipcMain.handle('db:messages:set-pinned', (_e, args: { id: string; pinned: boolean }) =>
     db.setMessagePinned(args.id, args.pinned))
+
+  // Local unread / mentions inbox. Message IDs are unique keys, so replayed
+  // offline deliveries cannot create duplicate inbox entries.
+  ipcMain.handle('db:inbox:record', (_e, input: InboxRecordInput) => db.recordInboxItem(input))
+  ipcMain.handle('db:inbox:backfill-dm', (_e, selfUserId: string) => db.backfillDmInbox(selfUserId))
+  ipcMain.handle('db:inbox:list', (_e, args: { filter: InboxFilter; limit?: number }) =>
+    db.getInboxItems(args.filter, args.limit))
+  ipcMain.handle('db:inbox:counts', () => db.getInboxCounts())
+  ipcMain.handle('db:inbox:mark-message-read', (_e, messageId: string) => db.markInboxMessageRead(messageId))
+  ipcMain.handle('db:inbox:mark-scope-read', (_e, scopeKey: string) => db.markInboxScopeRead(scopeKey))
+  ipcMain.handle('db:inbox:mark-all-read', () => db.markAllInboxRead())
+  ipcMain.handle('db:inbox:preferences', () => db.getInboxPreferences())
+  ipcMain.handle('db:inbox:set-preference', (_e, args: { scopeKey: string; mode: InboxNotificationMode }) =>
+    db.setInboxPreference(args.scopeKey, args.mode))
 
   // ── Server Messages Edit/Delete ──
   ipcMain.handle('db:server-messages:edit', (_e, args: { id: string; content: string; editedAt: number }) => db.editServerMessage(args.id, args.content, args.editedAt))
@@ -1812,6 +1829,9 @@ export function registerSignalingHandlers(): void {
   })
   ipcMain.handle('signaling:list-host-statuses', () => {
     return socketClient.listHostConnectionStatuses()
+  })
+  ipcMain.handle('signaling:check-host-health', async (_e, args?: { serverUrl?: string }) => {
+    return socketClient.checkHostHealth(args?.serverUrl)
   })
 
   ipcMain.handle('signaling:is-connected', () => {

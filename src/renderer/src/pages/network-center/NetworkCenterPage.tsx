@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AlertTriangle, Check, ChevronRight, Copy, Loader2, PlugZap, Plus, Radio, RefreshCw, Router, Server, Shield, Trash2, Wifi } from 'lucide-react'
+import { Activity, AlertTriangle, Check, ChevronRight, Copy, Loader2, PlugZap, Plus, Radio, RefreshCw, Router, Server, Shield, Trash2, Wifi } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Toggle } from '@/components/ui/Toggle'
 import { ServerAvatar } from '@/components/ui/ServerAvatar'
@@ -68,6 +68,14 @@ interface HostConnectionStatus {
   lastDisconnectedAt: number | null
   reason: string | null
   error: string | null
+  healthQuality: 'checking' | 'healthy' | 'degraded' | 'unreachable'
+  latencyMs: number | null
+  jitterMs: number | null
+  packetLossPct: number | null
+  lastProbeAt: number | null
+  lastHealthyAt: number | null
+  consecutiveFailures: number
+  transport: string | null
 }
 
 interface NetworkScanResult {
@@ -130,6 +138,45 @@ function normalizePort(value: string | number | null | undefined): number {
   return Math.min(65535, Math.max(1, Math.floor(raw)))
 }
 
+function healthLabel(host: HostConnectionStatus): string {
+  if (host.state === 'connecting') return 'Connecting'
+  if (host.state === 'reconnecting') return 'Reconnecting'
+  if (host.state === 'offline') return 'Offline'
+  if (host.healthQuality === 'healthy') return 'Stable'
+  if (host.healthQuality === 'degraded') return 'Degraded'
+  if (host.healthQuality === 'unreachable') return 'Unresponsive'
+  return 'Checking'
+}
+
+function healthTone(host: HostConnectionStatus): 'online' | 'offline' | 'busy' {
+  if (host.state === 'offline' || host.healthQuality === 'unreachable') return 'offline'
+  if (host.state !== 'connected' || host.healthQuality === 'checking' || host.healthQuality === 'degraded') return 'busy'
+  return 'online'
+}
+
+function friendlyConnectionIssue(host: HostConnectionStatus): string | null {
+  const issue = host.error || host.reason
+  if (!issue) return null
+  const normalized = issue.toLowerCase()
+  if (normalized.includes('health check timed out')) return 'The host is connected but did not answer the latest health check.'
+  if (normalized.includes('ping timeout')) return 'The connection stopped receiving heartbeats from the host.'
+  if (normalized.includes('transport close')) return 'The network path or host closed the WebSocket connection.'
+  if (normalized.includes('transport error')) return 'The WebSocket transport encountered a network error.'
+  if (normalized.includes('server disconnect')) return 'The host ended this connection.'
+  if (normalized.includes('client disconnect') || normalized === 'manual') return 'Disconnected on this device.'
+  if (normalized.includes('timeout')) return 'The connection attempt timed out.'
+  return issue
+}
+
+function relativeHealthTime(timestamp: number | null): string {
+  if (!timestamp) return 'Not checked'
+  const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000))
+  if (seconds < 5) return 'Just now'
+  if (seconds < 60) return `${seconds}s ago`
+  const minutes = Math.floor(seconds / 60)
+  return minutes < 60 ? `${minutes}m ago` : new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
 function NetworkCenterPage(): JSX.Element {
   const navigate = useNavigate()
   const identity = useIdentityStore((s) => s.identity)
@@ -154,6 +201,7 @@ function NetworkCenterPage(): JSX.Element {
   const [netSig, setNetSig] = useState<NetworkScanResult | null>(null)
   const [scanningNetwork, setScanningNetwork] = useState(false)
   const [showDiagnostics, setShowDiagnostics] = useState(false)
+  const [checkingHealth, setCheckingHealth] = useState(false)
   // Every host we're attached to at once (primary + any additional). A
   // non-hoster can join several hosts and reach people on all of them.
   const [hostConnections, setHostConnections] = useState<HostConnectionStatus[]>([])
@@ -304,6 +352,21 @@ function NetworkCenterPage(): JSX.Element {
   const primaryConnection = hostConnections.find(
     (host) => host.role === 'primary' && normalizeNetworkUrl(host.url).toLowerCase() === activeUrl.toLowerCase()
   )
+  const displayedConnections = [primaryConnection, ...secondaryHosts].filter((host): host is HostConnectionStatus => Boolean(host))
+
+  async function runHealthChecks(): Promise<void> {
+    setCheckingHealth(true)
+    try {
+      const statuses = await window.api.signaling.checkHostHealth()
+      setHostConnections(statuses)
+    } finally {
+      setCheckingHealth(false)
+    }
+  }
+
+  async function refreshEverything(): Promise<void> {
+    await Promise.all([refreshStatus(), runHealthChecks()])
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -636,6 +699,12 @@ function NetworkCenterPage(): JSX.Element {
                   <span>{connectionLabel}</span>
                   <span className="h-1 w-1 rounded-full bg-mesh-text-muted/60" />
                   <span className="font-mono">{hostFromUrl(activeUrl)}</span>
+                  {primaryConnection?.state === 'connected' && primaryConnection.latencyMs != null && (
+                    <>
+                      <span className="h-1 w-1 rounded-full bg-mesh-text-muted/60" />
+                      <span>{primaryConnection.latencyMs} ms</span>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -645,8 +714,8 @@ function NetworkCenterPage(): JSX.Element {
               <Copy className="mr-2 h-4 w-4" />
               Copy report
             </Button>
-            <Button variant="secondary" onClick={refreshStatus}>
-              <RefreshCw className="mr-2 h-4 w-4" />
+            <Button variant="secondary" disabled={checkingHealth} onClick={() => void refreshEverything()}>
+              <RefreshCw className={cn('mr-2 h-4 w-4', checkingHealth && 'animate-spin')} />
               Refresh
             </Button>
           </div>
@@ -666,8 +735,8 @@ function NetworkCenterPage(): JSX.Element {
             <PanelHeader
               icon={<PlugZap className="h-4 w-4" />}
               title="Connect"
-              detail={isConnected ? activeUrl : 'No active host'}
-              tone={isConnected ? 'online' : reconnectState === 'connecting' ? 'busy' : 'offline'}
+              detail={primaryConnection?.state === 'connected' || (!primaryConnection && isConnected) ? activeUrl : connectionLabel}
+              tone={connectionTone}
             />
             <div className="mt-4 grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2">
               <input
@@ -691,39 +760,73 @@ function NetworkCenterPage(): JSX.Element {
               <span className="text-mesh-text-secondary">Add</span> keeps you on it and *also* joins another — so you can see and message people on both.
             </p>
 
-            {secondaryHosts.length > 0 && (
-              <div className="mt-3">
-                <div className="mb-1.5 flex items-center justify-between">
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-mesh-text-muted">Also connected</span>
-                  <span className="text-[11px] text-mesh-text-muted">{secondaryHosts.length}</span>
+            <div className="mt-4 border-t border-mesh-border/60 pt-4">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Activity className="h-3.5 w-3.5 text-mesh-green" />
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-mesh-text-muted">Connection health</span>
+                  <span className="text-[10px] text-mesh-text-muted">{displayedConnections.length} host{displayedConnections.length === 1 ? '' : 's'}</span>
                 </div>
-                <div className="space-y-1.5">
-                  {secondaryHosts.map((host) => (
-                    <div key={host.url} className="flex items-center gap-2.5 rounded-md border border-mesh-border/60 bg-mesh-bg-primary/65 px-3 py-2">
-                      <StatusDot tone={host.state === 'connected' ? 'online' : host.state === 'offline' ? 'offline' : 'busy'} />
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate font-mono text-[11px] text-mesh-text-primary">{hostFromUrl(host.url)}</div>
-                        <div className="mt-0.5 truncate text-[10px] text-mesh-text-muted" title={host.error || host.reason || undefined}>
-                          {host.state === 'connected'
-                            ? 'Connected'
-                            : host.state === 'connecting'
-                              ? 'Connecting'
-                              : host.state === 'reconnecting'
-                                ? `Reconnecting${host.attempt ? `, attempt ${host.attempt}` : ''}`
-                                : `Offline, retrying automatically${host.attempt ? ` (attempt ${host.attempt})` : ''}`}
+                <button
+                  onClick={() => void runHealthChecks()}
+                  disabled={checkingHealth || displayedConnections.length === 0}
+                  className="flex items-center gap-1 text-[11px] text-mesh-text-secondary transition-colors hover:text-mesh-text-primary disabled:cursor-default disabled:opacity-50"
+                >
+                  <RefreshCw className={cn('h-3 w-3', checkingHealth && 'animate-spin')} />
+                  Check now
+                </button>
+              </div>
+              {displayedConnections.length === 0 ? (
+                <EmptyLine text="Connect to a host to begin health monitoring." />
+              ) : (
+                <div className="divide-y divide-mesh-border/50 border-y border-mesh-border/50">
+                  {displayedConnections.map((host) => {
+                    const issue = friendlyConnectionIssue(host)
+                    return (
+                      <div key={`${host.role}:${host.url}`} className="py-3 first:pt-2 last:pb-2">
+                        <div className="flex items-start gap-2.5">
+                          <StatusDot tone={healthTone(host)} />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                              <span className="truncate font-mono text-[11px] font-semibold text-mesh-text-primary">{hostFromUrl(host.url)}</span>
+                              <span className="rounded border border-mesh-border/70 px-1.5 py-0.5 text-[9px] uppercase text-mesh-text-muted">
+                                {host.role}
+                              </span>
+                              <span className={cn(
+                                'text-[10px] font-semibold',
+                                healthTone(host) === 'online' ? 'text-mesh-green' : healthTone(host) === 'busy' ? 'text-mesh-warning' : 'text-mesh-danger'
+                              )}>
+                                {healthLabel(host)}
+                              </span>
+                            </div>
+                            <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-4">
+                              <HealthMetric label="Latency" value={host.latencyMs == null ? '-' : `${host.latencyMs} ms`} />
+                              <HealthMetric label="Jitter" value={host.jitterMs == null ? '-' : `${host.jitterMs} ms`} />
+                              <HealthMetric label="Recent loss" value={host.packetLossPct == null ? '-' : `${host.packetLossPct}%`} />
+                              <HealthMetric label="Transport" value={host.transport ?? '-'} />
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-mesh-text-muted">
+                              <span>Checked {relativeHealthTime(host.lastProbeAt)}</span>
+                              {host.state !== 'connected' && host.attempt > 0 && <span>Attempt {host.attempt}</span>}
+                              {host.retryAt && host.retryAt > Date.now() && <span>Retry in {Math.max(1, Math.ceil((host.retryAt - Date.now()) / 1000))}s</span>}
+                            </div>
+                            {issue && <div className="mt-1.5 text-[10px] leading-relaxed text-mesh-warning">{issue}</div>}
+                          </div>
+                          {host.role === 'secondary' && (
+                            <button
+                              onClick={() => removeHost(host.url)}
+                              className="shrink-0 text-[11px] text-mesh-danger/80 transition-colors hover:text-mesh-danger"
+                            >
+                              Disconnect
+                            </button>
+                          )}
                         </div>
                       </div>
-                      <button
-                        onClick={() => removeHost(host.url)}
-                        className="text-[11px] text-mesh-danger/80 transition-colors hover:text-mesh-danger"
-                      >
-                        Disconnect
-                      </button>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
             <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
               <input
                 value={savedName}
@@ -1124,6 +1227,15 @@ function StatusDot({ tone }: { tone: 'online' | 'offline' | 'busy' }): JSX.Eleme
         tone === 'offline' && 'bg-mesh-danger'
       )}
     />
+  )
+}
+
+function HealthMetric({ label, value }: { label: string; value: string }): JSX.Element {
+  return (
+    <div className="min-w-0">
+      <div className="text-[9px] uppercase text-mesh-text-muted">{label}</div>
+      <div className="mt-0.5 truncate font-mono text-[11px] text-mesh-text-secondary" title={value}>{value}</div>
+    </div>
   )
 }
 

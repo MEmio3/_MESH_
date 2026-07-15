@@ -161,6 +161,72 @@ interface DbMessagesAPI {
   get: (id: string) => Promise<unknown>
 }
 
+type InboxSourceType = 'dm' | 'server'
+type InboxFilter = 'unread' | 'mentions' | 'replies'
+type InboxNotificationMode = 'all' | 'mentions' | 'muted'
+
+interface InboxRecordShape {
+  messageId: string
+  scopeKey: string
+  sourceType: InboxSourceType
+  conversationId?: string | null
+  serverId?: string | null
+  channelId?: string | null
+  sourceName: string
+  channelName?: string | null
+  senderId: string
+  senderName: string
+  content: string
+  timestamp: number
+  replyToId?: string | null
+  selfUserId: string
+  isMention?: boolean
+  isRead?: boolean
+  fileName?: string | null
+  fileType?: string | null
+}
+
+interface InboxItemShape {
+  messageId: string
+  scopeKey: string
+  sourceType: InboxSourceType
+  conversationId: string | null
+  serverId: string | null
+  channelId: string | null
+  sourceName: string
+  channelName: string | null
+  senderId: string
+  senderName: string
+  content: string
+  timestamp: number
+  isMention: number
+  isReply: number
+  isRead: number
+  fileName: string | null
+  fileType: string | null
+}
+
+interface DbInboxAPI {
+  record: (input: InboxRecordShape) => Promise<{ inserted: boolean; mode: InboxNotificationMode; isReply: boolean }>
+  backfillDm: (selfUserId: string) => Promise<void>
+  list: (filter: InboxFilter, limit?: number) => Promise<InboxItemShape[]>
+  counts: () => Promise<Array<{
+    scopeKey: string
+    sourceType: InboxSourceType
+    conversationId: string | null
+    serverId: string | null
+    channelId: string | null
+    unreadCount: number
+    mentionCount: number
+    replyCount: number
+  }>>
+  markMessageRead: (messageId: string) => Promise<void>
+  markScopeRead: (scopeKey: string) => Promise<void>
+  markAllRead: () => Promise<void>
+  preferences: () => Promise<Array<{ scopeKey: string; mode: InboxNotificationMode }>>
+  setPreference: (scopeKey: string, mode: InboxNotificationMode) => Promise<void>
+}
+
 interface DbServersAPI {
   list: () => Promise<{ id: string; name: string; iconColor: string; role: string; textChannelName: string; voiceRoomName: string; memberCount: number; onlineMemberCount: number; roleNames?: string | null }[]>
   add: (server: { id: string; name: string; iconColor: string; role: string; textChannelName: string; voiceRoomName: string; memberCount: number; onlineMemberCount: number; roleNames?: string | null }) => Promise<void>
@@ -206,6 +272,7 @@ interface DbAPI {
   messageRequests: DbMessageRequestsAPI
   conversations: DbConversationsAPI
   messages: DbMessagesAPI
+  inbox: DbInboxAPI
   servers: DbServersAPI
   serverMembers: DbServerMembersAPI
   serverMessages: DbServerMessagesAPI
@@ -226,6 +293,7 @@ interface SignalingAPI {
   removeHost: (serverUrl: string) => Promise<{ success: boolean; hosts: string[] }>
   listHosts: () => Promise<string[]>
   listHostStatuses: () => Promise<HostConnectionStatus[]>
+  checkHostHealth: (serverUrl?: string) => Promise<HostConnectionStatus[]>
   onHostsChanged: (cb: (hosts: string[]) => void) => () => void
   onHostStatusesChanged: (cb: (statuses: HostConnectionStatus[]) => void) => () => void
 
@@ -276,6 +344,14 @@ interface HostConnectionStatus {
   lastDisconnectedAt: number | null
   reason: string | null
   error: string | null
+  healthQuality: 'checking' | 'healthy' | 'degraded' | 'unreachable'
+  latencyMs: number | null
+  jitterMs: number | null
+  packetLossPct: number | null
+  lastProbeAt: number | null
+  lastHealthyAt: number | null
+  consecutiveFailures: number
+  transport: string | null
 }
 
 interface AvatarAPI {

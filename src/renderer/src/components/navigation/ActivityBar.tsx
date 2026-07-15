@@ -5,12 +5,14 @@ import { cn } from '@/lib/utils'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { ServerList } from './ServerList'
 import { meshSpring } from '@/lib/motion'
+import { useInboxStore } from '@/stores/inbox.store'
 
 function ActivityBar(): JSX.Element {
   const navigate = useNavigate()
   const location = useLocation()
 
   const isHome = location.pathname.startsWith('/channels/@me')
+  const unread = useInboxStore((state) => state.counts.reduce((sum, entry) => sum + entry.unreadCount, 0))
 
   return (
     <div className="mesh-activity-rail flex h-full w-[60px] shrink-0 flex-col items-center border-r border-mesh-border/60 bg-mesh-bg-primary py-2.5">
@@ -19,7 +21,7 @@ function ActivityBar(): JSX.Element {
         tooltip="Home"
         isActive={isHome}
         onClick={() => navigate('/channels/@me')}
-        hasNotification={false}
+        hasNotification={unread > 0}
       >
         <Home className="h-[18px] w-[18px]" strokeWidth={1.75} />
       </ActivityBarItem>

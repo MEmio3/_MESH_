@@ -11,10 +11,12 @@ let currentUrl: string = ''
 let currentUserId: string = ''
 let isConnecting = false
 let connectingPromise: Promise<void> | null = null
+let hostHealthTimer: NodeJS.Timeout | null = null
 const intentionalDisconnects = new WeakSet<Socket>()
 const auxiliarySockets = new Map<string, Socket>()
 
 export type HostConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'offline'
+export type HostHealthQuality = 'checking' | 'healthy' | 'degraded' | 'unreachable'
 export interface HostConnectionSnapshot {
   url: string
   role: 'primary' | 'secondary'
@@ -25,9 +27,19 @@ export interface HostConnectionSnapshot {
   lastDisconnectedAt: number | null
   reason: string | null
   error: string | null
+  healthQuality: HostHealthQuality
+  latencyMs: number | null
+  jitterMs: number | null
+  packetLossPct: number | null
+  lastProbeAt: number | null
+  lastHealthyAt: number | null
+  consecutiveFailures: number
+  transport: string | null
 }
 
 const hostConnectionStates = new Map<string, HostConnectionSnapshot>()
+const hostHealthSamples = new Map<string, Array<{ ok: boolean; latencyMs: number | null }>>()
+const healthProbesInFlight = new Set<string>()
 
 function publishHostStates(): void {
   sendToRenderer('signaling:host-statuses-changed', listHostConnectionStatuses())
@@ -50,13 +62,24 @@ function updateHostState(
     lastDisconnectedAt: previous?.lastDisconnectedAt ?? null,
     reason: previous?.reason ?? null,
     error: previous?.error ?? null,
+    healthQuality: previous?.healthQuality ?? 'checking',
+    latencyMs: previous?.latencyMs ?? null,
+    jitterMs: previous?.jitterMs ?? null,
+    packetLossPct: previous?.packetLossPct ?? null,
+    lastProbeAt: previous?.lastProbeAt ?? null,
+    lastHealthyAt: previous?.lastHealthyAt ?? null,
+    consecutiveFailures: previous?.consecutiveFailures ?? 0,
+    transport: previous?.transport ?? null,
     ...patch
   })
   publishHostStates()
 }
 
 function removeHostState(url: string): void {
-  hostConnectionStates.delete(normalizeUrl(url))
+  const normalized = normalizeUrl(url)
+  hostConnectionStates.delete(normalized)
+  hostHealthSamples.delete(normalized)
+  healthProbesInFlight.delete(normalized)
   publishHostStates()
 }
 
@@ -254,6 +277,92 @@ const serverEvents = [
 
 function normalizeUrl(url: string): string {
   return url.replace(/\/+$/, '')
+}
+
+function socketTransport(sock: Socket): string | null {
+  return sock.io.engine?.transport?.name ?? null
+}
+
+function recordHostHealth(url: string, ok: boolean, latencyMs: number | null, error: string | null): void {
+  const normalized = normalizeUrl(url)
+  const snapshot = hostConnectionStates.get(normalized)
+  if (!snapshot) return
+
+  const samples = [...(hostHealthSamples.get(normalized) ?? []), { ok, latencyMs }].slice(-12)
+  hostHealthSamples.set(normalized, samples)
+  const successfulLatencies = samples
+    .filter((sample): sample is { ok: true; latencyMs: number } => sample.ok && sample.latencyMs != null)
+    .map((sample) => sample.latencyMs)
+  const packetLossPct = Math.round((samples.filter((sample) => !sample.ok).length / samples.length) * 100)
+  const jitterMs = successfulLatencies.length > 1
+    ? Math.round(successfulLatencies.slice(1).reduce((total, latency, index) => {
+        return total + Math.abs(latency - successfulLatencies[index])
+      }, 0) / (successfulLatencies.length - 1))
+    : null
+  const consecutiveFailures = ok ? 0 : snapshot.consecutiveFailures + 1
+  const currentLatency = ok ? latencyMs : snapshot.latencyMs
+  const healthQuality: HostHealthQuality = consecutiveFailures >= 3
+    ? 'unreachable'
+    : !ok || packetLossPct >= 5 || (currentLatency ?? 0) >= 180 || (jitterMs ?? 0) >= 80
+      ? 'degraded'
+      : 'healthy'
+
+  updateHostState(normalized, snapshot.role, {
+    healthQuality,
+    latencyMs: currentLatency,
+    jitterMs,
+    packetLossPct,
+    lastProbeAt: Date.now(),
+    lastHealthyAt: ok ? Date.now() : snapshot.lastHealthyAt,
+    consecutiveFailures,
+    transport: socketForHostUrl(normalized) ? socketTransport(socketForHostUrl(normalized)!) : snapshot.transport,
+    error: error ?? (ok ? null : snapshot.error)
+  })
+}
+
+function probeHostSocket(url: string, sock: Socket): Promise<void> {
+  const normalized = normalizeUrl(url)
+  if (!sock.connected || healthProbesInFlight.has(normalized)) return Promise.resolve()
+  healthProbesInFlight.add(normalized)
+  const startedAt = Date.now()
+
+  return new Promise((resolve) => {
+    sock.timeout(3500).emit('health:ping', { sentAt: startedAt }, (err: Error | null) => {
+      healthProbesInFlight.delete(normalized)
+      if (err) recordHostHealth(normalized, false, null, 'Health check timed out.')
+      else recordHostHealth(normalized, true, Date.now() - startedAt, null)
+      resolve()
+    })
+  })
+}
+
+export async function checkHostHealth(serverUrl?: string): Promise<HostConnectionSnapshot[]> {
+  const requested = serverUrl ? normalizeUrl(serverUrl) : null
+  const probes: Promise<void>[] = []
+  for (const status of hostConnectionStates.values()) {
+    if (requested && status.url !== requested) continue
+    const target = socketForHostUrl(status.url)
+    if (target?.connected) probes.push(probeHostSocket(status.url, target))
+  }
+  await Promise.all(probes)
+  return listHostConnectionStatuses()
+}
+
+function startHostHealthMonitor(): void {
+  if (hostHealthTimer) return
+  hostHealthTimer = setInterval(() => {
+    void checkHostHealth()
+  }, 5000)
+  hostHealthTimer.unref?.()
+}
+
+function markHostTransportDown(url: string, role: HostConnectionSnapshot['role']): void {
+  const snapshot = hostConnectionStates.get(normalizeUrl(url))
+  updateHostState(url, role, {
+    healthQuality: 'unreachable',
+    lastProbeAt: Date.now(),
+    consecutiveFailures: (snapshot?.consecutiveFailures ?? 0) + 1
+  })
 }
 
 function noteServerOnHost(serverId: string | undefined, url: string): void {
@@ -537,6 +646,7 @@ export function connectSecondaryHost(serverUrl: string): void {
     randomizationFactor: 0.25
   })
   secondaryHosts.set(url, sock)
+  startHostHealthMonitor()
   sock.on('connect', () => {
     sock.emit('register-user', currentUserId)
     sock.emit('connection-role', 'secondary')
@@ -548,10 +658,14 @@ export function connectSecondaryHost(serverUrl: string): void {
       retryAt: null,
       lastConnectedAt: Date.now(),
       reason: null,
-      error: null
+      error: null,
+      healthQuality: 'checking',
+      consecutiveFailures: 0,
+      transport: socketTransport(sock)
     })
     sendToRenderer('signaling:connected')
     sendToRenderer('signaling:hosts-changed', listHostUrls())
+    setTimeout(() => void checkHostHealth(url), 350)
     setTimeout(() => flushReliableOutbox(url), 700)
   })
   sock.on('disconnect', (reason) => {
@@ -566,6 +680,7 @@ export function connectSecondaryHost(serverUrl: string): void {
       reason,
       error: null
     })
+    markHostTransportDown(url, 'secondary')
     sendToRenderer('signaling:hosts-changed', listHostUrls())
   })
   sock.io.on('reconnect_attempt', (attempt) => {
@@ -724,6 +839,7 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
 
   currentUrl = normalizedUrl
   currentUserId = userId
+  startHostHealthMonitor()
   const existingState = hostConnectionStates.get(normalizedUrl)
   updateHostState(normalizedUrl, 'primary', {
     state: existingState?.attempt ? 'reconnecting' : 'connecting',
@@ -750,7 +866,10 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
       retryAt: null,
       lastConnectedAt: Date.now(),
       reason: null,
-      error: null
+      error: null,
+      healthQuality: 'checking',
+      consecutiveFailures: 0,
+      transport: socketTransport(socket!)
     })
     socket!.emit('register-user', userId)
     socket!.emit('connection-role', 'primary')
@@ -767,6 +886,7 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
     }
     sendToRenderer('signaling:connected')
     sendToRenderer('signaling:hosts-changed', listHostUrls())
+    setTimeout(() => void checkHostHealth(normalizedUrl), 350)
     setTimeout(() => flushReliableOutbox(normalizedUrl), 700)
   })
 
@@ -787,6 +907,7 @@ export function connectToSignaling(serverUrl: string, userId: string): Promise<v
       reason,
       error: null
     })
+    markHostTransportDown(normalizedUrl, 'primary')
     sendToRenderer('signaling:hosts-changed', listHostUrls())
     tryReconnect()
   })

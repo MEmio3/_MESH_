@@ -6,6 +6,7 @@ import { useLiveStatus } from '@/lib/useLiveStatus'
 import { useMessagesStore } from '@/stores/messages.store'
 import { useFriendsStore } from '@/stores/friends.store'
 import type { Conversation } from '@/types/messages'
+import { dmInboxScope, useInboxStore } from '@/stores/inbox.store'
 
 interface DmListItemProps {
   conversation: Conversation
@@ -31,6 +32,10 @@ function DmListItem({ conversation, isActive, onClick }: DmListItemProps): JSX.E
   const closeConversation = useMessagesStore((s) => s.closeConversation)
   const friend = useFriendsStore((s) => s.friends.find((f) => f.userId === conversation.recipientId))
   const lastMsg = conversation.lastMessage
+  const inboxUnread = useInboxStore((state) =>
+    state.counts.find((entry) => entry.scopeKey === dmInboxScope(conversation.id))?.unreadCount ?? 0
+  )
+  const unreadCount = Math.max(conversation.unreadCount, inboxUnread)
   const displayName = friend?.username || conversation.recipientName
   // Live presence only — the persisted recipientStatus is whatever was true
   // when the row was written (hardcoded 'online' at creation) and must never
@@ -82,9 +87,9 @@ function DmListItem({ conversation, isActive, onClick }: DmListItemProps): JSX.E
         >
           <X className="h-3.5 w-3.5" />
         </span>
-        {conversation.unreadCount > 0 && (
+        {unreadCount > 0 && (
           <div className="mesh-reaction-chip bg-mesh-green text-white text-[10px] font-bold min-w-[18px] h-[18px] rounded-full flex items-center justify-center px-1">
-            {conversation.unreadCount}
+            {unreadCount > 99 ? '99+' : unreadCount}
           </div>
         )}
       </div>

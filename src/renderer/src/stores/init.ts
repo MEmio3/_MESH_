@@ -2,6 +2,7 @@ import { useFriendsStore } from './friends.store'
 import { useMessagesStore } from './messages.store'
 import { useServersStore } from './servers.store'
 import { useSettingsStore } from './settings.store'
+import { useInboxStore } from './inbox.store'
 
 /**
  * Initialize all data stores from the database.
@@ -12,6 +13,7 @@ export async function initializeAllStores(): Promise<void> {
     useFriendsStore.getState().initialize(),
     useMessagesStore.getState().initialize(),
     useServersStore.getState().initialize(),
-    useSettingsStore.getState().initialize()
+    useSettingsStore.getState().initialize(),
+    useInboxStore.getState().initialize()
   ])
 }

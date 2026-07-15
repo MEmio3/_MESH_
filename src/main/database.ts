@@ -11,6 +11,12 @@ import type {
   ConversationRow,
   MessageRow,
   MessageSearchQuery,
+  InboxFilter,
+  InboxRecordInput,
+  InboxItemRow,
+  InboxCountRow,
+  InboxNotificationMode,
+  InboxPreferenceRow,
   ServerRow,
   ServerMemberRow,
   ServerMessageRow,
@@ -315,6 +321,33 @@ function createTables(): void {
     );
     CREATE INDEX IF NOT EXISTS idx_srv_messages_srv_ts ON server_messages(server_id, timestamp);
 
+    CREATE TABLE IF NOT EXISTS inbox_items (
+      message_id TEXT PRIMARY KEY,
+      scope_key TEXT NOT NULL,
+      source_type TEXT NOT NULL CHECK (source_type IN ('dm', 'server')),
+      conversation_id TEXT,
+      server_id TEXT,
+      channel_id TEXT,
+      source_name TEXT NOT NULL,
+      channel_name TEXT,
+      sender_id TEXT NOT NULL,
+      sender_name TEXT NOT NULL,
+      content TEXT NOT NULL,
+      timestamp INTEGER NOT NULL,
+      is_mention INTEGER NOT NULL DEFAULT 0,
+      is_reply INTEGER NOT NULL DEFAULT 0,
+      is_read INTEGER NOT NULL DEFAULT 0,
+      file_name TEXT,
+      file_type TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_inbox_items_read_ts ON inbox_items(is_read, timestamp);
+    CREATE INDEX IF NOT EXISTS idx_inbox_items_scope_read ON inbox_items(scope_key, is_read);
+
+    CREATE TABLE IF NOT EXISTS inbox_preferences (
+      scope_key TEXT PRIMARY KEY,
+      mode TEXT NOT NULL DEFAULT 'all' CHECK (mode IN ('all', 'mentions', 'muted'))
+    );
+
     CREATE TABLE IF NOT EXISTS relays (
       id TEXT PRIMARY KEY,
       address TEXT NOT NULL,
@@ -610,11 +643,15 @@ export function updateMessageStatus(id: string, status: string): void {
 }
 
 export function editMessage(id: string, content: string, editedAt: number): void {
-  getDb().prepare('UPDATE messages SET content = ?, edited_at = ? WHERE id = ?').run(content, editedAt, id)
+  const d = getDb()
+  d.prepare('UPDATE messages SET content = ?, edited_at = ? WHERE id = ?').run(content, editedAt, id)
+  d.prepare('UPDATE inbox_items SET content = ? WHERE message_id = ?').run(content, id)
 }
 
 export function deleteMessage(id: string): void {
-  getDb().prepare('UPDATE messages SET is_deleted = 1, content = \'\' WHERE id = ?').run(id)
+  const d = getDb()
+  d.prepare('UPDATE messages SET is_deleted = 1, content = \'\' WHERE id = ?').run(id)
+  d.prepare("UPDATE inbox_items SET content = 'Message deleted', file_name = NULL, file_type = NULL WHERE message_id = ?").run(id)
 }
 
 export function getMessage(id: string): MessageRow | null {
@@ -695,6 +732,169 @@ export function getMessageContext(conversationId: string, messageId: string, rad
     `SELECT ${MSG_COLS} FROM messages WHERE conversation_id = ? AND timestamp > ? ORDER BY timestamp ASC LIMIT ?`
   ).all(conversationId, target.timestamp, safeRadius) as MessageRow[]
   return [...before.reverse(), ...after]
+}
+
+const INBOX_COLS = `
+  i.message_id AS messageId,
+  i.scope_key AS scopeKey,
+  i.source_type AS sourceType,
+  i.conversation_id AS conversationId,
+  i.server_id AS serverId,
+  i.channel_id AS channelId,
+  i.source_name AS sourceName,
+  i.channel_name AS channelName,
+  i.sender_id AS senderId,
+  i.sender_name AS senderName,
+  i.content,
+  i.timestamp,
+  i.is_mention AS isMention,
+  i.is_reply AS isReply,
+  i.is_read AS isRead,
+  i.file_name AS fileName,
+  i.file_type AS fileType
+`
+
+function inboxMode(scopeKey: string): InboxNotificationMode {
+  const row = getDb().prepare('SELECT mode FROM inbox_preferences WHERE scope_key = ?')
+    .get(scopeKey) as { mode: InboxNotificationMode } | undefined
+  return row?.mode ?? 'all'
+}
+
+export function recordInboxItem(input: InboxRecordInput): {
+  inserted: boolean
+  mode: InboxNotificationMode
+  isReply: boolean
+} {
+  const d = getDb()
+  let isReply = false
+  if (input.replyToId) {
+    const table = input.sourceType === 'dm' ? 'messages' : 'server_messages'
+    const original = d.prepare(`SELECT sender_id AS senderId FROM ${table} WHERE id = ?`)
+      .get(input.replyToId) as { senderId: string } | undefined
+    isReply = original?.senderId === input.selfUserId
+  }
+  const result = d.prepare(`
+    INSERT OR IGNORE INTO inbox_items (
+      message_id, scope_key, source_type, conversation_id, server_id, channel_id,
+      source_name, channel_name, sender_id, sender_name, content, timestamp,
+      is_mention, is_reply, is_read, file_name, file_type
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    input.messageId,
+    input.scopeKey,
+    input.sourceType,
+    input.conversationId ?? null,
+    input.serverId ?? null,
+    input.channelId ?? null,
+    input.sourceName,
+    input.channelName ?? null,
+    input.senderId,
+    input.senderName,
+    input.content,
+    input.timestamp,
+    input.isMention ? 1 : 0,
+    isReply ? 1 : 0,
+    input.isRead ? 1 : 0,
+    input.fileName ?? null,
+    input.fileType ?? null
+  )
+  return { inserted: result.changes > 0, mode: inboxMode(input.scopeKey), isReply }
+}
+
+export function backfillDmInbox(selfUserId: string): void {
+  const d = getDb()
+  const conversations = d.prepare(`
+    SELECT id, recipient_name AS recipientName, unread_count AS unreadCount
+    FROM conversations
+    WHERE unread_count > 0
+  `).all() as Array<{ id: string; recipientName: string; unreadCount: number }>
+  for (const conversation of conversations) {
+    const rows = d.prepare(`
+      SELECT ${MSG_COLS}
+      FROM messages
+      WHERE conversation_id = ? AND sender_id != ? AND is_deleted = 0
+      ORDER BY timestamp DESC
+      LIMIT ?
+    `).all(conversation.id, selfUserId, conversation.unreadCount) as MessageRow[]
+    for (const row of rows) {
+      recordInboxItem({
+        messageId: row.id,
+        scopeKey: `dm:${conversation.id}`,
+        sourceType: 'dm',
+        conversationId: conversation.id,
+        sourceName: conversation.recipientName,
+        senderId: row.senderId,
+        senderName: row.senderName,
+        content: row.content,
+        timestamp: row.timestamp,
+        replyToId: row.replyToId ?? null,
+        selfUserId,
+        fileName: row.fileName,
+        fileType: row.fileType
+      })
+    }
+  }
+}
+
+export function getInboxItems(filter: InboxFilter, limit = 200): InboxItemRow[] {
+  const where: string[] = []
+  if (filter === 'unread') {
+    where.push('i.is_read = 0')
+  } else if (filter === 'mentions') {
+    where.push('i.is_mention = 1')
+  } else {
+    where.push('i.is_reply = 1')
+  }
+  return getDb().prepare(`
+    SELECT ${INBOX_COLS}
+    FROM inbox_items i
+    WHERE ${where.join(' AND ')}
+    ORDER BY i.timestamp DESC
+    LIMIT ?
+  `).all(Math.min(Math.max(limit, 1), 500)) as InboxItemRow[]
+}
+
+export function getInboxCounts(): InboxCountRow[] {
+  return getDb().prepare(`
+    SELECT
+      i.scope_key AS scopeKey,
+      i.source_type AS sourceType,
+      i.conversation_id AS conversationId,
+      i.server_id AS serverId,
+      i.channel_id AS channelId,
+      COUNT(*) AS unreadCount,
+      SUM(CASE WHEN i.is_mention = 1 THEN 1 ELSE 0 END) AS mentionCount,
+      SUM(CASE WHEN i.is_reply = 1 THEN 1 ELSE 0 END) AS replyCount
+    FROM inbox_items i
+    WHERE i.is_read = 0
+    GROUP BY i.scope_key, i.source_type, i.conversation_id, i.server_id, i.channel_id
+  `).all() as InboxCountRow[]
+}
+
+export function markInboxMessageRead(messageId: string): void {
+  getDb().prepare('UPDATE inbox_items SET is_read = 1 WHERE message_id = ?').run(messageId)
+}
+
+export function markInboxScopeRead(scopeKey: string): void {
+  getDb().prepare('UPDATE inbox_items SET is_read = 1 WHERE scope_key = ?').run(scopeKey)
+}
+
+export function markAllInboxRead(): void {
+  getDb().prepare('UPDATE inbox_items SET is_read = 1 WHERE is_read = 0').run()
+  getDb().prepare('UPDATE conversations SET unread_count = 0 WHERE unread_count > 0').run()
+}
+
+export function getInboxPreferences(): InboxPreferenceRow[] {
+  return getDb().prepare(
+    'SELECT scope_key AS scopeKey, mode FROM inbox_preferences ORDER BY scope_key'
+  ).all() as InboxPreferenceRow[]
+}
+
+export function setInboxPreference(scopeKey: string, mode: InboxNotificationMode): void {
+  getDb().prepare(`
+    INSERT INTO inbox_preferences (scope_key, mode) VALUES (?, ?)
+    ON CONFLICT(scope_key) DO UPDATE SET mode = excluded.mode
+  `).run(scopeKey, mode)
 }
 
 function mutateReactions(
@@ -1081,11 +1281,15 @@ export function updateServerMessageFilePath(messageId: string, filePath: string)
 }
 
 export function editServerMessage(id: string, content: string, editedAt: number): void {
-  getDb().prepare('UPDATE server_messages SET content = ?, edited_at = ? WHERE id = ?').run(content, editedAt, id)
+  const d = getDb()
+  d.prepare('UPDATE server_messages SET content = ?, edited_at = ? WHERE id = ?').run(content, editedAt, id)
+  d.prepare('UPDATE inbox_items SET content = ? WHERE message_id = ?').run(content, id)
 }
 
 export function deleteServerMessage(id: string): void {
-  getDb().prepare('UPDATE server_messages SET is_deleted = 1, content = \'\' WHERE id = ?').run(id)
+  const d = getDb()
+  d.prepare('UPDATE server_messages SET is_deleted = 1, content = \'\' WHERE id = ?').run(id)
+  d.prepare("UPDATE inbox_items SET content = 'Message deleted', file_name = NULL, file_type = NULL WHERE message_id = ?").run(id)
 }
 
 // ── Blocked Users ──

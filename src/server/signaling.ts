@@ -682,6 +682,21 @@ io.on('connection', (socket) => {
       : 'primary'
   })
 
+  // An acknowledged application event catches a stalled host even when the
+  // underlying WebSocket still reports itself as connected.
+  socket.on('health:ping', (_payload: unknown, acknowledge?: (response: {
+    ok: true
+    serverTime: number
+    transport: string
+  }) => void) => {
+    if (typeof acknowledge !== 'function') return
+    acknowledge({
+      ok: true,
+      serverTime: Date.now(),
+      transport: socket.conn.transport.name
+    })
+  })
+
   // ── Presence / Discovery (Task 4) ──
   socket.on('presence:update', (payload: { username: string; avatarColor: string | null; hidden: boolean }) => {
     const userId = socket.data.userId as string | undefined

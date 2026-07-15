@@ -66,6 +66,19 @@ const api = {
       delete: (id: string) => ipcRenderer.invoke('db:messages:delete', id),
       get: (id: string) => ipcRenderer.invoke('db:messages:get', id)
     },
+    inbox: {
+      record: (input: unknown) => ipcRenderer.invoke('db:inbox:record', input),
+      backfillDm: (selfUserId: string) => ipcRenderer.invoke('db:inbox:backfill-dm', selfUserId),
+      list: (filter: 'unread' | 'mentions' | 'replies', limit?: number) =>
+        ipcRenderer.invoke('db:inbox:list', { filter, limit }),
+      counts: () => ipcRenderer.invoke('db:inbox:counts'),
+      markMessageRead: (messageId: string) => ipcRenderer.invoke('db:inbox:mark-message-read', messageId),
+      markScopeRead: (scopeKey: string) => ipcRenderer.invoke('db:inbox:mark-scope-read', scopeKey),
+      markAllRead: () => ipcRenderer.invoke('db:inbox:mark-all-read'),
+      preferences: () => ipcRenderer.invoke('db:inbox:preferences'),
+      setPreference: (scopeKey: string, mode: 'all' | 'mentions' | 'muted') =>
+        ipcRenderer.invoke('db:inbox:set-preference', { scopeKey, mode })
+    },
     servers: {
       list: () => ipcRenderer.invoke('db:servers:list'),
       add: (server: unknown) => ipcRenderer.invoke('db:servers:add', server),
@@ -129,7 +142,34 @@ const api = {
       lastDisconnectedAt: number | null
       reason: string | null
       error: string | null
+      healthQuality: 'checking' | 'healthy' | 'degraded' | 'unreachable'
+      latencyMs: number | null
+      jitterMs: number | null
+      packetLossPct: number | null
+      lastProbeAt: number | null
+      lastHealthyAt: number | null
+      consecutiveFailures: number
+      transport: string | null
     }>> => ipcRenderer.invoke('signaling:list-host-statuses'),
+    checkHostHealth: (serverUrl?: string): Promise<Array<{
+      url: string
+      role: 'primary' | 'secondary'
+      state: 'connecting' | 'connected' | 'reconnecting' | 'offline'
+      attempt: number
+      retryAt: number | null
+      lastConnectedAt: number | null
+      lastDisconnectedAt: number | null
+      reason: string | null
+      error: string | null
+      healthQuality: 'checking' | 'healthy' | 'degraded' | 'unreachable'
+      latencyMs: number | null
+      jitterMs: number | null
+      packetLossPct: number | null
+      lastProbeAt: number | null
+      lastHealthyAt: number | null
+      consecutiveFailures: number
+      transport: string | null
+    }>> => ipcRenderer.invoke('signaling:check-host-health', serverUrl ? { serverUrl } : undefined),
     onHostsChanged: (cb: (hosts: string[]) => void): (() => void) => {
       const h = (_e: Electron.IpcRendererEvent, hosts: string[]): void => cb(hosts)
       ipcRenderer.on('signaling:hosts-changed', h)
@@ -145,6 +185,14 @@ const api = {
       lastDisconnectedAt: number | null
       reason: string | null
       error: string | null
+      healthQuality: 'checking' | 'healthy' | 'degraded' | 'unreachable'
+      latencyMs: number | null
+      jitterMs: number | null
+      packetLossPct: number | null
+      lastProbeAt: number | null
+      lastHealthyAt: number | null
+      consecutiveFailures: number
+      transport: string | null
     }>) => void): (() => void) => {
       const h = (_e: Electron.IpcRendererEvent, statuses: Parameters<typeof cb>[0]): void => cb(statuses)
       ipcRenderer.on('signaling:host-statuses-changed', h)

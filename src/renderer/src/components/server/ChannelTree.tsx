@@ -21,6 +21,8 @@ import { useServersStore, type VoiceOccupant } from '@/stores/servers.store'
 import { ChannelSettingsModal } from '@/components/server/ChannelSettingsModal'
 import { VoiceDetectionRing } from '@/components/voice/VoiceDetectionRing'
 import { resolveChannelPerm, type ChannelPermKey } from '../../../../shared/permissions'
+import { serverInboxScope, useInboxStore } from '@/stores/inbox.store'
+import { Badge } from '@/components/ui/Badge'
 
 /** Stable empty map so channels with no occupants don't churn selectors. */
 const EMPTY_OCCUPANTS: Record<string, VoiceOccupant> = {}
@@ -84,6 +86,7 @@ export function ChannelTree({
   // show occupants under EVERY voice channel — not just the one we joined.
   const voiceOccupants = useServersStore((s) => s.serverVoiceStates[serverId])
   const selfMemberEntry = serverMembers?.find((m) => m.userId === selfId)
+  const inboxCounts = useInboxStore((state) => state.counts)
   const selfRoleIds = selfMemberEntry?.roleIds ?? []
 
   // Per-channel permission resolution: role-based overrides first, legacy
@@ -173,6 +176,9 @@ export function ChannelTree({
     // would show the same participant list and look active.
     const isJoinedVoice = !isText && isVoiceHere && currentChannelId === ch.id
     const Icon = isText ? Hash : Volume2
+    const unread = isText
+      ? inboxCounts.find((entry) => entry.scopeKey === serverInboxScope(serverId, ch.id))?.unreadCount ?? 0
+      : 0
 
     return (
       <div key={ch.id} className="group/channel relative">
@@ -212,6 +218,7 @@ export function ChannelTree({
             )}
           />
           <span className="text-[14px] truncate flex-1 tracking-tight">{ch.name}</span>
+          {!isActiveText && <Badge count={unread} className="bg-mesh-green" />}
           {((ch.minRole && ch.minRole !== 'member') ||
             (ch.allowedRoleIds && ch.allowedRoleIds.length > 0) ||
             (ch.overrides && Object.keys(ch.overrides).length > 0)) && (

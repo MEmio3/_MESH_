@@ -9,6 +9,8 @@ import { useServersStore } from '@/stores/servers.store'
 import { useServerAvatarStore } from '@/stores/serverAvatar.store'
 import { CreateServerModal } from '@/components/modals/CreateServerModal'
 import { meshSpring } from '@/lib/motion'
+import { useInboxStore } from '@/stores/inbox.store'
+import { Badge } from '@/components/ui/Badge'
 
 function ServerList(): JSX.Element {
   const navigate = useNavigate()
@@ -16,6 +18,7 @@ function ServerList(): JSX.Element {
   const servers = useServersStore((s) => s.servers)
   const avatars = useServerAvatarStore((s) => s.byServer)
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const inboxCounts = useInboxStore((state) => state.counts)
 
   const activeServerId = location.pathname.match(/^\/channels\/(?!@me)([^/]+)/)?.[1] || null
   const isDiscover = location.pathname.startsWith('/discover')
@@ -26,6 +29,9 @@ function ServerList(): JSX.Element {
       <div className="flex flex-col items-center gap-1.5 w-full">
         {servers.map((server) => {
           const isActive = activeServerId === server.id
+          const unread = inboxCounts
+            .filter((entry) => entry.serverId === server.id)
+            .reduce((sum, entry) => sum + entry.unreadCount, 0)
           return (
             <Tooltip key={server.id} content={server.name} side="right">
               <div className="relative flex items-center justify-center w-full group">
@@ -54,6 +60,9 @@ function ServerList(): JSX.Element {
                     name={server.name}
                     className="h-full w-full rounded-lg text-sm"
                   />
+                  {!isActive && unread > 0 && (
+                    <Badge count={unread} className="absolute -bottom-1 -right-1 border-2 border-mesh-bg-primary" />
+                  )}
                 </button>
               </div>
             </Tooltip>

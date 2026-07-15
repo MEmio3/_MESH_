@@ -9,6 +9,7 @@ import { ServerSettingsPage } from '@/pages/server-settings/ServerSettingsPage'
 import { SettingsPage } from '@/pages/settings/SettingsPage'
 import { DiscoveryPage } from '@/pages/discovery/DiscoveryPage'
 import { NetworkCenterPage } from '@/pages/network-center/NetworkCenterPage'
+import { InboxPage } from '@/pages/inbox/InboxPage'
 import { useIdentityStore } from '@/stores/identity.store'
 import { useFriendsStore } from '@/stores/friends.store'
 import { useServersStore } from '@/stores/servers.store'
@@ -247,6 +248,9 @@ function App(): JSX.Element {
         <Route element={<AppShell />}>
           {/* Home / Friends */}
           <Route path="/channels/@me" element={<FriendsPage />} />
+
+          {/* Unified unread, mentions, and replies inbox */}
+          <Route path="/channels/@me/inbox" element={<InboxPage />} />
 
           {/* DM Conversation */}
           <Route path="/channels/@me/:dmId" element={<DmConversationPage />} />

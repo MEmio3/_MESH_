@@ -109,6 +109,67 @@ export interface MessageSearchQuery {
   limit?: number
 }
 
+export type InboxSourceType = 'dm' | 'server'
+export type InboxFilter = 'unread' | 'mentions' | 'replies'
+export type InboxNotificationMode = 'all' | 'mentions' | 'muted'
+
+export interface InboxRecordInput {
+  messageId: string
+  scopeKey: string
+  sourceType: InboxSourceType
+  conversationId?: string | null
+  serverId?: string | null
+  channelId?: string | null
+  sourceName: string
+  channelName?: string | null
+  senderId: string
+  senderName: string
+  content: string
+  timestamp: number
+  replyToId?: string | null
+  selfUserId: string
+  isMention?: boolean
+  isRead?: boolean
+  fileName?: string | null
+  fileType?: string | null
+}
+
+export interface InboxItemRow {
+  messageId: string
+  scopeKey: string
+  sourceType: InboxSourceType
+  conversationId: string | null
+  serverId: string | null
+  channelId: string | null
+  sourceName: string
+  channelName: string | null
+  senderId: string
+  senderName: string
+  content: string
+  timestamp: number
+  isMention: number
+  isReply: number
+  isRead: number
+  fileName: string | null
+  fileType: string | null
+}
+
+export interface InboxCountRow {
+  scopeKey: string
+  sourceType: InboxSourceType
+  conversationId: string | null
+  serverId: string | null
+  channelId: string | null
+  unreadCount: number
+  mentionCount: number
+  replyCount: number
+}
+
+export interface InboxPreferenceRow {
+  scopeKey: string
+  mode: InboxNotificationMode
+}
+
 export interface FileTransferMeta {
   fileId: string
   fileName: string

@@ -133,6 +133,31 @@ function sendControlToPeer(recipientId: string, payload: object): void {
   }
 }
 
+async function recordIncomingDm(
+  message: Message,
+  sourceName: string,
+  selfUserId: string,
+  isRead: boolean
+): Promise<{ inserted: boolean; mode: 'all' | 'mentions' | 'muted'; isReply: boolean }> {
+  const { useInboxStore, dmInboxScope } = await import('./inbox.store')
+  return useInboxStore.getState().recordIncoming({
+    messageId: message.id,
+    scopeKey: dmInboxScope(message.conversationId),
+    sourceType: 'dm',
+    conversationId: message.conversationId,
+    sourceName,
+    senderId: message.senderId,
+    senderName: message.senderName,
+    content: message.content,
+    timestamp: message.timestamp,
+    replyToId: message.replyTo?.messageId ?? null,
+    selfUserId,
+    isRead,
+    fileName: message.file?.fileName ?? null,
+    fileType: message.file?.fileType ?? null
+  })
+}
+
 export const useMessagesStore = create<MessagesStore>((set, get) => ({
   conversations: [],
   activeConversationId: null,
@@ -474,6 +499,7 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
     }
     const targetConvId = existing?.id ?? conversationId
     msg.conversationId = targetConvId
+    const isActive = get().activeConversationId === targetConvId && document.hasFocus()
     const persistConversation = !existing
       ? window.api.db.conversations.upsert({
           id: targetConvId,
@@ -501,7 +527,6 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
         ]
       }))
     } else {
-      const isActive = get().activeConversationId === targetConvId
       set((state) => ({
         conversations: state.conversations.map((conv) =>
           conv.id === targetConvId
@@ -552,14 +577,18 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
     // Audible chime — only when the message isn't from ourselves (can't happen
     // on the receive path, but guard anyway for future bulk imports).
     const selfId = useIdentityStore.getState().identity?.userId
-    if (fromUserId !== selfId) playDmReceived()
-
-    notify({
-      type: 'dm',
-      title: fromUsername || 'New file',
-      body: `Sent a file: ${file.fileName}`,
-      route: `/channels/@me/${targetConvId}`
-    })
+    if (selfId && fromUserId !== selfId) {
+      void recordIncomingDm(msg, fromUsername, selfId, isActive).then((result) => {
+        if (!result.inserted || result.mode === 'muted') return
+        playDmReceived()
+        notify({
+          type: 'dm',
+          title: fromUsername || 'New file',
+          body: `Sent a file: ${file.fileName}`,
+          route: `/channels/@me/${targetConvId}`
+        })
+      }).catch(console.error)
+    }
   },
 
   updateFileProgress: (messageId, progress) => {
@@ -627,6 +656,7 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
     // so messages stay consolidated and no sidebar duplicate appears.
     const targetConvId = existing?.id ?? conversationId
     msg.conversationId = targetConvId
+    const isActive = get().activeConversationId === targetConvId && document.hasFocus()
     const persistConversation = !existing
       ? window.api.db.conversations.upsert({
           id: targetConvId,
@@ -654,7 +684,6 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
         ]
       }))
     } else {
-      const isActive = get().activeConversationId === targetConvId
       set((state) => ({
         conversations: state.conversations.map((conv) =>
           conv.id === targetConvId
@@ -710,15 +739,19 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
 
     // Audible chime for an incoming DM that isn't from ourselves.
     const selfId = useIdentityStore.getState().identity?.userId
-    if (fromUserId !== selfId) playDmReceived()
+    if (!selfId || fromUserId === selfId) return
 
     // Desktop notification — skipped if window is focused on this conversation.
-    notify({
-      type: 'dm',
-      title: fromUsername || 'New message',
-      body: String(msg.content).slice(0, 140),
-      route: `/channels/@me/${targetConvId}`
-    })
+    void recordIncomingDm(msg, fromUsername, selfId, isActive).then((result) => {
+      if (!result.inserted || result.mode === 'muted') return
+      playDmReceived()
+      notify({
+        type: 'dm',
+        title: fromUsername || 'New message',
+        body: String(msg.content).slice(0, 140),
+        route: `/channels/@me/${targetConvId}`
+      })
+    }).catch(console.error)
   },
 
   markAsRead: (conversationId) => {

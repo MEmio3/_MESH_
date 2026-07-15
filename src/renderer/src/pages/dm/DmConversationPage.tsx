@@ -1,4 +1,4 @@
-import { useParams } from 'react-router-dom'
+import { useLocation, useParams } from 'react-router-dom'
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { MessageSquare, ShieldOff, UserPlus } from 'lucide-react'
 import { useMessagesStore } from '@/stores/messages.store'
@@ -14,6 +14,7 @@ import { Avatar } from '@/components/ui/Avatar'
 import { webrtcManager } from '@/lib/webrtc'
 import type { Message, MessageSearchOptions } from '@/types/messages'
 import type { MessageRequestThreadMessage } from '@/types/social'
+import { dmInboxScope, useInboxStore } from '@/stores/inbox.store'
 
 /**
  * Lightweight pub/sub for typing indicator events.
@@ -29,6 +30,7 @@ export function emitTypingEvent(userId: string, typing: boolean): void {
 
 function DmConversationPage(): JSX.Element {
   const { dmId } = useParams<{ dmId: string }>()
+  const location = useLocation()
   const conversations = useMessagesStore((s) => s.conversations)
   const sendMessage = useMessagesStore((s) => s.sendMessage)
   const sendFileMessage = useMessagesStore((s) => s.sendFileMessage)
@@ -39,7 +41,6 @@ function DmConversationPage(): JSX.Element {
   const loadPinnedMessages = useMessagesStore((s) => s.loadPinnedMessages)
   const revealMessage = useMessagesStore((s) => s.revealMessage)
   const setMessagePinned = useMessagesStore((s) => s.setMessagePinned)
-  const markAsRead = useMessagesStore((s) => s.markAsRead)
   const setActiveConversation = useMessagesStore((s) => s.setActiveConversation)
   const ensureConversationForFriend = useMessagesStore((s) => s.ensureConversationForFriend)
   const selfId = useIdentityStore((s) => s.identity?.userId)
@@ -49,6 +50,8 @@ function DmConversationPage(): JSX.Element {
   })
   const [toolsMode, setToolsMode] = useState<MessageToolsMode | null>(null)
   const [focusMessageId, setFocusMessageId] = useState<string | null>(null)
+  const markInboxScopeRead = useInboxStore((s) => s.markScopeRead)
+  const markInboxMessageRead = useInboxStore((s) => s.markMessageRead)
 
   const messageRequests = useFriendsStore((s) => s.messageRequests)
   const loadMessageRequestThread = useFriendsStore((s) => s.loadMessageRequestThread)
@@ -137,11 +140,14 @@ function DmConversationPage(): JSX.Element {
     if (!normalizedId) return
     const roomId = `dm:${normalizedId}`
     setActiveConversation(normalizedId)
-    markAsRead(normalizedId)
+    void markInboxScopeRead(dmInboxScope(normalizedId))
     window.api.signaling.emit('join-room', roomId)
+    const markFocusedRead = (): void => { void markInboxScopeRead(dmInboxScope(normalizedId)) }
+    window.addEventListener('focus', markFocusedRead)
     return () => {
       setActiveConversation(null)
       window.api.signaling.emit('leave-room', roomId)
+      window.removeEventListener('focus', markFocusedRead)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [normalizedId])
@@ -202,6 +208,17 @@ function DmConversationPage(): JSX.Element {
     await revealMessage(conversation.id, message.id)
     setFocusMessageId(message.id)
   }, [conversation, revealMessage])
+
+  const inboxJumpRef = useRef<string | null>(null)
+  useEffect(() => {
+    const messageId = new URLSearchParams(location.search).get('message')
+    if (!conversation || !messageId || inboxJumpRef.current === messageId) return
+    inboxJumpRef.current = messageId
+    void revealMessage(conversation.id, messageId).then(() => {
+      setFocusMessageId(messageId)
+      return markInboxMessageRead(messageId)
+    }).catch(console.error)
+  }, [conversation, location.search, markInboxMessageRead, revealMessage])
 
   const handleTogglePin = useCallback(async (messageId: string, pinned: boolean): Promise<void> => {
     if (!conversation || messageId.startsWith('mrhist_')) return

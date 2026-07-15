@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Hash, Pin, Search, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useServersStore } from '@/stores/servers.store'
@@ -12,6 +12,8 @@ import { useServerLayout } from '@/stores/channels.store'
 import { PERM, effectivePermissions, hasPerm, resolveChannelPerm, type ChannelPermKey } from '../../../../shared/permissions'
 import type { Server } from '@/types/server'
 import type { Message, MessageSearchOptions } from '@/types/messages'
+import { useLocation } from 'react-router-dom'
+import { serverInboxScope, useInboxStore } from '@/stores/inbox.store'
 
 interface ServerTextChannelProps {
   server: Server
@@ -33,11 +35,14 @@ interface ServerTextChannelProps {
 }
 
 function ServerTextChannel({ server, channelName, channelId, isDefaultChannel }: ServerTextChannelProps): JSX.Element {
+  const location = useLocation()
   const displayName = channelName || server.textChannelName
   const [showMembers, setShowMembers] = useState(true)
   const [toolsMode, setToolsMode] = useState<MessageToolsMode | null>(null)
   const [focusMessageId, setFocusMessageId] = useState<string | null>(null)
   const [replyTarget, setReplyTarget] = useState<Message | null>(null)
+  const markInboxScopeRead = useInboxStore((s) => s.markScopeRead)
+  const markInboxMessageRead = useInboxStore((s) => s.markMessageRead)
   useEffect(() => setReplyTarget(null), [server.id, channelId])
   const allMessages = useServersStore((s) => s.serverMessages[server.id] || [])
   // Filter to this channel. Legacy messages (channelId === null) only show in
@@ -106,6 +111,28 @@ function ServerTextChannel({ server, channelName, channelId, isDefaultChannel }:
   const handleTogglePin = useCallback(async (messageId: string, pinned: boolean): Promise<void> => {
     await setServerMessagePinned(server.id, messageId, pinned)
   }, [server.id, setServerMessagePinned])
+
+  useEffect(() => {
+    const scope = serverInboxScope(server.id, channelId)
+    const markRead = (): void => {
+      void markInboxScopeRead(scope)
+      if (isDefaultChannel) void markInboxScopeRead(serverInboxScope(server.id, null))
+    }
+    markRead()
+    window.addEventListener('focus', markRead)
+    return () => window.removeEventListener('focus', markRead)
+  }, [channelId, isDefaultChannel, markInboxScopeRead, server.id])
+
+  const inboxJumpRef = useRef<string | null>(null)
+  useEffect(() => {
+    const messageId = new URLSearchParams(location.search).get('message')
+    if (!messageId || inboxJumpRef.current === messageId) return
+    inboxJumpRef.current = messageId
+    void revealServerMessage(server.id, messageId, channelId, !!isDefaultChannel).then(() => {
+      setFocusMessageId(messageId)
+      return markInboxMessageRead(messageId)
+    }).catch(console.error)
+  }, [channelId, inboxJumpRef, isDefaultChannel, location.search, markInboxMessageRead, revealServerMessage, server.id])
 
   return (
     <div className="flex h-full">

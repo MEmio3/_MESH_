@@ -962,6 +962,7 @@ export const useServersStore = create<ServersStore>((set, get) => ({
         await window.api.server.messageRemote(p)
       }
       let appended = false
+      let receivedMessage: Message | null = null
       set((s) => {
         const existing = s.serverMessages[p.serverId] || []
         if (existing.some((m) => m.id === p.message.id)) return {}
@@ -977,36 +978,69 @@ export const useServersStore = create<ServersStore>((set, get) => ({
           replyTo: p.message.replyTo ?? null,
           file: file ?? null
         }
+        receivedMessage = msg
         appended = true
         return { serverMessages: { ...s.serverMessages, [p.serverId]: [...existing, msg] } }
       })
       // Soft ding for fresh server messages — suppress for self-sent and for
       // dedupe hits (messages we've already seen via echo/refresh).
       const selfId = useIdentityStore.getState().identity?.userId
-      if (appended && p.message.senderId !== selfId) {
-        playServerMessage()
-        if (selfId) {
-          const state = get()
-          const server = state.servers.find((sv) => sv.id === p.serverId)
-          const mention = matchingMentionForSelf({
+      if (appended && receivedMessage && selfId && p.message.senderId !== selfId) {
+        const state = get()
+        const server = state.servers.find((sv) => sv.id === p.serverId)
+        const mention = matchingMentionForSelf({
+          content: p.message.content,
+          selfId,
+          server,
+          members: state.serverMembers[p.serverId] || [],
+          roles: state.serverRoles[p.serverId] || []
+        })
+        const route = serverMessageRoute(p.serverId, p.message.channelId ?? null)
+        const currentRoute = window.location.hash.slice(1).split('?')[0]
+        const serverChannels = useChannelsStore.getState().byServer[p.serverId]?.channels ?? []
+        const channel = serverChannels.find((entry) => entry.id === p.message.channelId)
+        const firstTextChannel = serverChannels.find((entry) => entry.type === 'text')
+        const isOpenChannel = currentRoute === route || (
+          currentRoute === `/channels/${p.serverId}` &&
+          (!p.message.channelId || p.message.channelId === firstTextChannel?.id)
+        )
+        void import('./inbox.store').then(({ useInboxStore, serverInboxScope }) =>
+          useInboxStore.getState().recordIncoming({
+            messageId: receivedMessage!.id,
+            scopeKey: serverInboxScope(p.serverId, p.message.channelId ?? null),
+            sourceType: 'server',
+            serverId: p.serverId,
+            channelId: p.message.channelId ?? null,
+            sourceName: server?.name ?? 'Server',
+            channelName: channel?.name ?? server?.textChannelName ?? 'general',
+            senderId: p.message.senderId,
+            senderName: p.message.senderName,
             content: p.message.content,
-            selfId,
-            server,
-            members: state.serverMembers[p.serverId] || [],
-            roles: state.serverRoles[p.serverId] || []
+            timestamp: p.message.timestamp,
+            replyToId: p.message.replyTo?.messageId ?? null,
+            selfUserId: selfId,
+            isMention: Boolean(mention),
+            isRead: document.hasFocus() && isOpenChannel,
+            fileName: file?.fileName ?? null,
+            fileType: file?.fileType ?? null
           })
-          if (mention) {
-            notify({
-              type: 'server-message',
-              title: mention === 'everyone'
-                ? `@everyone in ${server?.name ?? 'server'}`
-                : `${p.message.senderName} mentioned you`,
-              body: p.message.content.slice(0, 140),
-              route: serverMessageRoute(p.serverId, p.message.channelId ?? null),
-              force: true
-            })
-          }
-        }
+        ).then((result) => {
+          if (!result.inserted || result.mode === 'muted') return
+          const important = Boolean(mention) || result.isReply
+          if (result.mode === 'mentions' && !important) return
+          playServerMessage()
+          notify({
+            type: 'server-message',
+            title: mention === 'everyone'
+              ? `@everyone in ${server?.name ?? 'server'}`
+              : important
+                ? `${p.message.senderName} mentioned or replied to you`
+                : `${p.message.senderName} in ${server?.name ?? 'server'}`,
+            body: p.message.content.slice(0, 140) || file?.fileName || 'New message',
+            route,
+            force: important
+          })
+        }).catch(console.error)
       }
     }))
 
