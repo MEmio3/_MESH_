@@ -1,7 +1,7 @@
 import sodium from 'libsodium-wrappers'
 import { app, safeStorage } from 'electron'
 import { join } from 'path'
-import { readFileSync, writeFileSync, existsSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, renameSync, unlinkSync } from 'fs'
 import { hostname, userInfo } from 'os'
 
 const IDENTITY_FILE = 'identity.enc'
@@ -15,6 +15,15 @@ interface StoredIdentity {
   avatarColor: string | null
   createdAt: number
   useSafeStorage: boolean
+}
+
+export interface PortableIdentity {
+  publicKey: string
+  privateKey: string
+  userId: string
+  username: string
+  avatarColor: string | null
+  createdAt: number
 }
 
 function getIdentityPath(): string {
@@ -182,6 +191,64 @@ export function getPrivateKey(): Uint8Array {
   const stored: StoredIdentity = JSON.parse(raw)
   const privateKeyHex = decryptPrivateKey(stored)
   return sodium.from_hex(privateKeyHex)
+}
+
+/** Main-process only. The returned private key must only enter an encrypted recovery payload. */
+export function exportPortableIdentity(): PortableIdentity {
+  const path = getIdentityPath()
+  if (!existsSync(path)) throw new Error('No local identity exists to back up.')
+
+  const stored = JSON.parse(readFileSync(path, 'utf-8')) as StoredIdentity
+  return {
+    publicKey: stored.publicKey,
+    privateKey: decryptPrivateKey(stored),
+    userId: stored.userId,
+    username: stored.username,
+    avatarColor: stored.avatarColor,
+    createdAt: stored.createdAt
+  }
+}
+
+/** Validate and re-encrypt a recovered private key for this machine. Main-process only. */
+export function importPortableIdentity(portable: PortableIdentity): void {
+  const publicKey = sodium.from_hex(portable.publicKey)
+  const privateKey = sodium.from_hex(portable.privateKey)
+  if (publicKey.length !== sodium.crypto_sign_PUBLICKEYBYTES || privateKey.length !== sodium.crypto_sign_SECRETKEYBYTES) {
+    throw new Error('The recovery bundle contains an invalid identity keypair.')
+  }
+
+  const expectedUserId = `usr_${portable.publicKey.substring(0, 16)}`
+  if (portable.userId !== expectedUserId) {
+    throw new Error('The recovery bundle identity does not match its public key.')
+  }
+
+  const challenge = sodium.from_string('mesh-recovery-key-check')
+  const signature = sodium.crypto_sign_detached(challenge, privateKey)
+  if (!sodium.crypto_sign_verify_detached(signature, challenge, publicKey)) {
+    throw new Error('The recovery bundle keypair could not be verified.')
+  }
+
+  if (!portable.username.trim() || !Number.isFinite(portable.createdAt)) {
+    throw new Error('The recovery bundle identity metadata is invalid.')
+  }
+
+  const { encrypted, salt, useSafeStorage } = encryptPrivateKey(portable.privateKey)
+  const stored: StoredIdentity = {
+    publicKey: portable.publicKey,
+    encryptedPrivateKey: encrypted,
+    salt,
+    userId: portable.userId,
+    username: portable.username.trim().slice(0, 64),
+    avatarColor: portable.avatarColor,
+    createdAt: portable.createdAt,
+    useSafeStorage
+  }
+
+  const path = getIdentityPath()
+  const temporaryPath = `${path}.recovery-tmp`
+  writeFileSync(temporaryPath, JSON.stringify(stored, null, 2), 'utf-8')
+  if (existsSync(path)) unlinkSync(path)
+  renameSync(temporaryPath, path)
 }
 
 /**

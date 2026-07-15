@@ -30,6 +30,15 @@ const api = {
     createdAt: number
   } | null> => ipcRenderer.invoke('identity:load'),
 
+  recovery: {
+    export: (args: { password: string; includeHistory: boolean }) => ipcRenderer.invoke('recovery:export', args),
+    select: () => ipcRenderer.invoke('recovery:select'),
+    inspect: (args: { path: string; password: string }) => ipcRenderer.invoke('recovery:inspect', args),
+    restore: (args: { path: string; password: string }) => ipcRenderer.invoke('recovery:restore', args),
+    createFresh: (confirmation: string) => ipcRenderer.invoke('recovery:fresh', confirmation),
+    restart: (): void => ipcRenderer.send('recovery:restart')
+  },
+
   // Database
   db: {
     friends: {

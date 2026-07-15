@@ -560,6 +560,48 @@ interface CryptoAPI {
   hashPassword: (password: string) => Promise<string>
 }
 
+interface RecoveryCounts {
+  friends: number
+  servers: number
+  conversations: number
+  directMessages: number
+  serverMessages: number
+  settings: number
+}
+
+interface RecoveryManifest {
+  formatVersion: number
+  appVersion: string
+  exportedAt: number
+  includeHistory: boolean
+  identity: {
+    userId: string
+    username: string
+    publicKey: string
+    createdAt: number
+  }
+  counts: RecoveryCounts
+  files: number
+  fileBytes: number
+}
+
+interface RecoveryAPI {
+  export: (args: { password: string; includeHistory: boolean }) => Promise<{
+    canceled: boolean
+    path?: string
+    manifest?: RecoveryManifest
+  }>
+  select: () => Promise<{ canceled: boolean; path?: string; fileName?: string; sizeBytes?: number }>
+  inspect: (args: { path: string; password: string }) => Promise<RecoveryManifest>
+  restore: (args: { path: string; password: string }) => Promise<{
+    success: true
+    archiveName: string
+    manifest: RecoveryManifest
+  }>
+  createFresh: (confirmation: string) => Promise<{ success: true; archiveName: string }>
+  restart: () => void
+}
+
 interface MeshAPI {
   minimize: () => void
   maximize: () => void
@@ -578,6 +620,8 @@ interface MeshAPI {
     avatarColor: string | null
     createdAt: number
   } | null>
+
+  recovery: RecoveryAPI
 
   // Database
   db: DbAPI

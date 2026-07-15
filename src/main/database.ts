@@ -45,6 +45,10 @@ export function closeDatabase(): void {
   db = null
 }
 
+export async function backupDatabase(destination: string): Promise<void> {
+  await getDb().backup(destination)
+}
+
 function getDb(): Database.Database {
   if (!db) throw new Error('Database not open')
   return db

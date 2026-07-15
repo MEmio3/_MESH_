@@ -6,6 +6,7 @@ import * as relayManager from './relay-manager'
 import * as avatar from './avatar'
 import * as serverAvatar from './server-avatar'
 import * as fileManager from './file-manager'
+import * as recovery from './recovery'
 import { showNotification, type NotifyPayload } from './notifications'
 import { PERM, MODERATOR_BUNDLE, effectivePermissions, hasPerm, resolveChannelPerm } from '../shared/permissions'
 import type {
@@ -1851,6 +1852,19 @@ export function registerSignalingHandlers(): void {
   ipcMain.on('signaling:voice-udp-ping', (_e, roomId: string, sentAt: number) => {
     socketClient.emitVoiceUdpPing(roomId, sentAt)
   })
+}
+
+export function registerRecoveryHandlers(): void {
+  ipcMain.handle('recovery:export', (_event, args: { password: string; includeHistory: boolean }) =>
+    recovery.exportRecoveryBundle(args.password, args.includeHistory))
+  ipcMain.handle('recovery:select', () => recovery.selectRecoveryBundle())
+  ipcMain.handle('recovery:inspect', (_event, args: { path: string; password: string }) =>
+    recovery.inspectRecoveryBundle(args.path, args.password))
+  ipcMain.handle('recovery:restore', (_event, args: { path: string; password: string }) =>
+    recovery.restoreRecoveryBundle(args.path, args.password))
+  ipcMain.handle('recovery:fresh', (_event, confirmation: string) =>
+    recovery.createFreshIdentity(confirmation))
+  ipcMain.on('recovery:restart', () => recovery.restartAfterRecovery())
 }
 
 /**

@@ -20,6 +20,7 @@ import { initSodium } from './identity'
 import {
   registerWindowHandlers,
   registerIdentityHandlers,
+  registerRecoveryHandlers,
   registerDatabaseHandlers,
   registerSignalingHandlers,
   registerRelayHandlers,
@@ -114,6 +115,7 @@ app.whenReady().then(async () => {
   // Open the database (tables created automatically)
   openDatabase()
   registerDatabaseHandlers()
+  registerRecoveryHandlers()
 
   // Register signaling handlers (socket.io client lives in main process)
   registerSignalingHandlers()
