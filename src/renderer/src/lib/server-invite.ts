@@ -6,6 +6,7 @@ export const SERVER_INVITE_VERSION = 1
 export interface ParsedServerInvite {
   serverId: string
   hostUrl: string | null
+  hostUrls: string[]
   serverName: string | null
   version: number
   protocolVersion: number | null
@@ -27,8 +28,23 @@ export function normalizeInviteHost(value: string | null | undefined): string | 
   }
 }
 
-export function createServerInvite(args: { serverId: string; hostUrl: string; serverName?: string | null }): string {
-  const hostUrl = normalizeInviteHost(args.hostUrl)
+function uniqueInviteHosts(values: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>()
+  const hosts: string[] = []
+  for (const value of values) {
+    const normalized = normalizeInviteHost(value)
+    if (!normalized) continue
+    const key = normalized.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    hosts.push(normalized)
+  }
+  return hosts
+}
+
+export function createServerInvite(args: { serverId: string; hostUrl: string; hostUrls?: string[]; serverName?: string | null }): string {
+  const hosts = uniqueInviteHosts([args.hostUrl, ...(args.hostUrls ?? [])])
+  const hostUrl = hosts[0] ?? null
   if (!/^srv_[A-Za-z0-9_-]+$/.test(args.serverId) || !hostUrl) return ''
   const params = new URLSearchParams({
     v: String(SERVER_INVITE_VERSION),
@@ -36,6 +52,7 @@ export function createServerInvite(args: { serverId: string; hostUrl: string; se
     code: encodeConnectionCode(hostUrl),
     protocol: String(MESH_PROTOCOL_VERSION)
   })
+  for (const route of hosts.slice(1)) params.append('route', encodeConnectionCode(route))
   const serverName = String(args.serverName ?? '').trim().slice(0, 80)
   if (serverName) params.set('name', serverName)
   return `mesh://join?${params.toString()}`
@@ -55,10 +72,15 @@ export function parseServerInvite(input: string): ParsedServerInvite | null {
       const code = url.searchParams.get('code')
       const hostUrl = normalizeInviteHost(code ? decodeConnectionCode(code) : url.searchParams.get('host'))
       if (!hostUrl) return null
+      const hostUrls = uniqueInviteHosts([
+        hostUrl,
+        ...url.searchParams.getAll('route').map((route) => decodeConnectionCode(route) ?? route)
+      ])
       const protocol = Number.parseInt(url.searchParams.get('protocol') || '', 10)
       return {
         serverId,
         hostUrl,
+        hostUrls,
         serverName: url.searchParams.get('name')?.trim().slice(0, 80) || null,
         version,
         protocolVersion: Number.isInteger(protocol) ? protocol : null,
@@ -78,6 +100,7 @@ export function parseServerInvite(input: string): ParsedServerInvite | null {
   return {
     serverId,
     hostUrl: normalizeInviteHost(decodedHost ?? hostMatch),
+    hostUrls: uniqueInviteHosts([decodedHost ?? hostMatch]),
     serverName: null,
     version: 1,
     protocolVersion: null,

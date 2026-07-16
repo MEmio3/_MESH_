@@ -11,13 +11,25 @@ import { useServersStore } from '@/stores/servers.store'
 import { useServerAvatarStore } from '@/stores/serverAvatar.store'
 import { useDiscoveryStore } from '@/stores/discovery.store'
 import { useStatusStore } from '@/stores/status.store'
-import { encodeConnectionCode, resolveConnectionInput } from '@/lib/connection-code'
+import {
+  decodeConnectionRoutes,
+  encodeConnectionCode,
+  encodeConnectionRoutes,
+  resolveConnectionInput
+} from '@/lib/connection-code'
 import { createServerInvite } from '@/lib/server-invite'
+import {
+  formatHttpHost,
+  isGlobalIpv6Address,
+  isPrivateOrCgnatAddress as isPrivateOrCgnatIp,
+  networkAddressFamily
+} from '../../../../shared/network-address'
 
 type IpScope = 'home' | 'isp' | 'public'
 
 interface DetectedIp {
   address: string
+  family: 'ipv4' | 'ipv6'
   scope: IpScope
   label: string
   iface: string
@@ -107,6 +119,44 @@ function normalizeNetworkUrl(input: string): string {
   return withScheme.replace(/\/+$/, '')
 }
 
+function connectionRoutesFromInput(input: string): string[] {
+  const decoded = decodeConnectionRoutes(input)
+  const candidates = decoded ?? [resolveConnectionInput(input)]
+  return [...new Set(candidates.map(normalizeNetworkUrl).filter(Boolean))]
+}
+
+async function findReachableConnectionRoute(input: string): Promise<string> {
+  const routes = connectionRoutesFromInput(input)
+  if (routes.length === 0) throw new Error('Enter a MESH code or IP:port.')
+  if (routes.length === 1) return routes[0]
+
+  return new Promise((resolve, reject) => {
+    let pending = routes.length
+    let settled = false
+    const errors: string[] = []
+    for (const route of routes) {
+      window.api.networkDiscovery.fetchServers({ url: route })
+        .then((result) => {
+          if (settled) return
+          if (result.success) {
+            settled = true
+            resolve(route)
+            return
+          }
+          errors.push(result.error || `${hostFromUrl(route)} did not respond.`)
+          pending -= 1
+          if (pending === 0) reject(new Error(errors[0] || 'No route in this invite is reachable.'))
+        })
+        .catch((error) => {
+          if (settled) return
+          errors.push(error instanceof Error ? error.message : String(error))
+          pending -= 1
+          if (pending === 0) reject(new Error(errors[0] || 'No route in this invite is reachable.'))
+        })
+    }
+  })
+}
+
 function hostFromUrl(url: string): string {
   try {
     return new URL(normalizeNetworkUrl(url)).host
@@ -128,16 +178,6 @@ function copyToClipboard(value: string, setCopied: (value: string | null) => voi
   navigator.clipboard.writeText(value)
   setCopied(value)
   setTimeout(() => setCopied(null), 1400)
-}
-
-function isPrivateOrCgnatIp(ip: string | null): boolean {
-  if (!ip) return false
-  const [a, b] = ip.split('.').map((n) => parseInt(n, 10))
-  if (a === 10 || a === 127 || a === 0) return true
-  if (a === 192 && b === 168) return true
-  if (a === 172 && b >= 16 && b <= 31) return true
-  if (a === 100 && b >= 64 && b <= 127) return true
-  return a === 169 && b === 254
 }
 
 function normalizePort(value: string | number | null | undefined): number {
@@ -230,19 +270,31 @@ function NetworkCenterPage(): JSX.Element {
 
   const activeUrl = normalizeNetworkUrl(network.signalingUrl || 'http://localhost:3000')
   const hostedServers = servers.filter((server) => server.role === 'host')
-  const primaryIp = hostStatus.localIps.find((ip) => ip.scope === 'home') ?? hostStatus.localIps[0] ?? null
-  const publicInterface = hostStatus.localIps.find((ip) => ip.scope === 'public')?.address ?? null
+  const primaryIp = hostStatus.localIps.find((ip) => ip.scope === 'home' && ip.family === 'ipv4')
+    ?? hostStatus.localIps.find((ip) => ip.scope === 'home')
+    ?? hostStatus.localIps[0]
+    ?? null
+  const publicIpv4Interface = hostStatus.localIps.find((ip) => ip.scope === 'public' && ip.family === 'ipv4')?.address ?? null
+  const globalIpv6Addresses = hostStatus.localIps
+    .filter((ip) => ip.scope === 'public' && ip.family === 'ipv6' && isGlobalIpv6Address(ip.address))
+    .map((ip) => ip.address)
+  const publicIpv6 = globalIpv6Addresses[0] ?? null
   const routerPublicIp = netSig?.signature.routerWanIp && !isPrivateOrCgnatIp(netSig.signature.routerWanIp)
     ? netSig.signature.routerWanIp
     : null
   const routerPrivateIp = netSig?.signature.routerWanIp && isPrivateOrCgnatIp(netSig.signature.routerWanIp)
     ? netSig.signature.routerWanIp
     : null
-  const detectedPublicIp = netSig?.signature.publicIp ?? routerPublicIp ?? publicInterface
+  const detectedPublicIpv4 = netSig?.signature.publicIp ?? routerPublicIp ?? publicIpv4Interface
+  const hasUsablePublicIpv4 = Boolean(detectedPublicIpv4 && !netSig?.interpretation.behindCgnat)
+  const preferredPublicAddress = hasUsablePublicIpv4 && detectedPublicIpv4
+    ? detectedPublicIpv4
+    : publicIpv6
   const selectedHostPort = normalizePort(hostPortDraft || savedHostPort)
   const hostPort = hostStatus.running ? normalizePort(hostStatus.port || savedHostPort) : selectedHostPort
-  const sameWifiAddress = primaryIp ? `http://${primaryIp.address}:${hostPort}` : `http://localhost:${hostPort}`
-  const publicAddress = detectedPublicIp ? `http://${detectedPublicIp}:${hostPort}` : null
+  const sameWifiAddress = primaryIp ? formatHttpHost(primaryIp.address, hostPort) : formatHttpHost('localhost', hostPort)
+  const publicAddress = preferredPublicAddress ? formatHttpHost(preferredPublicAddress, hostPort) : null
+  const publicIpv4Address = detectedPublicIpv4 ? formatHttpHost(detectedPublicIpv4, hostPort) : null
   const hostPorts = useMemo(() => {
     return [...new Set([savedHostPort, ...network.extraHostPorts, ...(hostStatus.ports ?? [])].map(normalizePort))]
       .sort((a, b) => a - b)
@@ -250,15 +302,17 @@ function NetworkCenterPage(): JSX.Element {
   const hostAddressOptions = useMemo(() => {
     const options = new Map<string, string>([['localhost', 'localhost - this computer']])
     for (const ip of hostStatus.localIps) {
-      const scope = ip.scope === 'home'
-        ? 'same Wi-Fi'
-        : ip.scope === 'isp'
-          ? 'VPN / ISP private'
-          : 'public interface'
+      const scope = ip.family === 'ipv6'
+        ? ip.scope === 'public' ? 'global IPv6' : 'private IPv6 / overlay'
+        : ip.scope === 'home'
+          ? 'same Wi-Fi'
+          : ip.scope === 'isp'
+            ? 'VPN / ISP private'
+            : 'public IPv4 interface'
       options.set(ip.address, `${ip.address} - ${scope}`)
     }
-    if (detectedPublicIp && !netSig?.interpretation.behindCgnat) {
-      options.set(detectedPublicIp, `${detectedPublicIp} - public internet`)
+    if (detectedPublicIpv4 && !netSig?.interpretation.behindCgnat) {
+      options.set(detectedPublicIpv4, `${detectedPublicIpv4} - public IPv4`)
     }
     if (routerPrivateIp) {
       options.set(routerPrivateIp, `${routerPrivateIp} - same ISP / upstream network`)
@@ -269,9 +323,9 @@ function NetworkCenterPage(): JSX.Element {
       }
     }
     return [...options].map(([value, label]) => ({ value, label }))
-  }, [detectedPublicIp, hostStatus.localIps, netSig?.interpretation.behindCgnat, network.serverHostAssignments, routerPrivateIp])
+  }, [detectedPublicIpv4, hostStatus.localIps, netSig?.interpretation.behindCgnat, network.serverHostAssignments, routerPrivateIp])
   const relayAddress = relayStatus?.advertisedAddress ?? (relayStatus?.running ? `turn:localhost:${relayStatus.port}` : null)
-  const canSharePublic = Boolean(publicAddress && netSig && !netSig.interpretation.behindCgnat)
+  const canSharePublic = Boolean(publicAddress)
   const sharePlan = (() => {
     if (!hostStatus.running) {
       return {
@@ -283,20 +337,30 @@ function NetworkCenterPage(): JSX.Element {
       }
     }
     if (canSharePublic) {
+      const usingIpv6 = preferredPublicAddress ? networkAddressFamily(preferredPublicAddress) === 'ipv6' : false
+      const dualStack = hasUsablePublicIpv4 && Boolean(publicIpv6)
       return {
-        title: netSig?.interpretation.directlyReachable ? 'Internet invite' : 'Internet invite - port unverified',
+        title: dualStack
+          ? 'Dual-stack internet invite'
+          : usingIpv6
+            ? netSig?.interpretation.behindCgnat ? 'IPv6 internet + IPv4 CGNAT' : 'Internet invite - IPv6'
+          : netSig?.interpretation.directlyReachable ? 'Internet invite' : 'Internet invite - port unverified',
         address: publicAddress,
         button: 'Copy internet invite',
-        note: netSig?.interpretation.directlyReachable
-          ? `Use this for friends outside your Wi-Fi. Allow TCP and UDP port ${hostPort} through the firewall.`
-          : `Use this for friends outside your Wi-Fi after forwarding TCP and UDP port ${hostPort} on your router.`,
+        note: dualStack
+          ? `Friends automatically try public IPv4 or global IPv6. Allow TCP and UDP port ${hostPort} on both paths.`
+          : usingIpv6
+            ? `IPv6 friends connect globally. IPv4 friends use a same-ISP/LAN fallback when available; general IPv4-only internet users still need a relay or public IPv4. Allow TCP and UDP port ${hostPort} through the host firewall.`
+          : netSig?.interpretation.directlyReachable
+            ? `Use this for friends outside your Wi-Fi. Allow TCP and UDP port ${hostPort} through the firewall.`
+            : `Use this for friends outside your Wi-Fi after forwarding TCP and UDP port ${hostPort} on your router.`,
         tone: 'online' as const
       }
     }
     if (netSig?.interpretation.behindCgnat) {
       return {
         title: routerPrivateIp ? 'Same ISP invite - provider dependent' : 'Same Wi-Fi only',
-        address: routerPrivateIp ? `http://${routerPrivateIp}:${hostPort}` : sameWifiAddress,
+        address: routerPrivateIp ? formatHttpHost(routerPrivateIp, hostPort) : sameWifiAddress,
         button: routerPrivateIp ? 'Copy same-ISP invite' : 'Copy same-Wi-Fi invite',
         note: routerPrivateIp
           ? 'This CGNAT address can work only if your ISP permits direct traffic between subscribers. Otherwise use a VPN/overlay network or a public-IP MESH host.'
@@ -314,7 +378,20 @@ function NetworkCenterPage(): JSX.Element {
   })()
   // Share the obfuscated code, not the bare IP — the raw address stays tucked
   // away under "Connection details" for anyone who needs it.
-  const shareCode = sharePlan.address ? encodeConnectionCode(sharePlan.address) : null
+  const hostInviteRoutes = serverInviteRoutes(
+    preferredPublicAddress ?? routerPrivateIp ?? primaryIp?.address ?? 'localhost',
+    hostPort
+  )
+  const shareCode = hostStatus.running ? encodeConnectionRoutes(hostInviteRoutes) || null : null
+  const hostInviteSummary = inviteRouteSummary(hostInviteRoutes, hostPort)
+  const ipv4Reachability = !netSig
+    ? 'Checking'
+    : hasUsablePublicIpv4
+      ? 'Public'
+      : netSig.interpretation.behindCgnat
+        ? routerPrivateIp ? 'CGNAT / ISP' : 'CGNAT'
+        : 'LAN only'
+  const ipv6Reachability = publicIpv6 ? 'Global' : 'Unavailable'
 
   const knownNetworks = useMemo(() => {
     const seen = new Set<string>([activeUrl.toLowerCase()])
@@ -465,17 +542,11 @@ function NetworkCenterPage(): JSX.Element {
       setNotice('Create your profile first, then connect.')
       return
     }
-    // Accept a MESH connection code OR a raw IP:port/URL. A code decodes back
-    // to its address; anything else is treated as a normal URL.
-    const url = normalizeNetworkUrl(resolveConnectionInput(urlInput))
-    if (!url) {
-      setNotice('Enter a MESH code or IP:port.')
-      return
-    }
     setReconnectState('connecting')
     setNotice(null)
     const wasHosting = hostStatus.running || network.hostSignaling
     try {
+      const url = await findReachableConnectionRoute(urlInput)
       updateNetwork(keepHostMode ? { signalingUrl: url, hostSignaling: true } : { signalingUrl: url })
       await window.api.signaling.disconnect().catch(() => {})
       await window.api.signaling.connect(url, identity.userId)
@@ -497,20 +568,24 @@ function NetworkCenterPage(): JSX.Element {
   // Nearby and we can DM/call them.
   async function addHost(urlInput: string): Promise<void> {
     if (!identity) { setNotice('Create your profile first, then connect.'); return }
-    const url = normalizeNetworkUrl(resolveConnectionInput(urlInput))
-    if (!url) { setNotice('Enter a MESH code or IP:port to add.'); return }
-    if (url.toLowerCase() === activeUrl.toLowerCase() || secondaryHosts.some((h) => normalizeNetworkUrl(h.url).toLowerCase() === url.toLowerCase())) {
-      setNotice(`Already connected to ${hostFromUrl(url)}.`)
-      return
+    setNotice(null)
+    try {
+      const url = await findReachableConnectionRoute(urlInput)
+      if (url.toLowerCase() === activeUrl.toLowerCase() || secondaryHosts.some((h) => normalizeNetworkUrl(h.url).toLowerCase() === url.toLowerCase())) {
+        setNotice(`Already connected to ${hostFromUrl(url)}.`)
+        return
+      }
+      await window.api.signaling.addHost(url)
+      // Give the socket a beat to register, then announce on every host.
+      setTimeout(() => {
+        useDiscoveryStore.getState().publishSelf().catch(() => {})
+        useStatusStore.getState().publishFriendsSubscription()
+        window.api.friendRequest.republishPending().catch(() => {})
+      }, 400)
+      setNotice(`Also connected to ${hostFromUrl(url)}. You can now reach people there too.`)
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Could not add this host.')
     }
-    await window.api.signaling.addHost(url)
-    // Give the socket a beat to register, then announce on every host.
-    setTimeout(() => {
-      useDiscoveryStore.getState().publishSelf().catch(() => {})
-      useStatusStore.getState().publishFriendsSubscription()
-      window.api.friendRequest.republishPending().catch(() => {})
-    }, 400)
-    setNotice(`Also connected to ${hostFromUrl(url)}. You can now reach people there too.`)
   }
 
   async function removeHost(url: string): Promise<void> {
@@ -621,8 +696,8 @@ function NetworkCenterPage(): JSX.Element {
 
   function defaultServerHostAssignment(serverId: string): ServerHostAssignment {
     const saved = network.serverHostAssignments[serverId]
-    const fallbackAddress = canSharePublic && detectedPublicIp
-      ? detectedPublicIp
+    const fallbackAddress = canSharePublic && preferredPublicAddress
+      ? preferredPublicAddress
       : netSig?.interpretation.behindCgnat && routerPrivateIp
         ? routerPrivateIp
         : primaryIp?.address ?? 'localhost'
@@ -631,6 +706,61 @@ function NetworkCenterPage(): JSX.Element {
       port,
       address: saved?.address || fallbackAddress
     }
+  }
+
+  function serverInviteRoutes(primaryAddress: string, port: number): string[] {
+    const addresses = [
+      primaryAddress,
+      preferredPublicAddress,
+      ...globalIpv6Addresses,
+      !netSig?.interpretation.behindCgnat ? detectedPublicIpv4 : null,
+      routerPrivateIp,
+      ...hostStatus.localIps.map((ip) => ip.address)
+    ]
+    const seen = new Set<string>()
+    const routes: string[] = []
+    for (const address of addresses) {
+      if (!address) continue
+      if (address === 'localhost') continue
+      const blockedPublicIpv4 = Boolean(
+        netSig?.interpretation.behindCgnat
+        && networkAddressFamily(address) === 'ipv4'
+        && !isPrivateOrCgnatIp(address)
+      )
+      if (blockedPublicIpv4) continue
+      const route = formatHttpHost(address, port)
+      const key = route.toLowerCase()
+      if (seen.has(key)) continue
+      seen.add(key)
+      routes.push(route)
+    }
+    return routes
+  }
+
+  function inviteRouteSummary(routes: string[], port: number): string {
+    const labels: string[] = []
+    if (hasUsablePublicIpv4 && detectedPublicIpv4 && routes.includes(formatHttpHost(detectedPublicIpv4, port))) {
+      labels.push('public IPv4')
+    }
+    if (routes.some((route) => isGlobalIpv6Address(new URL(route).hostname))) {
+      labels.push('global IPv6')
+    }
+    if (routerPrivateIp && routes.includes(formatHttpHost(routerPrivateIp, port))) {
+      labels.push('same-ISP IPv4')
+    }
+    if (routes.some((route) => {
+      const host = new URL(route).hostname
+      return networkAddressFamily(host) === 'ipv4' && isPrivateOrCgnatIp(host) && host !== routerPrivateIp
+    })) {
+      labels.push('LAN IPv4')
+    }
+    if (routes.some((route) => {
+      const host = new URL(route).hostname
+      return networkAddressFamily(host) === 'ipv6' && !isGlobalIpv6Address(host)
+    })) {
+      labels.push('private IPv6')
+    }
+    return labels.length > 0 ? labels.join(' + ') : 'no shareable route detected'
   }
 
   async function saveServerHostAssignment(serverId: string, partial: Partial<ServerHostAssignment>): Promise<void> {
@@ -1032,7 +1162,7 @@ function NetworkCenterPage(): JSX.Element {
                       <div className="mt-1 break-all font-mono text-sm text-mesh-green">{shareCode}</div>
                     )}
                     <p className="mt-1 text-xs leading-relaxed text-mesh-text-muted">
-                      {sharePlan.note} Share this code — your IP stays hidden.
+                      {sharePlan.note} This smart code contains {hostInviteSummary} and automatically uses the first reachable path.
                     </p>
                   </div>
                 </div>
@@ -1137,16 +1267,10 @@ function NetworkCenterPage(): JSX.Element {
                   )}
                 </div>
               )}
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <Metric label="Port" value={String(hostPort)} />
-                <Metric
-                  label="Reachability"
-                  value={sharePlan.tone === 'online'
-                    ? 'Internet'
-                    : sharePlan.tone === 'blocked'
-                      ? routerPrivateIp ? 'Same ISP / CGNAT' : 'LAN only'
-                      : 'Checking'}
-                />
+                <Metric label="IPv4" value={ipv4Reachability} />
+                <Metric label="IPv6" value={ipv6Reachability} />
               </div>
               <button
                 onClick={() => setShowDiagnostics((v) => !v)}
@@ -1163,25 +1287,36 @@ function NetworkCenterPage(): JSX.Element {
                   <ShareCodeRow label="Same Wi-Fi only" address={sameWifiAddress} tag={primaryIp?.iface} copied={copied} onCopy={setCopied} />
                   {netSig?.signature.routerWanIp && (
                     <ShareCodeRow
-                      label={isPrivateOrCgnatIp(netSig.signature.routerWanIp) ? 'Router/ISP private address' : 'Router public address'}
-                      address={`http://${netSig.signature.routerWanIp}:${hostPort}`}
+                      label={isPrivateOrCgnatIp(netSig.signature.routerWanIp) ? 'IPv4 CGNAT / upstream route' : 'Router public IPv4'}
+                      address={formatHttpHost(netSig.signature.routerWanIp, hostPort)}
                       muted={isPrivateOrCgnatIp(netSig.signature.routerWanIp)}
-                      note={isPrivateOrCgnatIp(netSig.signature.routerWanIp) ? 'Same-ISP/upstream route. It works only when that network permits direct subscriber traffic.' : `Useful only if TCP and UDP port ${hostPort} are open.`}
+                      note={isPrivateOrCgnatIp(netSig.signature.routerWanIp) ? 'Same-ISP IPv4 route. It works only when your provider permits direct traffic between subscribers.' : `Direct IPv4 route. TCP and UDP port ${hostPort} must be open.`}
                       copied={copied}
                       onCopy={setCopied}
                     />
                   )}
-                  {publicAddress && (
+                  {publicIpv4Address && (
                     <ShareCodeRow
-                      label={netSig?.interpretation.behindCgnat ? 'Website-visible public IP' : 'Public internet address'}
-                      address={publicAddress}
+                      label={netSig?.interpretation.behindCgnat ? 'IPv4 shared by CGNAT' : 'Public IPv4 internet address'}
+                      address={publicIpv4Address}
                       muted={Boolean(netSig?.interpretation.behindCgnat)}
                       copyDisabled={Boolean(netSig?.interpretation.behindCgnat)}
-                      note={netSig?.interpretation.behindCgnat ? 'Diagnostic only. CGNAT prevents inbound connections to this address.' : `Share this after TCP and UDP port ${hostPort} are reachable.`}
+                      note={netSig?.interpretation.behindCgnat ? 'This is the address websites see, but it is shared by your ISP. Friends cannot connect to it directly.' : `This is your usable public IPv4. Forward and allow TCP and UDP port ${hostPort}; it is included in the smart invite.`}
                       copied={copied}
                       onCopy={setCopied}
                     />
                   )}
+                  {globalIpv6Addresses.map((address, index) => (
+                    <ShareCodeRow
+                      key={address}
+                      label={`Global IPv6 internet address${globalIpv6Addresses.length > 1 ? ` ${index + 1}` : ''}`}
+                      address={formatHttpHost(address, hostPort)}
+                      tag="IPv6"
+                      note={`Usable by IPv6-capable friends after TCP and UDP port ${hostPort} are allowed through the host firewall.`}
+                      copied={copied}
+                      onCopy={setCopied}
+                    />
+                  ))}
                   <button
                     onClick={refreshNetworkScan}
                     disabled={scanningNetwork}
@@ -1203,7 +1338,7 @@ function NetworkCenterPage(): JSX.Element {
               tone={hostedServers.length > 0 ? 'online' : 'offline'}
             />
             <p className="mt-3 text-xs leading-relaxed text-mesh-text-muted">
-              Choose which local host port and share IP each community uses.
+              Choose a host port and preferred route. Copy creates one smart invite containing every usable IPv4 and IPv6 fallback.
             </p>
             <div className="mt-4 space-y-2">
               {hostedServers.length === 0 ? (
@@ -1211,15 +1346,18 @@ function NetworkCenterPage(): JSX.Element {
               ) : hostedServers.map((server) => {
                 const avatar = serverAvatars[server.id]
                 const assignment = defaultServerHostAssignment(server.id)
-                const inviteAddress = `http://${assignment.address}:${assignment.port}`
+                const inviteRoutes = serverInviteRoutes(assignment.address, assignment.port)
+                const invitePrimary = inviteRoutes[0] ?? null
                 const invitePayload = createServerInvite({
                   serverId: server.id,
-                  hostUrl: inviteAddress,
+                  hostUrl: invitePrimary ?? '',
+                  hostUrls: inviteRoutes,
                   serverName: server.name
                 })
-                const blockedPublicRoute = Boolean(
+                const preferredRouteBlocked = Boolean(
                   netSig?.interpretation.behindCgnat
                   && assignment.address !== 'localhost'
+                  && networkAddressFamily(assignment.address) === 'ipv4'
                   && !isPrivateOrCgnatIp(assignment.address)
                 )
                 const live = (hostStatus.ports ?? []).includes(assignment.port)
@@ -1233,7 +1371,9 @@ function NetworkCenterPage(): JSX.Element {
                       />
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-semibold text-mesh-text-primary">{server.name}</div>
-                        <div className="truncate font-mono text-[11px] text-mesh-text-muted">{inviteAddress}</div>
+                        <div className="truncate font-mono text-[11px] text-mesh-text-muted">
+                          {invitePrimary ? `Preferred: ${invitePrimary}` : 'No shareable route detected'}
+                        </div>
                         <div className="mt-0.5 flex items-center gap-2 text-[11px] text-mesh-text-muted">
                           <StatusDot tone={live ? 'online' : 'offline'} />
                           <span>{server.memberCount} members</span>
@@ -1242,8 +1382,8 @@ function NetworkCenterPage(): JSX.Element {
                       <Button
                         size="sm"
                         variant="secondary"
-                        disabled={blockedPublicRoute}
-                        title={blockedPublicRoute ? 'This public address cannot accept inbound connections through CGNAT.' : 'Copy join invite'}
+                        disabled={!invitePayload}
+                        title={invitePayload ? 'Copy smart IPv4 + IPv6 join invite' : 'No shareable route detected'}
                         onClick={() => copyToClipboard(invitePayload, setCopied)}
                       >
                         Copy
@@ -1278,17 +1418,19 @@ function NetworkCenterPage(): JSX.Element {
                     </div>
                     <p className={cn(
                       'mt-2 text-[11px]',
-                      blockedPublicRoute ? 'text-mesh-warning' : 'text-mesh-text-muted'
+                      preferredRouteBlocked ? 'text-mesh-warning' : 'text-mesh-text-muted'
                     )}>
-                      {blockedPublicRoute
-                        ? 'This saved public route is blocked by CGNAT. Select a same-Wi-Fi or VPN address instead.'
+                      {preferredRouteBlocked
+                        ? `The selected public IPv4 is blocked by CGNAT, so the invite skips it and uses ${inviteRouteSummary(inviteRoutes, assignment.port)}.`
                         : assignment.address === 'localhost'
-                          ? 'This route works only on this computer.'
+                          ? `Localhost is never shared. The invite uses ${inviteRouteSummary(inviteRoutes, assignment.port)}.`
                           : isPrivateOrCgnatIp(assignment.address)
                             ? assignment.address === routerPrivateIp
-                              ? 'Same-ISP route. Availability depends on whether your provider allows direct subscriber traffic.'
-                              : 'This route is for the same Wi-Fi or overlay network.'
-                            : `Internet route. TCP and UDP port ${assignment.port} must be reachable.`}
+                              ? `Smart invite: ${inviteRouteSummary(inviteRoutes, assignment.port)}. Same-ISP availability depends on your provider.`
+                              : `Smart invite: ${inviteRouteSummary(inviteRoutes, assignment.port)}.`
+                            : networkAddressFamily(assignment.address) === 'ipv6'
+                              ? `Smart invite: ${inviteRouteSummary(inviteRoutes, assignment.port)}. Allow TCP and UDP port ${assignment.port} through the host firewall.`
+                              : `Smart invite: ${inviteRouteSummary(inviteRoutes, assignment.port)}. TCP and UDP port ${assignment.port} must be reachable.`}
                     </p>
                   </div>
                 )

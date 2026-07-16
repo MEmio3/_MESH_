@@ -1,15 +1,17 @@
 import { BrowserWindow } from 'electron'
 import dgram from 'dgram'
 import { decodeVoiceUdpPacket, encodeVoiceUdpPacket } from '../shared/voice-udp-packet'
+import { networkAddressFamily, stripAddressBrackets } from '../shared/network-address'
 
 interface VoiceUdpHost {
   url: string
   hostname: string
   port: number
+  family: 'udp4' | 'udp6'
 }
 
 let mainWindow: BrowserWindow | null = null
-let udpSocket: dgram.Socket | null = null
+const udpSockets = new Map<'udp4' | 'udp6', dgram.Socket>()
 let currentUserId = ''
 const hosts = new Map<string, VoiceUdpHost>()
 
@@ -38,10 +40,14 @@ function parseHost(serverUrl: string): VoiceUdpHost | null {
         ? 443
         : 80
     if (!Number.isFinite(port) || port < 1 || port > 65535) return null
+    const hostname = parsed.hostname === 'localhost'
+      ? '127.0.0.1'
+      : stripAddressBrackets(parsed.hostname).replace('%25', '%')
     return {
       url: parsed.origin,
-      hostname: parsed.hostname === 'localhost' ? '127.0.0.1' : parsed.hostname,
-      port
+      hostname,
+      port,
+      family: networkAddressFamily(hostname) === 'ipv6' ? 'udp6' : 'udp4'
     }
   } catch {
     return null
@@ -66,11 +72,12 @@ function asString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value : null
 }
 
-function ensureSocket(): dgram.Socket | null {
-  if (udpSocket) return udpSocket
+function ensureSocket(family: 'udp4' | 'udp6'): dgram.Socket | null {
+  const existing = udpSockets.get(family)
+  if (existing) return existing
 
-  const socket = dgram.createSocket('udp4')
-  udpSocket = socket
+  const socket = dgram.createSocket(family)
+  udpSockets.set(family, socket)
   socket.on('message', (message) => {
     const packet = decodeVoiceUdpPacket(message)
     if (!packet) return
@@ -88,14 +95,16 @@ function ensureSocket(): dgram.Socket | null {
     }
   })
   socket.on('error', (err) => {
-    console.warn('[voice-udp-client] socket error:', err.message)
+    console.warn(`[voice-udp-client:${family}] socket error:`, err.message)
+    if (udpSockets.get(family) === socket) udpSockets.delete(family)
+    try { socket.close() } catch { /* ignore */ }
   })
   socket.unref()
   return socket
 }
 
 function sendPacket(host: VoiceUdpHost, packet: Uint8Array): boolean {
-  const socket = ensureSocket()
+  const socket = ensureSocket(host.family)
   if (!socket) return false
   socket.send(packet, host.port, host.hostname, (err) => {
     if (err) console.warn('[voice-udp-client] send failed:', host.url, err.message)
@@ -112,26 +121,28 @@ export function configureHost(serverUrl: string, userId: string): boolean {
   if (!host || !userId) return false
   currentUserId = userId
   hosts.set(host.url, host)
-  ensureSocket()
+  ensureSocket(host.family)
   return true
 }
 
 export function removeHost(serverUrl: string): void {
   const host = parseHost(serverUrl)
   if (host) hosts.delete(host.url)
-  if (hosts.size === 0 && udpSocket) {
-    try { udpSocket.close() } catch { /* ignore */ }
-    udpSocket = null
+  if (hosts.size === 0) {
+    for (const socket of udpSockets.values()) {
+      try { socket.close() } catch { /* ignore */ }
+    }
+    udpSockets.clear()
   }
 }
 
 export function reset(): void {
   hosts.clear()
   currentUserId = ''
-  if (udpSocket) {
-    try { udpSocket.close() } catch { /* ignore */ }
-    udpSocket = null
+  for (const socket of udpSockets.values()) {
+    try { socket.close() } catch { /* ignore */ }
   }
+  udpSockets.clear()
 }
 
 export function sendAudio(serverUrl: string, roomId: string, meta: unknown, payload: unknown): boolean {

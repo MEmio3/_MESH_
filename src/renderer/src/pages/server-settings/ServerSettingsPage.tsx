@@ -16,6 +16,12 @@ import { useSettingsStore, type ServerHostAssignment } from '@/stores/settings.s
 import { resolveRoleNames, DEFAULT_ROLE_NAMES } from '@/lib/roleNames'
 import { createServerInvite } from '@/lib/server-invite'
 import { PERM, PERMISSION_GROUPS, effectivePermissions, hasPerm } from '../../../../shared/permissions'
+import {
+  formatHttpHost,
+  isGlobalIpv6Address,
+  isPrivateOrCgnatAddress as isPrivateOrCgnatIp,
+  networkAddressFamily
+} from '../../../../shared/network-address'
 import type { ServerMember, ServerRoleDef } from '@/types/server'
 
 const ROLE_COLORS = ['#e5484d', '#e0af68', '#2f9e6e', '#7aa2f7', '#b48ead', '#d08770', '#8fbcbb', '#9b9ba3']
@@ -34,16 +40,6 @@ interface NetworkScanResult {
     directlyReachable: boolean
     explanation: string
   }
-}
-
-function isPrivateOrCgnatIp(ip: string | null): boolean {
-  if (!ip) return false
-  const [a, b] = ip.split('.').map((part) => parseInt(part, 10))
-  if (a === 10 || a === 127 || a === 0) return true
-  if (a === 192 && b === 168) return true
-  if (a === 172 && b >= 16 && b <= 31) return true
-  if (a === 100 && b >= 64 && b <= 127) return true
-  return a === 169 && b === 254
 }
 
 function normalizePort(value: string | number | null | undefined): number {
@@ -208,7 +204,7 @@ function OverviewSection({ serverId, canEditServer }: { serverId: string; canEdi
     running: boolean
     port: number
     ports: number[]
-    localIps: Array<{ address: string; scope: 'home' | 'isp' | 'public'; label: string; iface: string }>
+    localIps: Array<{ address: string; family: 'ipv4' | 'ipv6'; scope: 'home' | 'isp' | 'public'; label: string; iface: string }>
     error: string | null
   } | null>(null)
   const [networkScan, setNetworkScan] = useState<NetworkScanResult | null>(null)
@@ -242,17 +238,24 @@ function OverviewSection({ serverId, canEditServer }: { serverId: string; canEdi
   const clamp = (v: string): string => v.trim().slice(0, 24)
   const hostedPorts = [...new Set([network.hostPort, ...network.extraHostPorts].map(normalizePort))].sort((a, b) => a - b)
   const localIps = hostStatus?.localIps ?? []
-  const publicInterface = localIps.find((ip) => ip.scope === 'public')?.address ?? null
+  const publicIpv4Interface = localIps.find((ip) => ip.scope === 'public' && ip.family === 'ipv4')?.address ?? null
+  const globalIpv6Addresses = localIps
+    .filter((ip) => ip.scope === 'public' && ip.family === 'ipv6' && isGlobalIpv6Address(ip.address))
+    .map((ip) => ip.address)
+  const publicIpv6 = globalIpv6Addresses[0] ?? null
   const routerPublicIp = networkScan?.signature.routerWanIp && !isPrivateOrCgnatIp(networkScan.signature.routerWanIp)
     ? networkScan.signature.routerWanIp
     : null
   const routerPrivateIp = networkScan?.signature.routerWanIp && isPrivateOrCgnatIp(networkScan.signature.routerWanIp)
     ? networkScan.signature.routerWanIp
     : null
-  const detectedPublicIp = networkScan?.signature.publicIp ?? routerPublicIp ?? publicInterface
-  const canSharePublic = Boolean(detectedPublicIp && !networkScan?.interpretation.behindCgnat)
-  const defaultAddress = canSharePublic && detectedPublicIp
-    ? detectedPublicIp
+  const detectedPublicIpv4 = networkScan?.signature.publicIp ?? routerPublicIp ?? publicIpv4Interface
+  const preferredPublicAddress = !networkScan?.interpretation.behindCgnat && detectedPublicIpv4
+    ? detectedPublicIpv4
+    : publicIpv6
+  const canSharePublic = Boolean(preferredPublicAddress)
+  const defaultAddress = canSharePublic && preferredPublicAddress
+    ? preferredPublicAddress
     : networkScan?.interpretation.behindCgnat && routerPrivateIp
       ? routerPrivateIp
       : localIps.find((ip) => ip.scope === 'home')?.address ?? localIps[0]?.address ?? 'localhost'
@@ -261,24 +264,48 @@ function OverviewSection({ serverId, canEditServer }: { serverId: string; canEdi
     ? normalizePort(savedAssignment?.port)
     : normalizePort(network.hostPort)
   const assignedAddress = savedAssignment?.address || defaultAddress
-  const inviteAddress = `http://${assignedAddress}:${assignedPort}`
-  const invitePayload = createServerInvite({ serverId: server.id, hostUrl: inviteAddress, serverName: server.name })
-  const blockedPublicRoute = Boolean(
+  const inviteAddresses = [
+    assignedAddress,
+    preferredPublicAddress,
+    ...globalIpv6Addresses,
+    !networkScan?.interpretation.behindCgnat ? detectedPublicIpv4 : null,
+    routerPrivateIp,
+    ...localIps.map((ip) => ip.address)
+  ].filter((address): address is string => Boolean(address))
+  const inviteRoutes = [...new Set(inviteAddresses
+    .filter((address) => address !== 'localhost')
+    .filter((address) => !(
+      networkScan?.interpretation.behindCgnat
+      && networkAddressFamily(address) === 'ipv4'
+      && !isPrivateOrCgnatIp(address)
+    ))
+    .map((address) => formatHttpHost(address, assignedPort)))]
+  const invitePrimary = inviteRoutes[0] ?? null
+  const invitePayload = createServerInvite({
+    serverId: server.id,
+    hostUrl: invitePrimary ?? '',
+    hostUrls: inviteRoutes,
+    serverName: server.name
+  })
+  const preferredRouteBlocked = Boolean(
     networkScan?.interpretation.behindCgnat
     && assignedAddress !== 'localhost'
+    && networkAddressFamily(assignedAddress) === 'ipv4'
     && !isPrivateOrCgnatIp(assignedAddress)
   )
   const addressOptions = new Map<string, string>([['localhost', 'localhost - this computer']])
   for (const ip of localIps) {
-    const scope = ip.scope === 'home'
-      ? 'same Wi-Fi'
-      : ip.scope === 'isp'
-        ? 'VPN / ISP private'
-        : 'public interface'
+    const scope = ip.family === 'ipv6'
+      ? ip.scope === 'public' ? 'global IPv6' : 'private IPv6 / overlay'
+      : ip.scope === 'home'
+        ? 'same Wi-Fi'
+        : ip.scope === 'isp'
+          ? 'VPN / ISP private'
+          : 'public IPv4 interface'
     addressOptions.set(ip.address, `${ip.address} - ${scope}`)
   }
-  if (detectedPublicIp && !networkScan?.interpretation.behindCgnat) {
-    addressOptions.set(detectedPublicIp, `${detectedPublicIp} - public internet`)
+  if (detectedPublicIpv4 && !networkScan?.interpretation.behindCgnat) {
+    addressOptions.set(detectedPublicIpv4, `${detectedPublicIpv4} - public IPv4`)
   }
   if (routerPrivateIp) {
     addressOptions.set(routerPrivateIp, `${routerPrivateIp} - same ISP / upstream network`)
@@ -286,15 +313,32 @@ function OverviewSection({ serverId, canEditServer }: { serverId: string; canEdi
   if (assignedAddress && !addressOptions.has(assignedAddress)) {
     addressOptions.set(assignedAddress, `${assignedAddress} - saved route`)
   }
-  const routeNote = blockedPublicRoute
-    ? 'This public route is blocked by CGNAT. Use a same-Wi-Fi/VPN address or host from a public IP.'
+  const routeKinds: string[] = []
+  if (detectedPublicIpv4 && !networkScan?.interpretation.behindCgnat && inviteRoutes.includes(formatHttpHost(detectedPublicIpv4, assignedPort))) {
+    routeKinds.push('public IPv4')
+  }
+  if (inviteRoutes.some((route) => isGlobalIpv6Address(new URL(route).hostname))) routeKinds.push('global IPv6')
+  if (routerPrivateIp && inviteRoutes.includes(formatHttpHost(routerPrivateIp, assignedPort))) routeKinds.push('same-ISP IPv4')
+  if (inviteRoutes.some((route) => {
+    const host = new URL(route).hostname
+    return networkAddressFamily(host) === 'ipv4' && isPrivateOrCgnatIp(host) && host !== routerPrivateIp
+  })) routeKinds.push('LAN IPv4')
+  if (inviteRoutes.some((route) => {
+    const host = new URL(route).hostname
+    return networkAddressFamily(host) === 'ipv6' && !isGlobalIpv6Address(host)
+  })) routeKinds.push('private IPv6')
+  const routeSummary = routeKinds.length > 0 ? routeKinds.join(' + ') : 'no shareable route detected'
+  const routeNote = preferredRouteBlocked
+    ? `The selected public IPv4 is blocked by CGNAT, so the smart invite skips it and uses ${routeSummary}.`
     : assignedAddress === 'localhost'
-      ? 'Only this computer can use this route.'
+      ? `Localhost is never shared. The smart invite uses ${routeSummary}.`
       : isPrivateOrCgnatIp(assignedAddress)
         ? assignedAddress === routerPrivateIp
-          ? 'Same-ISP route. It works only if your provider permits direct traffic between subscribers.'
-          : 'Use this invite only on the same Wi-Fi or overlay network.'
-        : `Internet route. TCP and UDP port ${assignedPort} must be reachable from outside your router.`
+          ? `Smart invite: ${routeSummary}. The same-ISP route depends on your provider permitting subscriber traffic.`
+          : `Smart invite: ${routeSummary}.`
+        : networkAddressFamily(assignedAddress) === 'ipv6'
+          ? `Smart invite: ${routeSummary}. Allow TCP and UDP port ${assignedPort} through the host firewall.`
+          : `Smart invite: ${routeSummary}. TCP and UDP port ${assignedPort} must be reachable from outside your router.`
 
   const saveHostAssignment = async (partial: Partial<ServerHostAssignment>): Promise<void> => {
     if (server.role !== 'host' || routeSaving) return
@@ -392,10 +436,10 @@ function OverviewSection({ serverId, canEditServer }: { serverId: string; canEdi
       {canEditServer && server.role === 'host' && (
         <div>
           <span className="block text-[11px] font-semibold uppercase tracking-wide text-mesh-text-secondary mb-1.5">
-            Hosting route
+            Smart hosting routes
           </span>
           <p className="text-xs text-mesh-text-muted mb-3 max-w-md">
-            Choose which local host port and share IP this community uses.
+            Choose the port and preferred route. The copied invite includes every usable IPv4 and IPv6 fallback.
           </p>
           <div className="grid grid-cols-2 gap-3 max-w-md">
             <label className="flex flex-col gap-1">
@@ -414,7 +458,7 @@ function OverviewSection({ serverId, canEditServer }: { serverId: string; canEdi
               </select>
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-[10px] text-mesh-text-muted uppercase">Share IP</span>
+              <span className="text-[10px] text-mesh-text-muted uppercase">Preferred route</span>
               <select
                 value={assignedAddress}
                 disabled={routeSaving}
@@ -432,22 +476,22 @@ function OverviewSection({ serverId, canEditServer }: { serverId: string; canEdi
           <div className="mt-3 flex max-w-md items-center gap-2 rounded-lg border border-mesh-border bg-mesh-bg-secondary px-3 py-2.5">
             <Router className="h-4 w-4 shrink-0 text-mesh-green" />
             <code className="min-w-0 flex-1 truncate font-mono text-sm text-mesh-green">
-              {invitePayload}
+              {invitePrimary ?? 'No shareable route detected'}
             </code>
             <button
-              disabled={blockedPublicRoute}
+              disabled={!invitePayload}
               onClick={() => {
                 navigator.clipboard.writeText(invitePayload)
                 setCopiedInvite(true)
                 setTimeout(() => setCopiedInvite(false), 1500)
               }}
               className="shrink-0 h-7 w-7 rounded flex items-center justify-center text-mesh-text-muted hover:text-mesh-text-primary hover:bg-mesh-bg-hover transition-colors disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent"
-              title={blockedPublicRoute ? 'This route cannot accept inbound connections through CGNAT' : 'Copy join invite'}
+              title={invitePayload ? 'Copy smart IPv4 + IPv6 join invite' : 'No shareable route detected'}
             >
               {copiedInvite ? <Check className="h-3.5 w-3.5 text-mesh-green" /> : <Copy className="h-3.5 w-3.5" />}
             </button>
           </div>
-          <p className={cn('mt-2 max-w-md text-[11px]', blockedPublicRoute ? 'text-mesh-warning' : 'text-mesh-text-muted')}>
+          <p className={cn('mt-2 max-w-md text-[11px]', preferredRouteBlocked ? 'text-mesh-warning' : 'text-mesh-text-muted')}>
             {routeNote}
           </p>
           <div className="mt-2 flex items-center gap-2 text-[11px] text-mesh-text-muted">

@@ -25,6 +25,50 @@ interface InvitePreview {
   avatarDataUrl: string | null
 }
 
+async function discoverInviteRoute(hostUrls: string[], serverId: string): Promise<{
+  hostUrl: string
+  server: Awaited<ReturnType<typeof window.api.networkDiscovery.fetchServers>>['servers'][number]
+}> {
+  const routes = [...new Set(hostUrls.map(normalizeInviteHost).filter((route): route is string => Boolean(route)))]
+  if (routes.length === 0) throw new Error('This invitation does not contain a usable host route.')
+
+  const statuses = await window.api.signaling.listHostStatuses().catch(() => [])
+  const connected = new Set(
+    statuses
+      .filter((status) => status.state === 'connected')
+      .map((status) => normalizeInviteHost(status.url)?.toLowerCase())
+      .filter((route): route is string => Boolean(route))
+  )
+  routes.sort((left, right) => Number(connected.has(right.toLowerCase())) - Number(connected.has(left.toLowerCase())))
+
+  return new Promise((resolve, reject) => {
+    let pending = routes.length
+    let settled = false
+    const errors: string[] = []
+    for (const hostUrl of routes) {
+      window.api.networkDiscovery.fetchServers({ url: hostUrl })
+        .then((probe) => {
+          if (settled) return
+          const server = probe.success ? probe.servers.find((entry) => entry.id === serverId) : null
+          if (server) {
+            settled = true
+            resolve({ hostUrl, server })
+            return
+          }
+          errors.push(probe.error || `${new URL(hostUrl).host} did not expose this server.`)
+          pending -= 1
+          if (pending === 0) reject(new Error(errors[0] || 'None of the invitation routes are reachable.'))
+        })
+        .catch((error) => {
+          if (settled) return
+          errors.push(error instanceof Error ? error.message : String(error))
+          pending -= 1
+          if (pending === 0) reject(new Error(errors[0] || 'None of the invitation routes are reachable.'))
+        })
+    }
+  })
+}
+
 function CreateServerModal({ isOpen, onClose, initialInvite = null }: CreateServerModalProps): JSX.Element {
   const navigate = useNavigate()
   const createServer = useServersStore((state) => state.createServer)
@@ -117,13 +161,13 @@ function CreateServerModal({ isOpen, onClose, initialInvite = null }: CreateServ
     try {
       let discovered: InvitePreview | null = null
       let becamePrimary = false
+      let activeHostUrl = parsed.hostUrl
 
-      if (parsed.hostUrl) {
+      if (parsed.hostUrls.length > 0) {
         setProgress('checking')
-        const probe = await window.api.networkDiscovery.fetchServers({ url: parsed.hostUrl })
-        if (!probe.success) throw new Error(probe.error || 'The invitation host is unreachable.')
-        const server = probe.servers.find((entry) => entry.id === parsed.serverId)
-        if (!server) throw new Error('This server is no longer available on the invitation host.')
+        const route = await discoverInviteRoute(parsed.hostUrls, parsed.serverId)
+        activeHostUrl = route.hostUrl
+        const server = route.server
         discovered = {
           name: server.name,
           memberCount: server.memberCount,
@@ -138,7 +182,7 @@ function CreateServerModal({ isOpen, onClose, initialInvite = null }: CreateServ
         }
 
         setProgress('connecting')
-        const connection = await ensureHostConnection(parsed.hostUrl, identity.userId)
+        const connection = await ensureHostConnection(activeHostUrl, identity.userId)
         becamePrimary = connection.becamePrimary
       }
 
@@ -146,16 +190,16 @@ function CreateServerModal({ isOpen, onClose, initialInvite = null }: CreateServ
         ? await window.api.crypto.hashPassword(password.trim())
         : null
       setProgress('joining')
-      const res = await joinServer(parsed.serverId, passwordHash, parsed.hostUrl)
+      const res = await joinServer(parsed.serverId, passwordHash, activeHostUrl)
       if (!res.success) throw new Error(res.error ?? 'Failed to join server.')
       await waitForJoinedServer(parsed.serverId)
       if (currentOperation !== operation.current) return
 
       if (discovered?.avatarDataUrl) setServerAvatarLocal(parsed.serverId, discovered.avatarDataUrl)
-      if (parsed.hostUrl) {
+      if (activeHostUrl) {
         rememberInviteRoute(
           parsed.serverId,
-          parsed.hostUrl,
+          activeHostUrl,
           discovered?.name || parsed.serverName || 'MESH network',
           becamePrimary
         )
@@ -285,7 +329,9 @@ function CreateServerModal({ isOpen, onClose, initialInvite = null }: CreateServ
                 <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-mesh-text-muted">
                   <Wifi className="h-3 w-3 shrink-0" />
                   <span className="truncate">
-                    {parsedInvite.hostUrl ? new URL(parsedInvite.hostUrl).host : 'Current network'}
+                    {parsedInvite.hostUrl
+                      ? `${new URL(parsedInvite.hostUrl).host}${parsedInvite.hostUrls.length > 1 ? ` +${parsedInvite.hostUrls.length - 1} fallback` : ''}`
+                      : 'Current network'}
                   </span>
                 </div>
               </div>

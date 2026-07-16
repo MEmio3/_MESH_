@@ -9,6 +9,7 @@
 import { networkInterfaces } from 'os'
 import { app, ipcMain } from 'electron'
 import { createSignalingInstance, type SignalingInstance } from '../server/signaling'
+import { isGlobalIpv6Address, networkAddressFamily, type NetworkAddressFamily } from '../shared/network-address'
 
 // Every host port this machine is running, keyed by port. Multiple entries =
 // multiple independent MESH networks hosted from one machine at once.
@@ -20,6 +21,7 @@ export type IpScope = 'home' | 'isp' | 'public'
 
 export interface DetectedIp {
   address: string
+  family: NetworkAddressFamily
   scope: IpScope
   label: string
   iface: string
@@ -41,6 +43,9 @@ export interface DetectedIp {
  * across town — a direct cause of "the app picks the wrong IP".
  */
 function classify(addr: string): IpScope {
+  if (networkAddressFamily(addr) === 'ipv6') {
+    return isGlobalIpv6Address(addr) ? 'public' : 'home'
+  }
   const parts = addr.split('.').map((p) => parseInt(p, 10))
   if (parts.length !== 4 || parts.some((n) => Number.isNaN(n))) return 'public'
   const [a, b] = parts
@@ -51,14 +56,19 @@ function classify(addr: string): IpScope {
   return 'public'
 }
 
-const SCOPE_LABELS: Record<IpScope, string> = {
-  home: 'Home WiFi — same router only',
-  isp: 'ISP private address - not for sharing',
-  public: 'Public IP - port 3000 must be open'
+function scopeLabel(scope: IpScope, family: NetworkAddressFamily): string {
+  if (family === 'ipv6') {
+    return scope === 'public'
+      ? 'Global IPv6 - firewall must allow the host port'
+      : 'Private IPv6 - same LAN or overlay only'
+  }
+  if (scope === 'home') return 'Home WiFi - same router only'
+  if (scope === 'isp') return 'ISP private address - provider dependent'
+  return 'Public IPv4 - router and firewall must allow the host port'
 }
 
 /**
- * Enumerate every non-internal IPv4 address on the machine and tag it with
+ * Enumerate every non-internal IPv4 and useful IPv6 address on the machine and tag it with
  * a human-readable scope label. No guessing, no auto-pick — the UI shows
  * all of them and the user copies the one that matches their situation.
  */
@@ -69,11 +79,16 @@ export function detectLocalIps(): DetectedIp[] {
   for (const [name, list] of Object.entries(ifaces)) {
     if (!list) continue
     for (const net of list) {
-      if (net.family !== 'IPv4' || net.internal) continue
+      if ((net.family !== 'IPv4' && net.family !== 'IPv6') || net.internal) continue
+      const family = networkAddressFamily(net.address)
+      if (!family) continue
+      // Link-local IPv6 requires a machine-specific interface zone, so it is
+      // not portable enough for an invitation. Keep global and ULA addresses.
+      if (family === 'ipv6' && net.address.toLowerCase().startsWith('fe80:')) continue
       if (seen.has(net.address)) continue
       seen.add(net.address)
       const scope = classify(net.address)
-      out.push({ address: net.address, scope, label: SCOPE_LABELS[scope], iface: name })
+      out.push({ address: net.address, family, scope, label: scopeLabel(scope, family), iface: name })
     }
   }
   return out

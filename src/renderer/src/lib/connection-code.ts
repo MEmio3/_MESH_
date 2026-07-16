@@ -13,6 +13,7 @@
  */
 
 const PREFIX = 'MESH-'
+const MULTI_PREFIX = 'MESH2-'
 // Fixed obfuscation key. NOT a secret — the codec is public and reversible by
 // design. It only exists so a base64 decode alone doesn't spit out the IP.
 const KEY = 0x5a
@@ -32,14 +33,46 @@ function base64UrlDecode(b64url: string): string {
   return atob(b64)
 }
 
+function obfuscate(value: string): string {
+  const bytes = new TextEncoder().encode(value)
+  let bin = ''
+  for (const b of bytes) bin += String.fromCharCode(b ^ KEY)
+  return base64UrlEncode(bin)
+}
+
+function deobfuscate(value: string): string {
+  const bin = base64UrlDecode(value)
+  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0)).map((b) => b ^ KEY)
+  return new TextDecoder().decode(bytes)
+}
+
+function normalizeDecodedHost(hostPort: string): string | null {
+  const value = hostPort.trim()
+  if (!value || !/^[\w.[\]:%-]+$/.test(value)) return null
+  const candidate = /^https?:\/\//i.test(value) ? value : `http://${value}`
+  try {
+    const url = new URL(candidate)
+    const port = Number(url.port)
+    if (!url.hostname || !Number.isInteger(port) || port < 1 || port > 65535) return null
+    return `${url.protocol}//${url.host}`
+  } catch {
+    return null
+  }
+}
+
 /** Encode a host URL/address into a shareable `MESH-...` code. Empty in → "". */
 export function encodeConnectionCode(url: string): string {
   const hostPort = toHostPort(url)
   if (!hostPort) return ''
-  const bytes = new TextEncoder().encode(hostPort)
-  let bin = ''
-  for (const b of bytes) bin += String.fromCharCode(b ^ KEY)
-  return `${PREFIX}${base64UrlEncode(bin)}`
+  return `${PREFIX}${obfuscate(hostPort)}`
+}
+
+/** Encode several equivalent routes into one smart connection code. */
+export function encodeConnectionRoutes(urls: string[]): string {
+  const routes = [...new Set(urls.map(toHostPort).filter(Boolean))]
+  if (routes.length === 0) return ''
+  if (routes.length === 1) return encodeConnectionCode(routes[0])
+  return `${MULTI_PREFIX}${obfuscate(JSON.stringify(routes.slice(0, 16)))}`
 }
 
 /**
@@ -52,11 +85,29 @@ export function decodeConnectionCode(input: string): string | null {
   const m = /^mesh-([A-Za-z0-9\-_]+)$/i.exec(raw)
   if (!m) return null
   try {
-    const bin = base64UrlDecode(m[1])
-    const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0)).map((b) => b ^ KEY)
-    const hostPort = new TextDecoder().decode(bytes).trim()
-    if (!hostPort || !/^[\w.[\]:-]+$/.test(hostPort)) return null
-    return /^https?:\/\//i.test(hostPort) ? hostPort : `http://${hostPort}`
+    return normalizeDecodedHost(deobfuscate(m[1]))
+  } catch {
+    return null
+  }
+}
+
+
+/** Decode either a legacy one-route code or a smart multi-route code. */
+export function decodeConnectionRoutes(input: string): string[] | null {
+  const raw = input.trim()
+  const multi = /^mesh2-([A-Za-z0-9\-_]+)$/i.exec(raw)
+  if (!multi) {
+    const single = decodeConnectionCode(raw)
+    return single ? [single] : null
+  }
+  try {
+    const decoded = JSON.parse(deobfuscate(multi[1])) as unknown
+    if (!Array.isArray(decoded)) return null
+    const routes = [...new Set(decoded
+      .slice(0, 16)
+      .map((value) => typeof value === 'string' ? normalizeDecodedHost(value) : null)
+      .filter((value): value is string => Boolean(value)))]
+    return routes.length > 0 ? routes : null
   } catch {
     return null
   }
@@ -67,10 +118,10 @@ export function decodeConnectionCode(input: string): string | null {
  * back to its address; anything else is returned as-is for normal URL handling.
  */
 export function resolveConnectionInput(input: string): string {
-  return decodeConnectionCode(input) ?? input
+  return decodeConnectionRoutes(input)?.[0] ?? input
 }
 
 /** True when the string looks like a MESH connection code. */
 export function isConnectionCode(input: string): boolean {
-  return /^mesh-[A-Za-z0-9\-_]+$/i.test(input.trim())
+  return /^mesh2?-[A-Za-z0-9\-_]+$/i.test(input.trim())
 }

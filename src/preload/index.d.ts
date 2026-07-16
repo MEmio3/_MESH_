@@ -465,7 +465,7 @@ interface SignalingHostAPI {
     running: boolean
     port: number
     ports: number[]
-    localIps: Array<{ address: string; scope: 'home' | 'isp' | 'public'; label: string; iface: string }>
+    localIps: Array<{ address: string; family: 'ipv4' | 'ipv6'; scope: 'home' | 'isp' | 'public'; label: string; iface: string }>
     error: string | null
   }>
   list: () => Promise<number[]>

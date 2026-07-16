@@ -6,6 +6,7 @@ import { useIdentityStore } from '@/stores/identity.store'
 import { Toggle } from '@/components/ui/Toggle'
 import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/utils'
+import { formatHttpHost, isPrivateOrCgnatAddress as isPrivateOrCgnatIp } from '../../../../shared/network-address'
 
 const strategies = [
   {
@@ -27,16 +28,6 @@ const strategies = [
     icon: Shield
   }
 ]
-
-function isPrivateOrCgnatIp(ip: string | null): boolean {
-  if (!ip) return false
-  const [a, b] = ip.split('.').map((n) => parseInt(n, 10))
-  if (a === 10) return true
-  if (a === 192 && b === 168) return true
-  if (a === 172 && b >= 16 && b <= 31) return true
-  if (a === 100 && b >= 64 && b <= 127) return true
-  return false
-}
 
 function normalizePort(value: string | number | null | undefined): number {
   const raw = typeof value === 'number' ? value : parseInt(String(value ?? ''), 10)
@@ -69,7 +60,7 @@ function NetworkSettings(): JSX.Element {
   const [reconnectState, setReconnectState] = useState<{ state: 'reconnecting' | 'connected' | 'failed'; attempt?: number; max?: number | null } | null>(null)
   const [relayCount, setRelayCount] = useState(0)
   type IpScope = 'home' | 'isp' | 'public'
-  interface DetectedIp { address: string; scope: IpScope; label: string; iface: string }
+  interface DetectedIp { address: string; family: 'ipv4' | 'ipv6'; scope: IpScope; label: string; iface: string }
   const [hostStatus, setHostStatus] = useState<{
     running: boolean
     port: number
@@ -249,7 +240,7 @@ function NetworkSettings(): JSX.Element {
   // The one address that works for the overwhelmingly common case: a friend
   // on the same Wi-Fi / LAN. Everything else lives under Advanced.
   const primaryIp = grouped.home[0] ?? hostStatus.localIps[0] ?? null
-  const primaryAddr = primaryIp ? `http://${primaryIp.address}:${hostedPort}` : null
+  const primaryAddr = primaryIp ? formatHttpHost(primaryIp.address, hostedPort) : null
   const connectionStatusText = reconnectState?.state === 'reconnecting'
     ? `Reconnecting... (attempt ${reconnectState.attempt ?? 1})`
     : isConnected
@@ -443,7 +434,7 @@ function NetworkSettings(): JSX.Element {
                     </p>
                     <div className="flex flex-col gap-1.5">
                       {items.map((ip) => (
-                        <CopyRow key={`${ip.iface}-${ip.address}`} addr={`http://${ip.address}:${hostedPort}`} tag={ip.iface} />
+                        <CopyRow key={`${ip.iface}-${ip.address}`} addr={formatHttpHost(ip.address, hostedPort)} tag={`${ip.family.toUpperCase()} · ${ip.iface}`} />
                       ))}
                     </div>
                   </div>
@@ -461,15 +452,15 @@ function NetworkSettings(): JSX.Element {
                       {isPrivateOrCgnatIp(netSig.signature.routerWanIp) ? (
                         <div className="rounded-lg bg-mesh-warning/5 border border-mesh-warning/30 px-3 py-2.5">
                           <code className="block truncate text-sm text-mesh-warning font-mono">
-                            http://{netSig.signature.routerWanIp}:{hostedPort}
+                            {formatHttpHost(netSig.signature.routerWanIp, hostedPort)}
                           </code>
                           <p className="text-[11px] text-mesh-text-muted mt-1">
-                            Diagnostic only. Do not share this with friends.
+                            Same-ISP/upstream route. It works only if that network permits direct subscriber traffic.
                           </p>
                         </div>
                       ) : (
                         <>
-                          <CopyRow addr={`http://${netSig.signature.routerWanIp}:${hostedPort}`} tag="upnp" />
+                          <CopyRow addr={formatHttpHost(netSig.signature.routerWanIp, hostedPort)} tag="upnp" />
                           <p className="text-[11px] text-mesh-text-muted mt-1">Useful only when port {hostedPort} is open.</p>
                         </>
                       )}
@@ -480,7 +471,7 @@ function NetworkSettings(): JSX.Element {
                       <p className="text-[11px] font-semibold text-mesh-text-secondary uppercase tracking-wide mb-1.5">
                         Public internet address
                       </p>
-                      <CopyRow addr={`http://${netSig.signature.publicIp}:${hostedPort}`} tag="ipify" />
+                      <CopyRow addr={formatHttpHost(netSig.signature.publicIp, hostedPort)} tag="ipify" />
                       <p className="text-[11px] text-mesh-text-muted mt-1">
                         {netSig.interpretation.behindCgnat
                           ? 'Seen by websites, but not directly reachable because your router is behind ISP NAT.'

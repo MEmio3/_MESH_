@@ -121,7 +121,7 @@ app.post('/heartbeat-relay', (req, res) => {
 })
 
 // Auto-expire stale relays every 30s
-setInterval(() => {
+const relayCleanupTimer = setInterval(() => {
   const now = Date.now()
   for (const [id, relay] of relays) {
     if (now - relay.lastHeartbeat > 60000) {
@@ -130,6 +130,7 @@ setInterval(() => {
     }
   }
 }, 30000)
+relayCleanupTimer.unref?.()
 
 // ── Socket.io Signaling ──
 
@@ -381,11 +382,12 @@ const activeVoiceStreams = new Map<string, Map<string, { kind?: 'screen' | 'wind
 interface VoiceUdpEndpoint {
   address: string
   port: number
+  family: 'udp4' | 'udp6'
   lastSeen: number
 }
 
 const voiceUdpEndpoints = new Map<string, VoiceUdpEndpoint>()
-let voiceUdpSocket: dgram.Socket | null = null
+const voiceUdpSockets = new Map<'udp4' | 'udp6', dgram.Socket>()
 let voiceUdpCleanupTimer: ReturnType<typeof setInterval> | null = null
 
 function asNonEmptyString(value: unknown): string | null {
@@ -402,6 +404,7 @@ function rememberVoiceUdpEndpoint(userId: string, rinfo: RemoteInfo): void {
   voiceUdpEndpoints.set(userId, {
     address: rinfo.address,
     port: rinfo.port,
+    family: rinfo.family === 'IPv6' ? 'udp6' : 'udp4',
     lastSeen: Date.now()
   })
 }
@@ -416,7 +419,7 @@ function pruneVoiceUdpEndpoints(): void {
 }
 
 function sendVoiceUdpPacket(endpoint: VoiceUdpEndpoint, packet: Uint8Array): void {
-  const sock = voiceUdpSocket
+  const sock = voiceUdpSockets.get(endpoint.family)
   if (!sock) return
   sock.send(packet, endpoint.port, endpoint.address, (err) => {
     if (err) console.warn(`[voice-udp:${instancePort}] send failed:`, err.message)
@@ -1555,20 +1558,32 @@ io.on('connection', (socket) => {
 let running = false
 
 function startVoiceUdpRelay(): void {
-  if (voiceUdpSocket) return
-  const sock = dgram.createSocket('udp4')
-  voiceUdpSocket = sock
+  if (voiceUdpSockets.size > 0) return
 
-  sock.on('message', handleVoiceUdpMessage)
-  sock.on('error', (err) => {
-    console.warn(`[voice-udp:${instancePort}] disabled:`, err.message)
-    if (voiceUdpSocket === sock) voiceUdpSocket = null
-    voiceUdpEndpoints.clear()
-    try { sock.close() } catch { /* ignore */ }
-  })
-  sock.bind(instancePort, () => {
-    console.log(`[voice-udp:${instancePort}] listening`)
-  })
+  const bind = (family: 'udp4' | 'udp6'): void => {
+    const sock = family === 'udp6'
+      ? dgram.createSocket({ type: 'udp6', ipv6Only: true })
+      : dgram.createSocket('udp4')
+    voiceUdpSockets.set(family, sock)
+
+    sock.on('message', handleVoiceUdpMessage)
+    sock.on('error', (err) => {
+      console.warn(`[voice-udp:${instancePort}:${family}] disabled:`, err.message)
+      if (voiceUdpSockets.get(family) === sock) voiceUdpSockets.delete(family)
+      for (const [userId, endpoint] of voiceUdpEndpoints) {
+        if (endpoint.family === family) voiceUdpEndpoints.delete(userId)
+      }
+      try { sock.close() } catch { /* ignore */ }
+    })
+    sock.bind(instancePort, family === 'udp6' ? '::' : '0.0.0.0', () => {
+      console.log(`[voice-udp:${instancePort}:${family}] listening`)
+    })
+  }
+
+  // Keep IPv4 behavior independent from IPv6 availability. On machines with
+  // IPv6 disabled, udp6 may fail while udp4 continues serving voice normally.
+  bind('udp4')
+  bind('udp6')
 
   if (!voiceUdpCleanupTimer) {
     voiceUdpCleanupTimer = setInterval(pruneVoiceUdpEndpoints, 10000)
@@ -1584,18 +1599,32 @@ function stopVoiceUdpRelay(): Promise<void> {
     }
     voiceUdpEndpoints.clear()
 
-    const sock = voiceUdpSocket
-    voiceUdpSocket = null
-    if (!sock) {
+    const sockets = [...voiceUdpSockets.values()]
+    voiceUdpSockets.clear()
+    if (sockets.length === 0) {
       resolve()
       return
     }
-    sock.removeAllListeners('message')
-    sock.once('close', () => resolve())
-    try {
-      sock.close()
-    } catch {
-      resolve()
+
+    let pending = sockets.length
+    const complete = (): void => {
+      pending -= 1
+      if (pending === 0) resolve()
+    }
+    for (const sock of sockets) {
+      let completed = false
+      const finish = (): void => {
+        if (completed) return
+        completed = true
+        complete()
+      }
+      sock.removeAllListeners('message')
+      sock.once('close', finish)
+      try {
+        sock.close()
+      } catch {
+        finish()
+      }
     }
   })
 }
@@ -1623,6 +1652,7 @@ function start(): Promise<{ port: number }> {
 
 function stop(): Promise<void> {
   return new Promise((resolve) => {
+    clearInterval(relayCleanupTimer)
     if (!running) {
       stopVoiceUdpRelay().then(resolve)
       return

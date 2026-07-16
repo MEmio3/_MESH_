@@ -1,6 +1,6 @@
 {
   "name": "@memio3/mesh",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "description": "Decentralized, privacy-first communication platform",
   "main": "./out/main/index.js",
   "author": "MEmio3",
@@ -14,6 +14,7 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "signaling": "tsx src/server/signaling.ts",
+    "test:dual-stack": "tsx scripts/verify-dual-stack.ts",
     "postinstall": "electron-builder install-app-deps",
     "dist": "electron-vite build && electron-builder --win --publish never",
     "dist:linux": "electron-vite build && electron-builder --linux --publish never"
