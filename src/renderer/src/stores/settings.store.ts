@@ -9,6 +9,7 @@ import {
   type MotionStyle,
   type ThemeId
 } from '@/lib/themes'
+import { normalizeInviteHost } from '@/lib/server-invite'
 
 /**
  * Apply ICE configuration to the WebRTC manager based on user settings.
@@ -118,6 +119,8 @@ export interface NetworkSettings {
   extraHostPorts: number[]
   /** Host route per community server. Address is the share/invite IP. */
   serverHostAssignments: Record<string, ServerHostAssignment>
+  /** Remote host route per joined community, retained across app restarts. */
+  joinedServerHosts: Record<string, string>
   /** URL of the signaling server to connect to (own when hosting, else peer's). */
   signalingUrl: string
 }
@@ -176,6 +179,7 @@ const DEFAULT_NETWORK: NetworkSettings = {
   hostPort: 3000,
   extraHostPorts: [],
   serverHostAssignments: {},
+  joinedServerHosts: {},
   signalingUrl: 'http://localhost:3000'
 }
 
@@ -197,6 +201,10 @@ function normalizeNetworkSettings(network: NetworkSettings): NetworkSettings {
       ? network.serverHostAssignments
       : {}
   const serverHostAssignments: Record<string, ServerHostAssignment> = {}
+  const rawJoinedHosts = network.joinedServerHosts && typeof network.joinedServerHosts === 'object'
+    ? network.joinedServerHosts
+    : {}
+  const joinedServerHosts: Record<string, string> = {}
 
   for (const [serverId, assignment] of Object.entries(rawAssignments)) {
     if (!serverId || !assignment || typeof assignment !== 'object') continue
@@ -208,7 +216,13 @@ function normalizeNetworkSettings(network: NetworkSettings): NetworkSettings {
     }
   }
 
-  return { ...network, hostPort, extraHostPorts, serverHostAssignments }
+  for (const [serverId, hostUrl] of Object.entries(rawJoinedHosts)) {
+    if (!/^srv_[A-Za-z0-9_-]+$/.test(serverId)) continue
+    const normalized = normalizeInviteHost(hostUrl)
+    if (normalized) joinedServerHosts[serverId] = normalized
+  }
+
+  return { ...network, hostPort, extraHostPorts, serverHostAssignments, joinedServerHosts }
 }
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({

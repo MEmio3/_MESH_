@@ -11,6 +11,7 @@ import { notify } from '@/lib/notify'
 import { playServerMessage } from '@/lib/sounds'
 import { mediaEngine } from '@/lib/media-engine'
 import { resolveRoleNames } from '@/lib/roleNames'
+import { useSettingsStore } from './settings.store'
 
 /** Who is sitting in which voice channel, with identity carried inline so the
  *  sidebar never has to race a separate roster sync to render a name. */
@@ -46,7 +47,7 @@ interface ServersStore {
     voiceRoomName?: string
     passwordHash?: string | null
   }) => Promise<{ success: boolean; error?: string; serverId?: string }>
-  joinServer: (serverId: string, passwordHash?: string | null) => Promise<{ success: boolean; error?: string }>
+  joinServer: (serverId: string, passwordHash?: string | null, hostUrl?: string | null) => Promise<{ success: boolean; error?: string }>
   leaveServer: (serverId: string, destroy?: boolean) => Promise<void>
   sendServerMessage: (serverId: string, content: string, channelId?: string | null, replyTo?: MessageReply) => Promise<void>
   sendServerFileMessage: (serverId: string, filePath: string, channelId?: string | null) => Promise<void>
@@ -274,7 +275,7 @@ export const useServersStore = create<ServersStore>((set, get) => ({
     return res
   },
 
-  joinServer: async (serverId, passwordHash) => {
+  joinServer: async (serverId, passwordHash, hostUrl) => {
     const identity = useIdentityStore.getState().identity
     if (!identity) return { success: false, error: 'No identity' }
     set({ pendingJoin: serverId, lastError: null })
@@ -283,7 +284,8 @@ export const useServersStore = create<ServersStore>((set, get) => ({
       userId: identity.userId,
       username: identity.username,
       avatarColor: (identity as unknown as { avatarPath?: string | null }).avatarPath ?? null,
-      passwordHash
+      passwordHash,
+      hostUrl: hostUrl ?? null
     })
     if (!res.success) {
       // Send failed at the IPC layer — clear the pending state immediately
@@ -308,6 +310,11 @@ export const useServersStore = create<ServersStore>((set, get) => ({
     if (!identity) return
     await window.api.server.leave({ serverId, userId: identity.userId, destroy })
     await window.api.server.removeLocal(serverId)
+    const settings = useSettingsStore.getState()
+    if (settings.network.joinedServerHosts[serverId]) {
+      const { [serverId]: _route, ...joinedServerHosts } = settings.network.joinedServerHosts
+      settings.updateNetwork({ joinedServerHosts })
+    }
     set((s) => {
       const { [serverId]: _m, ...restMembers } = s.serverMembers
       const { [serverId]: _x, ...restMsgs } = s.serverMessages
@@ -1315,6 +1322,11 @@ export const useServersStore = create<ServersStore>((set, get) => ({
   reregisterOnReconnect: async () => {
     const identity = useIdentityStore.getState().identity
     if (!identity) return
-    await window.api.server.reregisterMine({ selfUserId: identity.userId })
+    await window.api.server.reregisterMine({
+      selfUserId: identity.userId,
+      selfUsername: identity.username,
+      selfAvatarColor: (identity as unknown as { avatarPath?: string | null }).avatarPath ?? null,
+      serverHostRoutes: useSettingsStore.getState().network.joinedServerHosts
+    })
   }
 }))

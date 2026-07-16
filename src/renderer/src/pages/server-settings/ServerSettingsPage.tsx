@@ -14,12 +14,37 @@ import { useAvatarStore } from '@/stores/avatar.store'
 import { useServerAvatarStore } from '@/stores/serverAvatar.store'
 import { useSettingsStore, type ServerHostAssignment } from '@/stores/settings.store'
 import { resolveRoleNames, DEFAULT_ROLE_NAMES } from '@/lib/roleNames'
+import { createServerInvite } from '@/lib/server-invite'
 import { PERM, PERMISSION_GROUPS, effectivePermissions, hasPerm } from '../../../../shared/permissions'
 import type { ServerMember, ServerRoleDef } from '@/types/server'
 
 const ROLE_COLORS = ['#e5484d', '#e0af68', '#2f9e6e', '#7aa2f7', '#b48ead', '#d08770', '#8fbcbb', '#9b9ba3']
 
 type Section = 'overview' | 'roles' | 'members'
+
+interface NetworkScanResult {
+  signature: {
+    localIp: string | null
+    routerWanIp: string | null
+    publicIp: string | null
+    upnpEnabled: boolean
+  }
+  interpretation: {
+    behindCgnat: boolean
+    directlyReachable: boolean
+    explanation: string
+  }
+}
+
+function isPrivateOrCgnatIp(ip: string | null): boolean {
+  if (!ip) return false
+  const [a, b] = ip.split('.').map((part) => parseInt(part, 10))
+  if (a === 10 || a === 127 || a === 0) return true
+  if (a === 192 && b === 168) return true
+  if (a === 172 && b >= 16 && b <= 31) return true
+  if (a === 100 && b >= 64 && b <= 127) return true
+  return a === 169 && b === 254
+}
 
 function normalizePort(value: string | number | null | undefined): number {
   const raw = typeof value === 'number' ? value : parseInt(String(value ?? ''), 10)
@@ -186,6 +211,7 @@ function OverviewSection({ serverId, canEditServer }: { serverId: string; canEdi
     localIps: Array<{ address: string; scope: 'home' | 'isp' | 'public'; label: string; iface: string }>
     error: string | null
   } | null>(null)
+  const [networkScan, setNetworkScan] = useState<NetworkScanResult | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -196,6 +222,15 @@ function OverviewSection({ serverId, canEditServer }: { serverId: string; canEdi
       .catch(() => {
         if (!cancelled) setHostStatus(null)
       })
+    window.api.network.cached()
+      .then((cached) => {
+        if (!cancelled && cached) setNetworkScan(cached)
+        return window.api.network.scan()
+      })
+      .then((scan) => {
+        if (!cancelled) setNetworkScan(scan)
+      })
+      .catch(() => {})
     return () => {
       cancelled = true
     }
@@ -207,14 +242,59 @@ function OverviewSection({ serverId, canEditServer }: { serverId: string; canEdi
   const clamp = (v: string): string => v.trim().slice(0, 24)
   const hostedPorts = [...new Set([network.hostPort, ...network.extraHostPorts].map(normalizePort))].sort((a, b) => a - b)
   const localIps = hostStatus?.localIps ?? []
-  const defaultAddress = localIps.find((ip) => ip.scope === 'home')?.address ?? localIps[0]?.address ?? 'localhost'
+  const publicInterface = localIps.find((ip) => ip.scope === 'public')?.address ?? null
+  const routerPublicIp = networkScan?.signature.routerWanIp && !isPrivateOrCgnatIp(networkScan.signature.routerWanIp)
+    ? networkScan.signature.routerWanIp
+    : null
+  const routerPrivateIp = networkScan?.signature.routerWanIp && isPrivateOrCgnatIp(networkScan.signature.routerWanIp)
+    ? networkScan.signature.routerWanIp
+    : null
+  const detectedPublicIp = networkScan?.signature.publicIp ?? routerPublicIp ?? publicInterface
+  const canSharePublic = Boolean(detectedPublicIp && !networkScan?.interpretation.behindCgnat)
+  const defaultAddress = canSharePublic && detectedPublicIp
+    ? detectedPublicIp
+    : networkScan?.interpretation.behindCgnat && routerPrivateIp
+      ? routerPrivateIp
+      : localIps.find((ip) => ip.scope === 'home')?.address ?? localIps[0]?.address ?? 'localhost'
   const savedAssignment = network.serverHostAssignments[serverId]
   const assignedPort = hostedPorts.includes(normalizePort(savedAssignment?.port))
     ? normalizePort(savedAssignment?.port)
     : normalizePort(network.hostPort)
   const assignedAddress = savedAssignment?.address || defaultAddress
   const inviteAddress = `http://${assignedAddress}:${assignedPort}`
-  const invitePayload = `mesh://join?host=${encodeURIComponent(inviteAddress)}&server=${encodeURIComponent(server.id)}`
+  const invitePayload = createServerInvite({ serverId: server.id, hostUrl: inviteAddress, serverName: server.name })
+  const blockedPublicRoute = Boolean(
+    networkScan?.interpretation.behindCgnat
+    && assignedAddress !== 'localhost'
+    && !isPrivateOrCgnatIp(assignedAddress)
+  )
+  const addressOptions = new Map<string, string>([['localhost', 'localhost - this computer']])
+  for (const ip of localIps) {
+    const scope = ip.scope === 'home'
+      ? 'same Wi-Fi'
+      : ip.scope === 'isp'
+        ? 'VPN / ISP private'
+        : 'public interface'
+    addressOptions.set(ip.address, `${ip.address} - ${scope}`)
+  }
+  if (detectedPublicIp && !networkScan?.interpretation.behindCgnat) {
+    addressOptions.set(detectedPublicIp, `${detectedPublicIp} - public internet`)
+  }
+  if (routerPrivateIp) {
+    addressOptions.set(routerPrivateIp, `${routerPrivateIp} - same ISP / upstream network`)
+  }
+  if (assignedAddress && !addressOptions.has(assignedAddress)) {
+    addressOptions.set(assignedAddress, `${assignedAddress} - saved route`)
+  }
+  const routeNote = blockedPublicRoute
+    ? 'This public route is blocked by CGNAT. Use a same-Wi-Fi/VPN address or host from a public IP.'
+    : assignedAddress === 'localhost'
+      ? 'Only this computer can use this route.'
+      : isPrivateOrCgnatIp(assignedAddress)
+        ? assignedAddress === routerPrivateIp
+          ? 'Same-ISP route. It works only if your provider permits direct traffic between subscribers.'
+          : 'Use this invite only on the same Wi-Fi or overlay network.'
+        : `Internet route. TCP and UDP port ${assignedPort} must be reachable from outside your router.`
 
   const saveHostAssignment = async (partial: Partial<ServerHostAssignment>): Promise<void> => {
     if (server.role !== 'host' || routeSaving) return
@@ -341,10 +421,9 @@ function OverviewSection({ serverId, canEditServer }: { serverId: string; canEdi
                 onChange={(e) => saveHostAssignment({ address: e.target.value })}
                 className="h-9 rounded-md border border-mesh-border bg-mesh-bg-secondary px-3 text-sm text-mesh-text-primary outline-none focus:border-mesh-green/60 disabled:opacity-70"
               >
-                <option value="localhost">localhost - this computer</option>
-                {localIps.map((ip) => (
-                  <option key={`${ip.iface}-${ip.address}`} value={ip.address}>
-                    {ip.address} - {ip.scope === 'home' ? 'same Wi-Fi' : ip.scope}
+                {[...addressOptions].map(([address, label]) => (
+                  <option key={address} value={address}>
+                    {label}
                   </option>
                 ))}
               </select>
@@ -356,17 +435,21 @@ function OverviewSection({ serverId, canEditServer }: { serverId: string; canEdi
               {invitePayload}
             </code>
             <button
+              disabled={blockedPublicRoute}
               onClick={() => {
                 navigator.clipboard.writeText(invitePayload)
                 setCopiedInvite(true)
                 setTimeout(() => setCopiedInvite(false), 1500)
               }}
-              className="shrink-0 h-7 w-7 rounded flex items-center justify-center text-mesh-text-muted hover:text-mesh-text-primary hover:bg-mesh-bg-hover transition-colors"
-              title="Copy join invite"
+              className="shrink-0 h-7 w-7 rounded flex items-center justify-center text-mesh-text-muted hover:text-mesh-text-primary hover:bg-mesh-bg-hover transition-colors disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent"
+              title={blockedPublicRoute ? 'This route cannot accept inbound connections through CGNAT' : 'Copy join invite'}
             >
               {copiedInvite ? <Check className="h-3.5 w-3.5 text-mesh-green" /> : <Copy className="h-3.5 w-3.5" />}
             </button>
           </div>
+          <p className={cn('mt-2 max-w-md text-[11px]', blockedPublicRoute ? 'text-mesh-warning' : 'text-mesh-text-muted')}>
+            {routeNote}
+          </p>
           <div className="mt-2 flex items-center gap-2 text-[11px] text-mesh-text-muted">
             <Wifi className="h-3.5 w-3.5" />
             <span>{routeSaving ? 'Updating route...' : `Running ports: ${(hostStatus?.ports ?? []).join(', ') || 'none'}`}</span>

@@ -18,6 +18,18 @@ const api = {
   editCommand: (command: 'undo' | 'redo' | 'cut' | 'copy' | 'paste' | 'selectAll'): void =>
     ipcRenderer.send('edit:command', command),
 
+  serverInvite: {
+    consume: (): Promise<string | null> => ipcRenderer.invoke('app:consume-server-invite'),
+    onOpened: (callback: (invite: string) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, invite: string): void => {
+        callback(invite)
+        void ipcRenderer.invoke('app:consume-server-invite')
+      }
+      ipcRenderer.on('app:server-invite', handler)
+      return () => ipcRenderer.removeListener('app:server-invite', handler)
+    }
+  },
+
   // Identity
   identityExists: (): Promise<boolean> => ipcRenderer.invoke('identity:exists'),
   identityGenerate: (args: { username: string; avatarColor: string | null }): Promise<{ userId: string; publicKey: string }> =>
@@ -474,7 +486,7 @@ const api = {
       ipcRenderer.invoke('server:create', payload),
     requiresPassword: (payload: { serverId: string }): Promise<boolean> =>
       ipcRenderer.invoke('server:requires-password', payload),
-    join: (payload: { serverId: string; userId: string; username: string; avatarColor: string | null; passwordHash?: string | null }): Promise<{ success: boolean; error?: string }> =>
+    join: (payload: { serverId: string; userId: string; username: string; avatarColor: string | null; passwordHash?: string | null; hostUrl?: string | null }): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke('server:join', payload),
     joinAckPersist: (payload: unknown): Promise<{ success: boolean }> =>
       ipcRenderer.invoke('server:join-ack-persist', payload),
@@ -498,7 +510,7 @@ const api = {
       ipcRenderer.invoke('server:set-role', payload),
     applyModeration: (payload: { serverId: string; kind: 'mute' | 'kick' | 'ban' | 'role'; targetId: string; mute?: boolean; role?: 'moderator' | 'member' }): Promise<{ success: boolean }> =>
       ipcRenderer.invoke('server:apply-moderation', payload),
-    reregisterMine: (payload: { selfUserId: string; selfUsername?: string; selfAvatarColor?: string | null }): Promise<{ success: boolean; count: number }> =>
+    reregisterMine: (payload: { selfUserId: string; selfUsername?: string; selfAvatarColor?: string | null; serverHostRoutes?: Record<string, string> }): Promise<{ success: boolean; count: number }> =>
       ipcRenderer.invoke('server:reregister-mine', payload),
     editMessage: (payload: { serverId: string; messageId: string; senderId: string; content: string }): Promise<{ success: boolean; editedAt?: number }> =>
       ipcRenderer.invoke('server:edit-message', payload),

@@ -1,86 +1,67 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AlertCircle, Link2 } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Link2, Loader2, Server, Wifi } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { useServersStore } from '@/stores/servers.store'
 import { useIdentityStore } from '@/stores/identity.store'
 import { useSettingsStore } from '@/stores/settings.store'
-import { decodeConnectionCode } from '@/lib/connection-code'
+import { useServerAvatarStore } from '@/stores/serverAvatar.store'
+import { ensureHostConnection } from '@/lib/host-connection'
+import { normalizeInviteHost, parseServerInvite } from '@/lib/server-invite'
+import { waitForJoinedServer } from '@/lib/server-join'
 
 interface CreateServerModalProps {
   isOpen: boolean
   onClose: () => void
+  initialInvite?: string | null
 }
 
-interface ParsedInvite {
-  serverId: string
-  hostUrl: string | null
+interface InvitePreview {
+  name: string
+  memberCount: number
+  onlineMemberCount: number
+  requiresPassword: boolean
+  avatarDataUrl: string | null
 }
 
-function normalizeHostUrl(value: string | null | undefined): string | null {
-  const raw = String(value ?? '').trim().replace(/[),.]+$/, '')
-  if (!raw) return null
-  const withProtocol = /^https?:\/\//i.test(raw) ? raw : `http://${raw}`
-  try {
-    const url = new URL(withProtocol)
-    if (!url.hostname || !url.port) return null
-    return `${url.protocol}//${url.host}`
-  } catch {
-    return null
-  }
-}
-
-function parseInvite(input: string): ParsedInvite | null {
-  const raw = input.trim()
-  if (!raw) return null
-
-  try {
-    const url = new URL(raw)
-    if (url.protocol === 'mesh:') {
-      const serverId = url.searchParams.get('server') || url.searchParams.get('serverId') || ''
-      const hostUrl = normalizeHostUrl(url.searchParams.get('host'))
-      if (serverId.startsWith('srv_')) return { serverId, hostUrl }
-    }
-  } catch {
-    /* fall through to loose parsing */
-  }
-
-  const serverId = raw.match(/srv_[A-Za-z0-9_-]+/)?.[0] ?? ''
-  if (!serverId) return null
-  // A shared invite is "MESH-<code> / srv_...". Decode the code back to the
-  // host address; fall back to a raw URL / IP:port if no code is present.
-  const codeMatch = raw.match(/MESH-[A-Za-z0-9_-]+/i)?.[0]
-  const decodedHost = codeMatch ? decodeConnectionCode(codeMatch) : null
-  const hostMatch = raw.match(/https?:\/\/[^\s/]+(?::\d+)?/i)?.[0]
-    ?? raw.match(/(?:\b|^)(?:localhost|(?:\d{1,3}\.){3}\d{1,3}|[a-z0-9.-]+\.[a-z]{2,})(?::\d{1,5})(?:\b|$)/i)?.[0]
-  return { serverId, hostUrl: decodedHost ?? normalizeHostUrl(hostMatch) }
-}
-
-function CreateServerModal({ isOpen, onClose }: CreateServerModalProps): JSX.Element {
+function CreateServerModal({ isOpen, onClose, initialInvite = null }: CreateServerModalProps): JSX.Element {
   const navigate = useNavigate()
-  const createServer = useServersStore((s) => s.createServer)
-  const joinServer = useServersStore((s) => s.joinServer)
-  const identity = useIdentityStore((s) => s.identity)
-  const updateNetwork = useSettingsStore((s) => s.updateNetwork)
+  const createServer = useServersStore((state) => state.createServer)
+  const joinServer = useServersStore((state) => state.joinServer)
+  const identity = useIdentityStore((state) => state.identity)
+  const setServerAvatarLocal = useServerAvatarStore((state) => state.setLocal)
+  const operation = useRef(0)
   const [name, setName] = useState('')
   const [joinId, setJoinId] = useState('')
   const [password, setPassword] = useState('')
   const [mode, setMode] = useState<'create' | 'join'>('create')
   const [busy, setBusy] = useState(false)
+  const [progress, setProgress] = useState<'checking' | 'connecting' | 'joining' | null>(null)
+  const [preview, setPreview] = useState<InvitePreview | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const parsedInvite = useMemo(() => parseServerInvite(joinId), [joinId])
+
+  useEffect(() => {
+    if (!isOpen || !initialInvite) return
+    operation.current += 1
+    setMode('join')
+    setJoinId(initialInvite)
+    setPassword('')
+    setPreview(null)
+    setError(null)
+    setBusy(false)
+    setProgress(null)
+  }, [initialInvite, isOpen])
 
   const handleCreate = async (): Promise<void> => {
     const trimmed = name.trim()
     const trimmedPass = password.trim()
     if (trimmed.length < 2 || busy) return
-    setBusy(true); setError(null)
-    
-    let passwordHash = null
-    if (trimmedPass.length > 0) {
-      passwordHash = await window.api.crypto.hashPassword(trimmedPass)
-    }
+    setBusy(true)
+    setError(null)
 
+    const passwordHash = trimmedPass ? await window.api.crypto.hashPassword(trimmedPass) : null
     const res = await createServer({ name: trimmed, passwordHash })
     setBusy(false)
     if (!res.success || !res.serverId) {
@@ -93,72 +74,143 @@ function CreateServerModal({ isOpen, onClose }: CreateServerModalProps): JSX.Ele
     navigate(`/channels/${res.serverId}`)
   }
 
-  const handleJoin = async (): Promise<void> => {
-    const parsed = parseInvite(joinId)
-    const trimmedPass = password.trim()
-    if (!parsed || busy) return
-    setBusy(true); setError(null)
-
-    if (parsed.hostUrl) {
-      if (!identity) {
-        setBusy(false)
-        setError('No identity found. Restart the app setup first.')
-        return
-      }
-      try {
-        await window.api.signaling.connect(parsed.hostUrl, identity.userId)
-        const connected = await window.api.signaling.isConnected()
-        if (!connected) {
-          setBusy(false)
-          setError('Could not connect to the host address in this invite.')
-          return
-        }
-        updateNetwork({ signalingUrl: parsed.hostUrl })
-      } catch {
-        setBusy(false)
-        setError('Could not connect to the host address in this invite.')
-        return
-      }
-    }
-
-    let passwordHash = null
-    if (trimmedPass.length > 0) {
-      passwordHash = await window.api.crypto.hashPassword(trimmedPass)
-    }
-
-    const res = await joinServer(parsed.serverId, passwordHash)
-    setBusy(false)
-    if (!res.success) {
-      setError(res.error ?? 'Failed to join server')
-      return
-    }
-    onClose()
-    setJoinId('')
-    setPassword('')
-    navigate(`/channels/${parsed.serverId}`)
+  const rememberInviteRoute = (serverId: string, hostUrl: string, serverName: string, becamePrimary: boolean): void => {
+    const settings = useSettingsStore.getState()
+    const network = settings.network
+    const normalized = normalizeInviteHost(hostUrl)
+    if (!normalized) return
+    const known = network.knownNetworks.some((entry) => normalizeInviteHost(entry.url) === normalized)
+      ? network.knownNetworks
+      : [...network.knownNetworks, {
+          id: `net_${Date.now().toString(36)}`,
+          name: serverName || new URL(normalized).host,
+          url: normalized
+        }]
+    settings.updateNetwork({
+      knownNetworks: known,
+      joinedServerHosts: { ...network.joinedServerHosts, [serverId]: normalized },
+      ...(becamePrimary ? { signalingUrl: normalized } : {})
+    })
   }
 
-  const handleClose = () => {
+  const handleJoin = async (): Promise<void> => {
+    const parsed = parseServerInvite(joinId)
+    if (!parsed || busy) {
+      if (!parsed) setError('Paste a valid MESH invitation or server ID.')
+      return
+    }
+    if (!identity) {
+      setError('No identity found. Restart the app setup first.')
+      return
+    }
+    if (useServersStore.getState().servers.some((server) => server.id === parsed.serverId)) {
+      onClose()
+      navigate(`/channels/${parsed.serverId}`)
+      return
+    }
+
+    const currentOperation = ++operation.current
+    setBusy(true)
+    setError(null)
+    setPreview(null)
+
+    try {
+      let discovered: InvitePreview | null = null
+      let becamePrimary = false
+
+      if (parsed.hostUrl) {
+        setProgress('checking')
+        const probe = await window.api.networkDiscovery.fetchServers({ url: parsed.hostUrl })
+        if (!probe.success) throw new Error(probe.error || 'The invitation host is unreachable.')
+        const server = probe.servers.find((entry) => entry.id === parsed.serverId)
+        if (!server) throw new Error('This server is no longer available on the invitation host.')
+        discovered = {
+          name: server.name,
+          memberCount: server.memberCount,
+          onlineMemberCount: server.onlineMemberCount,
+          requiresPassword: server.requiresPassword,
+          avatarDataUrl: server.avatarDataUrl
+        }
+        if (currentOperation !== operation.current) return
+        setPreview(discovered)
+        if (server.requiresPassword && !password.trim()) {
+          throw new Error('This server requires a password.')
+        }
+
+        setProgress('connecting')
+        const connection = await ensureHostConnection(parsed.hostUrl, identity.userId)
+        becamePrimary = connection.becamePrimary
+      }
+
+      const passwordHash = password.trim()
+        ? await window.api.crypto.hashPassword(password.trim())
+        : null
+      setProgress('joining')
+      const res = await joinServer(parsed.serverId, passwordHash, parsed.hostUrl)
+      if (!res.success) throw new Error(res.error ?? 'Failed to join server.')
+      await waitForJoinedServer(parsed.serverId)
+      if (currentOperation !== operation.current) return
+
+      if (discovered?.avatarDataUrl) setServerAvatarLocal(parsed.serverId, discovered.avatarDataUrl)
+      if (parsed.hostUrl) {
+        rememberInviteRoute(
+          parsed.serverId,
+          parsed.hostUrl,
+          discovered?.name || parsed.serverName || 'MESH network',
+          becamePrimary
+        )
+      }
+
+      operation.current += 1
+      onClose()
+      setJoinId('')
+      setPassword('')
+      setPreview(null)
+      navigate(`/channels/${parsed.serverId}`)
+    } catch (err) {
+      if (currentOperation === operation.current) {
+        setError(err instanceof Error ? err.message : 'Failed to join server.')
+      }
+    } finally {
+      if (currentOperation === operation.current) {
+        setBusy(false)
+        setProgress(null)
+      }
+    }
+  }
+
+  const handleClose = (): void => {
+    operation.current += 1
     setName('')
     setJoinId('')
     setPassword('')
+    setPreview(null)
     setError(null)
+    setBusy(false)
+    setProgress(null)
     onClose()
   }
 
+  const joinButtonLabel = progress === 'checking'
+    ? 'Checking invite...'
+    : progress === 'connecting'
+      ? 'Connecting host...'
+      : progress === 'joining'
+        ? 'Joining server...'
+        : 'Join Server'
+
   return (
     <Modal isOpen={isOpen} onClose={handleClose} title={mode === 'create' ? 'Create a Server' : 'Join a Server'}>
-      {/* Mode Switcher */}
-      <div className="flex gap-1 mb-5 bg-mesh-bg-primary p-1 rounded-lg">
+      <div className="mb-5 flex gap-1 rounded-lg bg-mesh-bg-primary p-1">
         <button
           onClick={() => setMode('create')}
-          className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors ${mode === 'create' ? 'bg-mesh-green text-white' : 'text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary/50'}`}
+          className={`flex-1 rounded-md py-1.5 text-sm font-medium transition-colors ${mode === 'create' ? 'bg-mesh-green text-white' : 'text-mesh-text-secondary hover:bg-mesh-bg-tertiary/50 hover:text-mesh-text-primary'}`}
         >
           Create
         </button>
         <button
           onClick={() => setMode('join')}
-          className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors ${mode === 'join' ? 'bg-mesh-green text-white' : 'text-mesh-text-secondary hover:text-mesh-text-primary hover:bg-mesh-bg-tertiary/50'}`}
+          className={`flex-1 rounded-md py-1.5 text-sm font-medium transition-colors ${mode === 'join' ? 'bg-mesh-green text-white' : 'text-mesh-text-secondary hover:bg-mesh-bg-tertiary/50 hover:text-mesh-text-primary'}`}
         >
           Join
         </button>
@@ -166,34 +218,34 @@ function CreateServerModal({ isOpen, onClose }: CreateServerModalProps): JSX.Ele
 
       {mode === 'create' ? (
         <div>
-          <label className="block text-xs font-semibold text-mesh-text-secondary uppercase tracking-wide mb-2">
+          <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-mesh-text-secondary">
             Server Name
           </label>
           <input
             value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+            onChange={(event) => setName(event.target.value)}
+            onKeyDown={(event) => event.key === 'Enter' && void handleCreate()}
             placeholder="My Awesome Server"
             maxLength={50}
             autoFocus
-            className="w-full h-11 px-4 rounded-lg bg-mesh-bg-tertiary text-sm text-mesh-text-primary placeholder:text-mesh-text-muted focus:outline-none focus:ring-1 focus:ring-mesh-border border-none mb-4"
+            className="mb-4 h-11 w-full rounded-lg border-none bg-mesh-bg-tertiary px-4 text-sm text-mesh-text-primary placeholder:text-mesh-text-muted focus:outline-none focus:ring-1 focus:ring-mesh-border"
           />
-          <label className="block text-xs font-semibold text-mesh-text-secondary uppercase tracking-wide mb-2 mt-4">
+          <label className="mb-2 mt-4 block text-xs font-semibold uppercase tracking-wide text-mesh-text-secondary">
             Password (Optional)
           </label>
           <input
             type="password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+            onChange={(event) => setPassword(event.target.value)}
+            onKeyDown={(event) => event.key === 'Enter' && void handleCreate()}
             placeholder="Leave blank for public server"
-            className="w-full h-11 px-4 rounded-lg bg-mesh-bg-tertiary text-sm text-mesh-text-primary placeholder:text-mesh-text-muted focus:outline-none focus:ring-1 focus:ring-mesh-border border-none mb-6"
+            className="mb-6 h-11 w-full rounded-lg border-none bg-mesh-bg-tertiary px-4 text-sm text-mesh-text-primary placeholder:text-mesh-text-muted focus:outline-none focus:ring-1 focus:ring-mesh-border"
           />
           <Button onClick={handleCreate} disabled={name.trim().length < 2 || busy} className="w-full">
-            {busy ? 'Creating…' : 'Create Server'}
+            {busy ? 'Creating...' : 'Create Server'}
           </Button>
           {error && (
-            <p className="flex items-center gap-1.5 text-xs text-red-400 mt-3">
+            <p className="mt-3 flex items-center gap-1.5 text-xs text-red-400">
               <AlertCircle className="h-3.5 w-3.5" />
               {error}
             </p>
@@ -201,38 +253,74 @@ function CreateServerModal({ isOpen, onClose }: CreateServerModalProps): JSX.Ele
         </div>
       ) : (
         <div>
-          <label className="block text-xs font-semibold text-mesh-text-secondary uppercase tracking-wide mb-2">
-            Invite or Server ID
+          <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-mesh-text-secondary">
+            Invitation
           </label>
-          <div className="mb-2 flex items-start gap-2 rounded-lg border border-mesh-border/60 bg-mesh-bg-primary/60 px-3 py-2 text-xs text-mesh-text-muted">
-            <Link2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-mesh-green" />
-            <span>Paste the full invite from your friend. Plain server IDs still work after you are connected to that host.</span>
+          <div className="mb-2 flex items-center gap-2 text-xs text-mesh-text-muted">
+            <Link2 className="h-3.5 w-3.5 shrink-0 text-mesh-green" />
+            <span>Paste an invitation link or a server ID.</span>
           </div>
           <input
             value={joinId}
-            onChange={(e) => setJoinId(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleJoin()}
-            placeholder="mesh://join?host=http%3A...&server=srv_..."
+            onChange={(event) => {
+              setJoinId(event.target.value)
+              setPreview(null)
+              setError(null)
+            }}
+            onKeyDown={(event) => event.key === 'Enter' && void handleJoin()}
+            placeholder="mesh://join?..."
             autoFocus
-            className="w-full h-11 px-4 rounded-lg bg-mesh-bg-tertiary text-sm text-mesh-text-primary font-mono placeholder:text-mesh-text-muted focus:outline-none focus:ring-1 focus:ring-mesh-border border-none mb-4"
+            className="mb-3 h-11 w-full rounded-lg border-none bg-mesh-bg-tertiary px-4 font-mono text-sm text-mesh-text-primary placeholder:text-mesh-text-muted focus:outline-none focus:ring-1 focus:ring-mesh-border"
           />
-          <label className="block text-xs font-semibold text-mesh-text-secondary uppercase tracking-wide mb-2 mt-4">
-            Password (Optional)
+
+          {parsedInvite && (
+            <div className="mb-4 flex min-h-14 items-center gap-3 border-y border-mesh-border/60 py-3">
+              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-mesh-green/10 text-mesh-green">
+                <Server className="h-4 w-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-mesh-text-primary">
+                  {preview?.name || parsedInvite.serverName || 'MESH server'}
+                </p>
+                <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-mesh-text-muted">
+                  <Wifi className="h-3 w-3 shrink-0" />
+                  <span className="truncate">
+                    {parsedInvite.hostUrl ? new URL(parsedInvite.hostUrl).host : 'Current network'}
+                  </span>
+                </div>
+              </div>
+              {preview && (
+                <div className="shrink-0 text-right text-[11px] text-mesh-text-muted">
+                  <p className="flex items-center justify-end gap-1 text-mesh-green">
+                    <CheckCircle2 className="h-3 w-3" /> Reachable
+                  </p>
+                  <p>{preview.onlineMemberCount}/{preview.memberCount} online</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          <label className="mb-2 mt-4 block text-xs font-semibold uppercase tracking-wide text-mesh-text-secondary">
+            Password {preview?.requiresPassword ? '' : '(Optional)'}
           </label>
           <input
             type="password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleJoin()}
-            placeholder="Only if required"
-            className="w-full h-11 px-4 rounded-lg bg-mesh-bg-tertiary text-sm text-mesh-text-primary placeholder:text-mesh-text-muted focus:outline-none focus:ring-1 focus:ring-mesh-border border-none mb-6"
+            onChange={(event) => {
+              setPassword(event.target.value)
+              setError(null)
+            }}
+            onKeyDown={(event) => event.key === 'Enter' && void handleJoin()}
+            placeholder={preview?.requiresPassword ? 'Required by this server' : 'Only if required'}
+            className="mb-6 h-11 w-full rounded-lg border-none bg-mesh-bg-tertiary px-4 text-sm text-mesh-text-primary placeholder:text-mesh-text-muted focus:outline-none focus:ring-1 focus:ring-mesh-border"
           />
-          <Button onClick={handleJoin} disabled={!parseInvite(joinId) || busy} className="w-full">
-            {busy ? 'Joining…' : 'Join Server'}
+          <Button onClick={handleJoin} disabled={!parsedInvite || busy} className="w-full">
+            {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {joinButtonLabel}
           </Button>
           {error && (
-            <p className="flex items-center gap-1.5 text-xs text-red-400 mt-3">
-              <AlertCircle className="h-3.5 w-3.5" />
+            <p className="mt-3 flex items-start gap-1.5 text-xs text-red-400">
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               {error}
             </p>
           )}

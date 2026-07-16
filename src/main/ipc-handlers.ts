@@ -1134,10 +1134,18 @@ export function registerServerHandlers(): void {
     username: string
     avatarColor: string | null
     passwordHash?: string | null
+    hostUrl?: string | null
   }) => {
     // Local check removed. Authentication is strictly handled remotely by the signaling server
     // so we don't accidentally bypass password rules for un-cached servers.
-    if (!socketClient.isConnected()) {
+    if (payload.hostUrl) {
+      if (!socketClient.bindServerToHost(payload.serverId, payload.hostUrl)) {
+        return { success: false, error: 'The invite contains an invalid server route.' }
+      }
+      if (!socketClient.isHostConnected(payload.hostUrl)) {
+        return { success: false, error: 'The invited host is not connected yet.' }
+      }
+    } else if (!socketClient.isConnected()) {
       return { success: false, error: 'Not connected to signaling server. Check your network settings.' }
     }
     // Remember the hash so join-ack-persist can store it — needed for silent
@@ -1473,7 +1481,11 @@ export function registerServerHandlers(): void {
     selfUserId: string
     selfUsername?: string
     selfAvatarColor?: string | null
+    serverHostRoutes?: Record<string, string>
   }) => {
+    for (const [serverId, hostUrl] of Object.entries(payload.serverHostRoutes ?? {})) {
+      socketClient.bindServerToHost(serverId, hostUrl)
+    }
     const all = db.getServers().filter((s) => s.hostUserId === payload.selfUserId)
     for (const s of all) {
       const members = db.getServerMembers(s.id).map((m) => {
@@ -1511,12 +1523,15 @@ export function registerServerHandlers(): void {
     // username produced blank entries in everyone's member list.
     const mine = db.getServers().filter((s) => s.hostUserId !== payload.selfUserId)
     for (const s of mine) {
+      const hostUrl = payload.serverHostRoutes?.[s.id] ?? null
+      if (hostUrl && !socketClient.isHostConnected(hostUrl)) continue
       socketClient.emitSignaling('server:join', {
         serverId: s.id,
         userId: payload.selfUserId,
         username: payload.selfUsername || '',
         avatarColor: payload.selfAvatarColor ?? null,
-        passwordHash: s.passwordHash ?? null
+        passwordHash: s.passwordHash ?? null,
+        hostUrl
       })
     }
     return { success: true, count: all.length }

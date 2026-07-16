@@ -1,5 +1,5 @@
-import { app, shell, BrowserWindow, session, desktopCapturer } from 'electron'
-import { join } from 'path'
+import { app, shell, BrowserWindow, session, desktopCapturer, ipcMain } from 'electron'
+import { join, resolve } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 
 // Override user-data path BEFORE anything else touches app paths.
@@ -42,6 +42,49 @@ import { registerSignalingHostHandlers, startHost, stopHosting } from './signali
 import { registerNetworkScannerHandlers, refreshNetworkSignature } from './network-scanner'
 import { getSetting } from './database'
 
+let applicationWindow: BrowserWindow | null = null
+let pendingServerInvite: string | null = null
+
+function findServerInvite(args: string[]): string | null {
+  for (const value of args) {
+    const candidate = String(value || '').trim().replace(/^['"]|['"]$/g, '')
+    if (candidate.length <= 4096 && /^mesh:\/\/join(?:[/?]|$)/i.test(candidate)) return candidate
+  }
+  return null
+}
+
+function queueServerInvite(value: string | null): void {
+  if (!value) return
+  pendingServerInvite = value
+  if (applicationWindow && !applicationWindow.isDestroyed()) {
+    if (applicationWindow.isMinimized()) applicationWindow.restore()
+    applicationWindow.show()
+    applicationWindow.focus()
+    applicationWindow.webContents.send('app:server-invite', value)
+  }
+}
+
+pendingServerInvite = findServerInvite(process.argv)
+
+const hasSingleInstanceLock = app.requestSingleInstanceLock()
+if (!hasSingleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', (_event, commandLine) => {
+    queueServerInvite(findServerInvite(commandLine))
+    if (applicationWindow && !applicationWindow.isDestroyed()) {
+      if (applicationWindow.isMinimized()) applicationWindow.restore()
+      applicationWindow.show()
+      applicationWindow.focus()
+    }
+  })
+
+  app.on('open-url', (event, url) => {
+    event.preventDefault()
+    queueServerInvite(findServerInvite([url]))
+  })
+}
+
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
     width: 1280,
@@ -58,6 +101,11 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false
     }
+  })
+  applicationWindow = mainWindow
+
+  mainWindow.on('closed', () => {
+    if (applicationWindow === mainWindow) applicationWindow = null
   })
 
   mainWindow.on('ready-to-show', () => {
@@ -99,8 +147,20 @@ function createWindow(): void {
   }
 }
 
-app.whenReady().then(async () => {
+if (hasSingleInstanceLock) app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.mesh.app')
+
+  if (process.defaultApp && process.argv[1]) {
+    app.setAsDefaultProtocolClient('mesh', process.execPath, [resolve(process.argv[1])])
+  } else {
+    app.setAsDefaultProtocolClient('mesh')
+  }
+
+  ipcMain.handle('app:consume-server-invite', () => {
+    const invite = pendingServerInvite
+    pendingServerInvite = null
+    return invite
+  })
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)

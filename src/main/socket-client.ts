@@ -826,6 +826,17 @@ export function listConnectedHosts(): string[] {
   return listHostUrls()
 }
 
+export function bindServerToHost(serverId: string, serverUrl: string): boolean {
+  const url = normalizeUrl(serverUrl)
+  if (!/^srv_[A-Za-z0-9_-]+$/.test(serverId) || !url) return false
+  serverHosts.set(serverId, url)
+  return true
+}
+
+export function isHostConnected(serverUrl: string): boolean {
+  return Boolean(socketForHostUrl(normalizeUrl(serverUrl))?.connected)
+}
+
 export function listHostConnectionStatuses(): HostConnectionSnapshot[] {
   return [...hostConnectionStates.values()].sort((a, b) => {
     if (a.role !== b.role) return a.role === 'primary' ? -1 : 1

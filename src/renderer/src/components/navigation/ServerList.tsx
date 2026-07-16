@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { Compass, Plus, Router } from 'lucide-react'
 import { motion } from 'framer-motion'
@@ -18,11 +18,35 @@ function ServerList(): JSX.Element {
   const servers = useServersStore((s) => s.servers)
   const avatars = useServerAvatarStore((s) => s.byServer)
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [pendingInvite, setPendingInvite] = useState<string | null>(null)
   const inboxCounts = useInboxStore((state) => state.counts)
 
   const activeServerId = location.pathname.match(/^\/channels\/(?!@me)([^/]+)/)?.[1] || null
   const isDiscover = location.pathname.startsWith('/discover')
   const isNetworkCenter = location.pathname.startsWith('/network-center')
+
+  useEffect(() => {
+    let mounted = true
+    const openInvite = (invite: string): void => {
+      if (!mounted) return
+      setPendingInvite(invite)
+      setShowCreateModal(true)
+    }
+    void window.api.serverInvite.consume().then((invite) => {
+      if (invite) openInvite(invite)
+    })
+    const unsubscribe = window.api.serverInvite.onOpened(openInvite)
+    const handleInAppInvite = (event: Event): void => {
+      const invite = (event as CustomEvent<string>).detail
+      if (invite) openInvite(invite)
+    }
+    window.addEventListener('mesh:open-server-invite', handleInAppInvite)
+    return () => {
+      mounted = false
+      unsubscribe()
+      window.removeEventListener('mesh:open-server-invite', handleInAppInvite)
+    }
+  }, [])
 
   return (
     <>
@@ -140,7 +164,11 @@ function ServerList(): JSX.Element {
 
       <CreateServerModal
         isOpen={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
+        initialInvite={pendingInvite}
+        onClose={() => {
+          setShowCreateModal(false)
+          setPendingInvite(null)
+        }}
       />
     </>
   )

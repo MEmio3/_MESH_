@@ -285,12 +285,38 @@ function CodeBlock({ code, language }: { code: string; language: string }): JSX.
 
 function TextSegment({ text }: { text: string }): JSX.Element | null {
   if (!text) return null
-  const parts = text.split(/(@[\p{L}\p{N}_][\p{L}\p{N}_.-]{0,40})/gu)
+  const parts = text.split(/(mesh:\/\/join\?[^\s<>()]+|https?:\/\/[^\s<>()]+|@[\p{L}\p{N}_][\p{L}\p{N}_.-]{0,40})/giu)
 
   return (
     <span className="whitespace-pre-wrap break-words">
-      {parts.map((part, index) =>
-        part.startsWith('@') ? (
+      {parts.map((part, index) => {
+        if (/^mesh:\/\/join\?/i.test(part)) {
+          return (
+            <button
+              key={`${index}-${part.slice(0, 16)}`}
+              type="button"
+              onClick={() => window.dispatchEvent(new CustomEvent('mesh:open-server-invite', { detail: part }))}
+              className="font-medium text-mesh-green underline decoration-mesh-green/40 underline-offset-2 hover:decoration-mesh-green"
+              title="Open server invitation"
+            >
+              {part}
+            </button>
+          )
+        }
+        if (/^https?:\/\//i.test(part)) {
+          return (
+            <a
+              key={`${index}-${part.slice(0, 16)}`}
+              href={part}
+              target="_blank"
+              rel="noreferrer"
+              className="text-mesh-green underline decoration-mesh-green/40 underline-offset-2 hover:decoration-mesh-green"
+            >
+              {part}
+            </a>
+          )
+        }
+        return part.startsWith('@') ? (
           <span
             key={`${part}-${index}`}
             className="rounded-md border border-mesh-green/20 bg-mesh-green/15 px-1 font-semibold text-mesh-green"
@@ -300,7 +326,7 @@ function TextSegment({ text }: { text: string }): JSX.Element | null {
         ) : (
           <span key={`${index}-${part.slice(0, 8)}`}>{part}</span>
         )
-      )}
+      })}
     </span>
   )
 }

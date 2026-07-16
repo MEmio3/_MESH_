@@ -392,7 +392,7 @@ interface PresenceAPI {
 interface ServerAPI {
   create: (p: { name: string; iconColor: string; textChannelName: string; voiceRoomName: string; hostUserId: string; hostUsername: string; hostAvatarColor: string | null; passwordHash?: string | null }) => Promise<{ success: boolean; error?: string; serverId?: string }>
   requiresPassword: (p: { serverId: string }) => Promise<boolean>
-  join: (p: { serverId: string; userId: string; username: string; avatarColor: string | null; passwordHash?: string | null }) => Promise<{ success: boolean; error?: string }>
+  join: (p: { serverId: string; userId: string; username: string; avatarColor: string | null; passwordHash?: string | null; hostUrl?: string | null }) => Promise<{ success: boolean; error?: string }>
   joinAckPersist: (p: unknown) => Promise<{ success: boolean }>
   memberJoinedPersist: (p: unknown) => Promise<{ success: boolean }>
   leave: (p: { serverId: string; userId: string; destroy?: boolean }) => Promise<{ success: boolean }>
@@ -404,7 +404,7 @@ interface ServerAPI {
   ban: (p: { serverId: string; actorId: string; targetId: string }) => Promise<{ success: boolean }>
   setRole: (p: { serverId: string; actorId: string; targetId: string; role: 'moderator' | 'member' }) => Promise<{ success: boolean }>
   applyModeration: (p: { serverId: string; kind: 'mute' | 'kick' | 'ban' | 'role'; targetId: string; mute?: boolean; role?: 'moderator' | 'member' }) => Promise<{ success: boolean }>
-  reregisterMine: (p: { selfUserId: string; selfUsername?: string; selfAvatarColor?: string | null }) => Promise<{ success: boolean; count: number }>
+  reregisterMine: (p: { selfUserId: string; selfUsername?: string; selfAvatarColor?: string | null; serverHostRoutes?: Record<string, string> }) => Promise<{ success: boolean; count: number }>
   editMessage: (p: { serverId: string; messageId: string; senderId: string; content: string }) => Promise<{ success: boolean; editedAt?: number }>
   deleteMessage: (p: { serverId: string; messageId: string; actorId: string }) => Promise<{ success: boolean; error?: string }>
   setMessagePinned: (p: { serverId: string; messageId: string; actorId: string; pinned: boolean }) => Promise<{ success: boolean; error?: string }>
@@ -602,6 +602,11 @@ interface RecoveryAPI {
   restart: () => void
 }
 
+interface ServerInviteAPI {
+  consume: () => Promise<string | null>
+  onOpened: (cb: (invite: string) => void) => () => void
+}
+
 interface MeshAPI {
   minimize: () => void
   maximize: () => void
@@ -609,6 +614,7 @@ interface MeshAPI {
   isMaximized: () => Promise<boolean>
   onMaximizedChange: (callback: (maximized: boolean) => void) => () => void
   editCommand: (command: 'undo' | 'redo' | 'cut' | 'copy' | 'paste' | 'selectAll') => void
+  serverInvite: ServerInviteAPI
 
   // Identity
   identityExists: () => Promise<boolean>

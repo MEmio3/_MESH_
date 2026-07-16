@@ -25,6 +25,20 @@ import { initializeAllStores } from '@/stores/init'
 import { webrtcManager } from '@/lib/webrtc'
 import { CallOverlay } from '@/components/call/CallOverlay'
 
+function serverRegistrationPayload(identity: NonNullable<ReturnType<typeof useIdentityStore.getState>['identity']>): {
+  selfUserId: string
+  selfUsername: string
+  selfAvatarColor: string | null
+  serverHostRoutes: Record<string, string>
+} {
+  return {
+    selfUserId: identity.userId,
+    selfUsername: identity.username,
+    selfAvatarColor: (identity as unknown as { avatarPath?: string | null }).avatarPath ?? null,
+    serverHostRoutes: useSettingsStore.getState().network.joinedServerHosts
+  }
+}
+
 function LoadingScreen(): JSX.Element {
   return (
     <div className="h-screen w-screen bg-mesh-bg-primary flex items-center justify-center">
@@ -66,11 +80,7 @@ function App(): JSX.Element {
     return window.api.signaling.onConnected(() => {
       const identity = useIdentityStore.getState().identity
       if (!identity) return
-      window.api.server.reregisterMine({
-        selfUserId: identity.userId,
-        selfUsername: identity.username,
-        selfAvatarColor: (identity as unknown as { avatarPath?: string | null }).avatarPath ?? null
-      }).then(() => {
+      window.api.server.reregisterMine(serverRegistrationPayload(identity)).then(() => {
         setTimeout(() => useVoiceStore.getState().restoreAfterReconnect(), 350)
       }).catch(() => { /* retried on next reconnect */ })
       // Re-deliver any pending outgoing friend requests now that we're on a
@@ -198,12 +208,13 @@ function App(): JSX.Element {
           const signalingUrl = net.signalingUrl || 'http://localhost:3000'
           try {
             await window.api.signaling.connect(signalingUrl, identity.userId)
+            const inviteHosts = new Set(Object.values(net.joinedServerHosts))
+            inviteHosts.delete(signalingUrl)
+            for (const hostUrl of inviteHosts) {
+              await window.api.signaling.addHost(hostUrl)
+            }
             // After connecting, re-register hosted servers + rejoin member servers.
-            await window.api.server.reregisterMine({
-              selfUserId: identity.userId,
-              selfUsername: identity.username,
-              selfAvatarColor: (identity as unknown as { avatarPath?: string | null }).avatarPath ?? null
-            })
+            await window.api.server.reregisterMine(serverRegistrationPayload(identity))
             // Publish presence + fetch nearby list.
             await useDiscoveryStore.getState().publishSelf()
             await useDiscoveryStore.getState().refresh()

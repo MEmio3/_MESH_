@@ -39,6 +39,27 @@ export interface NetworkSignature {
 
 const PROBE_TIMEOUT_MS = 3000
 
+function isIpv4(value: string): boolean {
+  const parts = value.trim().split('.')
+  if (parts.length !== 4) return false
+  return parts.every((part) => {
+    if (!/^\d{1,3}$/.test(part)) return false
+    const value = Number(part)
+    return value >= 0 && value <= 255
+  })
+}
+
+function isPublicIpv4(value: string | null): boolean {
+  if (!value || !isIpv4(value)) return false
+  const [a, b] = value.split('.').map(Number)
+  if (a === 10 || a === 127 || a === 0) return false
+  if (a === 192 && b === 168) return false
+  if (a === 172 && b >= 16 && b <= 31) return false
+  if (a === 100 && b >= 64 && b <= 127) return false
+  if (a === 169 && b === 254) return false
+  return true
+}
+
 /** Run a promise with a hard timeout. Rejects with Error('timeout') on expiry. */
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -80,6 +101,17 @@ function getLocalIp(): string | null {
   return fallback
 }
 
+function getPublicInterfaceIp(): string | null {
+  const ifaces = networkInterfaces()
+  for (const list of Object.values(ifaces)) {
+    if (!list) continue
+    for (const net of list) {
+      if (net.family === 'IPv4' && !net.internal && isPublicIpv4(net.address)) return net.address
+    }
+  }
+  return null
+}
+
 // ── Layer 2 ────────────────────────────────────────────────────────────────
 
 /**
@@ -116,18 +148,34 @@ function getRouterWanIp(): Promise<string | null> {
  * timeout so the socket is torn down cleanly on expiry.
  */
 async function getPublicIp(): Promise<string | null> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS)
-  try {
-    const res = await fetch('https://api.ipify.org?format=json', { signal: controller.signal })
-    if (!res.ok) return null
-    const json = (await res.json()) as { ip?: string }
-    return typeof json.ip === 'string' ? json.ip : null
-  } catch {
-    return null
-  } finally {
-    clearTimeout(timer)
+  const query = async (url: string, json: boolean): Promise<string | null> => {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS)
+    try {
+      const res = await fetch(url, {
+        signal: controller.signal,
+        headers: { Accept: json ? 'application/json' : 'text/plain' }
+      })
+      if (!res.ok) return null
+      const candidate = json
+        ? String(((await res.json()) as { ip?: string }).ip ?? '').trim()
+        : (await res.text()).trim()
+      return isPublicIpv4(candidate) ? candidate : null
+    } catch {
+      return null
+    } finally {
+      clearTimeout(timer)
+    }
   }
+
+  // Either service may be filtered by an ISP or DNS provider. Query both and
+  // use the first valid IPv4 result so one blocked endpoint does not force the
+  // UI back to a misleading LAN-only invitation.
+  const probes = await Promise.all([
+    query('https://api.ipify.org?format=json', true),
+    query('https://ifconfig.me/ip', false)
+  ])
+  return probes.find((value): value is string => Boolean(value)) ?? null
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
@@ -140,7 +188,11 @@ async function getPublicIp(): Promise<string | null> {
  */
 export async function scanNetworkSignature(): Promise<NetworkSignature> {
   const localIp = getLocalIp()
-  const [routerWanIp, publicIp] = await Promise.all([getRouterWanIp(), getPublicIp()])
+  const directPublicIp = getPublicInterfaceIp()
+  const [routerWanIp, detectedPublicIp] = await Promise.all([getRouterWanIp(), getPublicIp()])
+  const publicIp = detectedPublicIp
+    ?? (isPublicIpv4(routerWanIp) ? routerWanIp : null)
+    ?? directPublicIp
   return {
     localIp,
     routerWanIp,
@@ -210,15 +262,15 @@ export function interpretSignature(sig: NetworkSignature): {
   let explanation: string
   if (behindCgnat) {
     explanation =
-      'Your ISP uses Carrier-Grade NAT. Port-forwarding on your router alone will not expose you to the open internet. Use a relay, VPN, or a friend who is directly reachable.'
+      'Your ISP uses Carrier-Grade NAT. Port-forwarding on your router alone will not expose the MESH host. Use a VPN/overlay network or run the host on a connection with a public IP.'
   } else if (!sig.publicIp) {
     explanation = 'Could not reach the internet. Only LAN connections are available right now.'
   } else if (!sig.upnpEnabled) {
     explanation =
-      'Your router has a public IP but UPnP is disabled. Friends on a different network can reach you only after you set up manual port-forwarding for TCP 3000.'
+      'Your router has a public IP but UPnP is disabled. Forward the selected MESH host port for both TCP and UDP before sharing an Internet invite.'
   } else {
     explanation =
-      'Your router has a public IP and UPnP is available. Friends on any network can reach you at your public IP once port 3000 is forwarded.'
+      'Your router has a public IP and UPnP is available. Confirm the selected MESH host port is mapped for TCP and UDP before sharing an Internet invite.'
   }
 
   return { behindCgnat, directlyReachable, explanation }

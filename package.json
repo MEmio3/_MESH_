@@ -23,6 +23,12 @@
     "productName": "MESH",
     "copyright": "Copyright © 2025 MESH",
     "asar": true,
+    "protocols": [
+      {
+        "name": "MESH Server Invite",
+        "schemes": ["mesh"]
+      }
+    ],
     "directories": {
       "output": "release",
       "buildResources": "resources"

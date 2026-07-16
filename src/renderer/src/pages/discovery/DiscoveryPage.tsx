@@ -21,6 +21,8 @@ import { useIdentityStore } from '@/stores/identity.store'
 import { useServersStore } from '@/stores/servers.store'
 import { type KnownNetwork, useSettingsStore } from '@/stores/settings.store'
 import { useServerAvatarStore } from '@/stores/serverAvatar.store'
+import { ensureHostConnection } from '@/lib/host-connection'
+import { waitForJoinedServer } from '@/lib/server-join'
 
 type DiscoveryNetwork = KnownNetwork & { current?: boolean }
 
@@ -173,17 +175,21 @@ function DiscoveryPage(): JSX.Element {
     try {
       const targetUrl = normalizeNetworkUrl(net.url)
       if (server.avatarDataUrl) setServerAvatarLocal(server.id, server.avatarDataUrl)
-      if (targetUrl !== activeUrl) {
-        updateNetwork({ signalingUrl: targetUrl })
-        await window.api.signaling.connect(targetUrl, identity.userId)
-      }
+      const connection = await ensureHostConnection(targetUrl, identity.userId)
       const passwordHash = password ? await window.api.crypto.hashPassword(password) : null
-      const res = await joinServer(server.id, passwordHash)
+      const res = await joinServer(server.id, passwordHash, targetUrl)
       if (!res.success) {
         setNotice(res.error ?? 'Failed to join server.')
         return
       }
+      await waitForJoinedServer(server.id)
+      updateNetwork({
+        joinedServerHosts: { ...useSettingsStore.getState().network.joinedServerHosts, [server.id]: targetUrl },
+        ...(connection.becamePrimary ? { signalingUrl: targetUrl } : {})
+      })
       navigate(`/channels/${server.id}`)
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Failed to join server.')
     } finally {
       setJoining(null)
     }

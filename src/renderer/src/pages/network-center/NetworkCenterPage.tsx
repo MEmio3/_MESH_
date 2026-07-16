@@ -12,6 +12,7 @@ import { useServerAvatarStore } from '@/stores/serverAvatar.store'
 import { useDiscoveryStore } from '@/stores/discovery.store'
 import { useStatusStore } from '@/stores/status.store'
 import { encodeConnectionCode, resolveConnectionInput } from '@/lib/connection-code'
+import { createServerInvite } from '@/lib/server-invite'
 
 type IpScope = 'home' | 'isp' | 'public'
 
@@ -132,11 +133,11 @@ function copyToClipboard(value: string, setCopied: (value: string | null) => voi
 function isPrivateOrCgnatIp(ip: string | null): boolean {
   if (!ip) return false
   const [a, b] = ip.split('.').map((n) => parseInt(n, 10))
-  if (a === 10) return true
+  if (a === 10 || a === 127 || a === 0) return true
   if (a === 192 && b === 168) return true
   if (a === 172 && b >= 16 && b <= 31) return true
   if (a === 100 && b >= 64 && b <= 127) return true
-  return false
+  return a === 169 && b === 254
 }
 
 function normalizePort(value: string | number | null | undefined): number {
@@ -230,21 +231,45 @@ function NetworkCenterPage(): JSX.Element {
   const activeUrl = normalizeNetworkUrl(network.signalingUrl || 'http://localhost:3000')
   const hostedServers = servers.filter((server) => server.role === 'host')
   const primaryIp = hostStatus.localIps.find((ip) => ip.scope === 'home') ?? hostStatus.localIps[0] ?? null
+  const publicInterface = hostStatus.localIps.find((ip) => ip.scope === 'public')?.address ?? null
+  const routerPublicIp = netSig?.signature.routerWanIp && !isPrivateOrCgnatIp(netSig.signature.routerWanIp)
+    ? netSig.signature.routerWanIp
+    : null
+  const routerPrivateIp = netSig?.signature.routerWanIp && isPrivateOrCgnatIp(netSig.signature.routerWanIp)
+    ? netSig.signature.routerWanIp
+    : null
+  const detectedPublicIp = netSig?.signature.publicIp ?? routerPublicIp ?? publicInterface
   const selectedHostPort = normalizePort(hostPortDraft || savedHostPort)
   const hostPort = hostStatus.running ? normalizePort(hostStatus.port || savedHostPort) : selectedHostPort
   const sameWifiAddress = primaryIp ? `http://${primaryIp.address}:${hostPort}` : `http://localhost:${hostPort}`
-  const publicAddress = netSig?.signature.publicIp ? `http://${netSig.signature.publicIp}:${hostPort}` : null
+  const publicAddress = detectedPublicIp ? `http://${detectedPublicIp}:${hostPort}` : null
   const hostPorts = useMemo(() => {
     return [...new Set([savedHostPort, ...network.extraHostPorts, ...(hostStatus.ports ?? [])].map(normalizePort))]
       .sort((a, b) => a - b)
   }, [savedHostPort, network.extraHostPorts, hostStatus.ports])
   const hostAddressOptions = useMemo(() => {
-    const ips = hostStatus.localIps.map((ip) => ({
-      value: ip.address,
-      label: `${ip.address} - ${ip.scope === 'home' ? 'same Wi-Fi' : ip.scope}`
-    }))
-    return [{ value: 'localhost', label: 'localhost - this computer' }, ...ips]
-  }, [hostStatus.localIps])
+    const options = new Map<string, string>([['localhost', 'localhost - this computer']])
+    for (const ip of hostStatus.localIps) {
+      const scope = ip.scope === 'home'
+        ? 'same Wi-Fi'
+        : ip.scope === 'isp'
+          ? 'VPN / ISP private'
+          : 'public interface'
+      options.set(ip.address, `${ip.address} - ${scope}`)
+    }
+    if (detectedPublicIp && !netSig?.interpretation.behindCgnat) {
+      options.set(detectedPublicIp, `${detectedPublicIp} - public internet`)
+    }
+    if (routerPrivateIp) {
+      options.set(routerPrivateIp, `${routerPrivateIp} - same ISP / upstream network`)
+    }
+    for (const assignment of Object.values(network.serverHostAssignments)) {
+      if (assignment.address && !options.has(assignment.address)) {
+        options.set(assignment.address, `${assignment.address} - saved route`)
+      }
+    }
+    return [...options].map(([value, label]) => ({ value, label }))
+  }, [detectedPublicIp, hostStatus.localIps, netSig?.interpretation.behindCgnat, network.serverHostAssignments, routerPrivateIp])
   const relayAddress = relayStatus?.advertisedAddress ?? (relayStatus?.running ? `turn:localhost:${relayStatus.port}` : null)
   const canSharePublic = Boolean(publicAddress && netSig && !netSig.interpretation.behindCgnat)
   const sharePlan = (() => {
@@ -259,19 +284,23 @@ function NetworkCenterPage(): JSX.Element {
     }
     if (canSharePublic) {
       return {
-        title: netSig?.interpretation.directlyReachable ? 'Internet invite' : 'Internet invite',
+        title: netSig?.interpretation.directlyReachable ? 'Internet invite' : 'Internet invite - port unverified',
         address: publicAddress,
         button: 'Copy internet invite',
-        note: `Use this for friends outside your Wi-Fi. Port ${hostPort} must be open on your router.`,
+        note: netSig?.interpretation.directlyReachable
+          ? `Use this for friends outside your Wi-Fi. Allow TCP and UDP port ${hostPort} through the firewall.`
+          : `Use this for friends outside your Wi-Fi after forwarding TCP and UDP port ${hostPort} on your router.`,
         tone: 'online' as const
       }
     }
     if (netSig?.interpretation.behindCgnat) {
       return {
-        title: 'Same Wi-Fi only',
-        address: sameWifiAddress,
-        button: 'Copy same-Wi-Fi invite',
-        note: 'Your ISP is using private/CGNAT networking. Friends outside your Wi-Fi need a relay, VPN, or a host with a real public IP.',
+        title: routerPrivateIp ? 'Same ISP invite - provider dependent' : 'Same Wi-Fi only',
+        address: routerPrivateIp ? `http://${routerPrivateIp}:${hostPort}` : sameWifiAddress,
+        button: routerPrivateIp ? 'Copy same-ISP invite' : 'Copy same-Wi-Fi invite',
+        note: routerPrivateIp
+          ? 'This CGNAT address can work only if your ISP permits direct traffic between subscribers. Otherwise use a VPN/overlay network or a public-IP MESH host.'
+          : 'This host is behind CGNAT. Friends outside your Wi-Fi need a VPN/overlay network or a MESH host with a public IP.',
         tone: 'blocked' as const
       }
     }
@@ -386,7 +415,7 @@ function NetworkCenterPage(): JSX.Element {
   }
 
   async function refreshEverything(): Promise<void> {
-    await Promise.all([refreshStatus(), runHealthChecks()])
+    await Promise.all([refreshStatus(), runHealthChecks(), refreshNetworkScan()])
   }
 
   useEffect(() => {
@@ -592,7 +621,11 @@ function NetworkCenterPage(): JSX.Element {
 
   function defaultServerHostAssignment(serverId: string): ServerHostAssignment {
     const saved = network.serverHostAssignments[serverId]
-    const fallbackAddress = primaryIp?.address ?? 'localhost'
+    const fallbackAddress = canSharePublic && detectedPublicIp
+      ? detectedPublicIp
+      : netSig?.interpretation.behindCgnat && routerPrivateIp
+        ? routerPrivateIp
+        : primaryIp?.address ?? 'localhost'
     const port = hostPorts.includes(normalizePort(saved?.port)) ? normalizePort(saved?.port) : savedHostPort
     return {
       port,
@@ -1106,7 +1139,14 @@ function NetworkCenterPage(): JSX.Element {
               )}
               <div className="grid grid-cols-2 gap-2">
                 <Metric label="Port" value={String(hostPort)} />
-                <Metric label="Reachability" value={sharePlan.tone === 'online' ? 'Internet' : sharePlan.tone === 'blocked' ? 'LAN only' : 'Checking'} />
+                <Metric
+                  label="Reachability"
+                  value={sharePlan.tone === 'online'
+                    ? 'Internet'
+                    : sharePlan.tone === 'blocked'
+                      ? routerPrivateIp ? 'Same ISP / CGNAT' : 'LAN only'
+                      : 'Checking'}
+                />
               </div>
               <button
                 onClick={() => setShowDiagnostics((v) => !v)}
@@ -1126,7 +1166,7 @@ function NetworkCenterPage(): JSX.Element {
                       label={isPrivateOrCgnatIp(netSig.signature.routerWanIp) ? 'Router/ISP private address' : 'Router public address'}
                       address={`http://${netSig.signature.routerWanIp}:${hostPort}`}
                       muted={isPrivateOrCgnatIp(netSig.signature.routerWanIp)}
-                      note={isPrivateOrCgnatIp(netSig.signature.routerWanIp) ? 'Behind ISP NAT — usually only reachable if the router forwards this port.' : `Useful only if port ${hostPort} is open.`}
+                      note={isPrivateOrCgnatIp(netSig.signature.routerWanIp) ? 'Same-ISP/upstream route. It works only when that network permits direct subscriber traffic.' : `Useful only if TCP and UDP port ${hostPort} are open.`}
                       copied={copied}
                       onCopy={setCopied}
                     />
@@ -1136,7 +1176,8 @@ function NetworkCenterPage(): JSX.Element {
                       label={netSig?.interpretation.behindCgnat ? 'Website-visible public IP' : 'Public internet address'}
                       address={publicAddress}
                       muted={Boolean(netSig?.interpretation.behindCgnat)}
-                      note={netSig?.interpretation.behindCgnat ? 'Not directly reachable because your router is behind ISP NAT.' : `Share this after port ${hostPort} is reachable.`}
+                      copyDisabled={Boolean(netSig?.interpretation.behindCgnat)}
+                      note={netSig?.interpretation.behindCgnat ? 'Diagnostic only. CGNAT prevents inbound connections to this address.' : `Share this after TCP and UDP port ${hostPort} are reachable.`}
                       copied={copied}
                       onCopy={setCopied}
                     />
@@ -1171,6 +1212,16 @@ function NetworkCenterPage(): JSX.Element {
                 const avatar = serverAvatars[server.id]
                 const assignment = defaultServerHostAssignment(server.id)
                 const inviteAddress = `http://${assignment.address}:${assignment.port}`
+                const invitePayload = createServerInvite({
+                  serverId: server.id,
+                  hostUrl: inviteAddress,
+                  serverName: server.name
+                })
+                const blockedPublicRoute = Boolean(
+                  netSig?.interpretation.behindCgnat
+                  && assignment.address !== 'localhost'
+                  && !isPrivateOrCgnatIp(assignment.address)
+                )
                 const live = (hostStatus.ports ?? []).includes(assignment.port)
                 return (
                   <div key={server.id} className="rounded-lg border border-mesh-border/60 bg-mesh-bg-primary/65 p-3">
@@ -1188,7 +1239,13 @@ function NetworkCenterPage(): JSX.Element {
                           <span>{server.memberCount} members</span>
                         </div>
                       </div>
-                      <Button size="sm" variant="secondary" onClick={() => copyToClipboard(`${encodeConnectionCode(inviteAddress)} / ${server.id}`, setCopied)}>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={blockedPublicRoute}
+                        title={blockedPublicRoute ? 'This public address cannot accept inbound connections through CGNAT.' : 'Copy join invite'}
+                        onClick={() => copyToClipboard(invitePayload, setCopied)}
+                      >
                         Copy
                       </Button>
                       <Button size="sm" variant="ghost" onClick={() => navigate(`/channels/${server.id}`)}>
@@ -1219,6 +1276,20 @@ function NetworkCenterPage(): JSX.Element {
                         ))}
                       </select>
                     </div>
+                    <p className={cn(
+                      'mt-2 text-[11px]',
+                      blockedPublicRoute ? 'text-mesh-warning' : 'text-mesh-text-muted'
+                    )}>
+                      {blockedPublicRoute
+                        ? 'This saved public route is blocked by CGNAT. Select a same-Wi-Fi or VPN address instead.'
+                        : assignment.address === 'localhost'
+                          ? 'This route works only on this computer.'
+                          : isPrivateOrCgnatIp(assignment.address)
+                            ? assignment.address === routerPrivateIp
+                              ? 'Same-ISP route. Availability depends on whether your provider allows direct subscriber traffic.'
+                              : 'This route is for the same Wi-Fi or overlay network.'
+                            : `Internet route. TCP and UDP port ${assignment.port} must be reachable.`}
+                    </p>
                   </div>
                 )
               })}
@@ -1337,6 +1408,7 @@ function ShareCodeRow({
   note,
   tag,
   muted,
+  copyDisabled,
   copied,
   onCopy
 }: {
@@ -1345,6 +1417,7 @@ function ShareCodeRow({
   note?: string
   tag?: string
   muted?: boolean
+  copyDisabled?: boolean
   copied: string | null
   onCopy: (value: string | null) => void
 }): JSX.Element {
@@ -1367,8 +1440,9 @@ function ShareCodeRow({
         </div>
         <button
           onClick={() => copyToClipboard(code, onCopy)}
-          className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-mesh-text-muted hover:bg-mesh-bg-tertiary hover:text-mesh-text-primary"
-          title="Copy invite code"
+          disabled={copyDisabled}
+          className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-mesh-text-muted hover:bg-mesh-bg-tertiary hover:text-mesh-text-primary disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent"
+          title={copyDisabled ? 'This address is diagnostic only' : 'Copy invite code'}
         >
           {copied === code ? <Check className="h-3.5 w-3.5 text-mesh-green" /> : <Copy className="h-3.5 w-3.5" />}
         </button>
