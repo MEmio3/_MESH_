@@ -1,33 +1,42 @@
-# MESH
-
 <div align="center">
+
+<img src="resources/icon.png" alt="MESH Logo" width="80" />
+
+# MESH
 
 **Decentralized, Privacy-First Communication Platform**
 
-Built with Electron, React, and a host-relayed media transport (no WebRTC)
+*Host it yourself. Stay private. Stay connected.*
 
-[Download](#installation) · [Features](#features) · [Architecture](#architecture) · [Development](#development)
+Built with Electron · React · Socket.IO · WebCodecs — No WebRTC Required
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-22c55e.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.1.13-22c55e.svg)](https://github.com/MEmio3/_MESH_/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-22c55e.svg)](#installation)
+
+[Download](#installation) · [Features](#features) · [Architecture](#architecture) · [Development](#development) · [Contributing](#contributing)
 
 </div>
 
 ---
 
-## Overview
+## 🌐 Overview
 
-MESH is a decentralized communication application designed to run over LANs, intranets, and CGNAT networks **without depending on the public internet backbone**. Any user can host, and everyone who connects to the same host can message, call, and share a server together.
+MESH is a decentralized communication application designed to run over **LANs, intranets, and CGNAT networks** — without depending on the public internet backbone. Any user can host, and everyone who connects to the same host can message, call, and share a server together.
 
 Rather than relying on a central company-owned cloud, MESH connections are organized around **hosts**. A host runs an embedded signaling server; peers connect to it and all coordination — presence, friend requests, messages, and media — flows through that host. This keeps everything on your own network and under your own control.
 
 > **No WebRTC.** Media (voice, video, screen share) is **not** peer-to-peer. Audio is encoded to Opus and video to VP8 using the browser's built-in WebCodecs, sent as binary frames over the Socket.IO connection, and **relayed by the host** to everyone in the room. No `RTCPeerConnection` is ever created.
 
-<!-- Hero Image -->
 <p align="center">
-  <img src="images/hero-banner.png" alt="MESH Application Overview" width="800" />
+  <img src="images/welcome.png" alt="MESH Welcome Screen" width="800" />
+  <br/>
+  <em>Welcome screen — Decentralized. Private. Yours.</em>
 </p>
 
 ---
 
-## The Same-Host Model
+## 🔗 The Same-Host Model
 
 MESH deliberately scopes social features to a single host, because a host *is* the shared space:
 
@@ -40,63 +49,89 @@ You can **host and connect to another host at the same time**, and even host on 
 
 ---
 
-## Features
+## ✨ Features
 
-### Direct Messaging
+### 💬 Direct Messaging
 - **1-on-1 conversations** delivered through your shared host
 - **Message reactions** with emoji support
-- **File attachments** up to 50MB with drag-and-drop support
+- **File attachments** up to 50 MB with drag-and-drop support
 - **Message editing** and deletion with edit history indicators
-- **Online/Idle/Offline status** indicators for all friends
+- **Online / Idle / Offline** status indicators for all friends
+- **User profile panel** with mutual servers, user ID, and quick-access message button
 
 <p align="center">
-  <img src="images/dm-chat-view.png" alt="Direct Messaging Interface" width="700" />
+  <img src="images/dm-chat-view.png" alt="Direct Messaging Interface" width="800" />
+  <br/>
+  <em>1-on-1 DM view — real-time messages with profile panel, call/video buttons, and code block rendering</em>
 </p>
 
-### Friend Management
+---
+
+### 👥 Friend Management
 - **Add friends** using their unique User ID — **same-host only** (mandatory)
 - **Friend requests** with accept-incoming-only workflow (no self-accept)
 - **Nearby users** discovery on the current host, kept symmetric via host-pushed presence snapshots
 - **Blocked users** management panel
-- **Online friends** quick-access list
+- **Online friends** quick-access list with status indicators
 
 <p align="center">
-  <img src="images/friends-list.png" alt="Friends List and Management" width="700" />
+  <img src="images/friends-list.png" alt="Friends — Online Tab" width="800" />
+  <br/>
+  <em>Friends page — Online tab with Your ID banner and DM sidebar</em>
 </p>
 
-### Message Requests
+<p align="center">
+  <img src="images/friends-all.png" alt="Friends — All Tab" width="800" />
+  <br/>
+  <em>Friends page — All tab showing your 7 friends with offline/online status</em>
+</p>
+
+---
+
+### 📨 Message Requests
 - **Cold messaging** for non-friends (similar to Discord message requests)
 - **Thread-based conversations** before accepting friend requests
-- **Accept/Ignore/Block** options for incoming requests
+- **Accept / Ignore / Block** options for incoming requests
 - **Preview snippets** showing the first message
 
-### Community Servers
+---
+
+### 🏠 Community Servers
 - **Host your own server** with customizable name and icon
 - **Text channels** organized into collapsible categories
 - **Voice rooms** with host-relayed audio and video
 - **Custom roles** with a Discord-style per-role permission matrix
 - **Per-channel permission overrides** (allow / inherit / deny, per role)
 - **Channel settings**: bitrate, user limit, and permission controls
-- **Member list** with live presence indicators and search
+- **Member list** with live presence indicators, host badge, and search
+- **Code block rendering** with syntax highlighting (Java, Python, etc.)
 
 <p align="center">
-  <img src="images/server-text-channel.png" alt="Server Text Channel" width="700" />
+  <img src="images/server-text-channel.png" alt="Server Text Channel — pokimon" width="800" />
+  <br/>
+  <em>Server text channel — code blocks with syntax highlighting, voice lounge, and member list</em>
 </p>
 
-### Voice & Video Calls
+<p align="center">
+  <img src="images/server-text-channel-2.png" alt="Server Text Channel — Shogun 2.0" width="800" />
+  <br/>
+  <em>Shogun 2.0 server — member list with host badge, text & voice channels</em>
+</p>
+
+---
+
+### 📞 Voice & Video Calls
 - **1-on-1 voice calls** (same-host only), host-relayed
 - **Video calls** with camera selection
 - **Screen sharing** (window or full-screen)
 - **Picture-in-picture** self-preview during calls
 - **Audio device selection** with input volume control
-- **Mute/unmute** and camera toggle controls, with camera-off state relayed to the peer
+- **Mute / unmute** and camera toggle controls, with camera-off state relayed to the peer
 - **Graceful timeout** if the callee can't be reached (e.g. not on the same host)
 
-<p align="center">
-  <img src="images/call-overlay.png" alt="Voice Call Interface" width="700" />
-</p>
+---
 
-### Privacy & Security
+### 🔒 Privacy & Security
 - **Cryptographic identity** using Ed25519 keypairs
 - **Local-only storage** for all messages and user data
 - **No central database** storing user information
@@ -104,20 +139,62 @@ You can **host and connect to another host at the same time**, and even host on 
 - **Optional visibility** toggle to hide from discovery
 - **Block users** system-wide across DMs and servers
 
-### Hosting
-- **Embedded signaling server** — become a host with one toggle
-- **Multi-port hosting** — run several hosts from one instance (`network.extraHostPorts`)
-- **Host + connect simultaneously** — be a host while also connected to someone else's host
-
-### Customization
-- **Profile customization** with username and avatar color
-- **Custom avatars** upload for profile picture
-- **Themes & palettes** with selectable color schemes and motion polish
-- **Notification preferences** per conversation type
+<p align="center">
+  <img src="images/settings-profile.png" alt="Profile Settings" width="800" />
+  <br/>
+  <em>User profile — Ed25519 public key, User ID, and account creation date</em>
+</p>
 
 ---
 
-## Architecture
+### 🌍 Discovery & Networking
+- **Multi-network discovery** of servers across your connected hosts
+- **Active network** indicator showing your current host and latency
+- **Server browser** with member counts and "Open" quick-access
+- **Connect to additional hosts** by IP address
+
+<p align="center">
+  <img src="images/discovery.png" alt="Discovery Page" width="800" />
+  <br/>
+  <em>Discovery — browse live servers across your connected networks</em>
+</p>
+
+---
+
+### 🖧 Network Center
+- **Connection dashboard** with real-time latency monitoring
+- **Host toggle** — become a host with one switch
+- **Multi-port hosting** — run several hosts from one instance
+- **Hosting endpoints** with shareable invite links and automatic route detection
+- **Internet route detection** for automatic port forwarding
+- **My Servers** panel with per-server hosting port assignment and live/stopped toggle
+
+<p align="center">
+  <img src="images/network-center.png" alt="Network Center" width="800" />
+  <br/>
+  <em>Network Center — multi-port hosting (3000, 3100, 3200), internet route found, live server management</em>
+</p>
+
+---
+
+### 🎨 Customization
+- **Profile customization** with username and avatar upload
+- **19 color themes** across Featured, Dark, and Vivid categories (Crimson, Obsidian, Midnight, Aurora, Ocean, Violet…)
+- **Font size** adjustment with live preview
+- **Chat density** control (Compact / Default / Cozy)
+- **Message grouping** interval configuration
+- **5 animation personalities** — Smooth, Luxe, Snappy, Playful, Calm
+- **Notification preferences** per conversation type
+
+<p align="center">
+  <img src="images/settings-appearance.png" alt="Appearance Settings" width="800" />
+  <br/>
+  <em>Appearance — 19 themes, font size, chat density, message grouping, and animation styles</em>
+</p>
+
+---
+
+## 🏗 Architecture
 
 ### Technology Stack
 
@@ -206,35 +283,35 @@ MESH uses SQLite (via `better-sqlite3`) for local storage:
 
 ---
 
-## Installation
+## 📥 Installation
 
 ### Windows
 
 Download the latest installer from the [Releases](https://github.com/MEmio3/_MESH_/releases) page:
 
 ```
-MESH-Setup-0.1.6.exe
+MESH-Setup-0.1.13.exe
 ```
 
 **System Requirements:**
 - Windows 10 or later (64-bit)
-- 500MB free disk space
+- 500 MB free disk space
 - A LAN / intranet connection (public internet not required)
 
 ### Linux
 
 ```bash
 # AppImage (recommended)
-chmod +x MESH-0.1.6.AppImage
-./MESH-0.1.6.AppImage
+chmod +x MESH-0.1.13.AppImage
+./MESH-0.1.13.AppImage
 
 # Debian/Ubuntu
-sudo dpkg -i MESH-0.1.6.deb
+sudo dpkg -i MESH-0.1.13.deb
 ```
 
 ---
 
-## Development
+## 🛠 Development
 
 ### Prerequisites
 
@@ -247,7 +324,7 @@ sudo dpkg -i MESH-0.1.6.deb
 ```bash
 # Clone the repository
 git clone https://github.com/MEmio3/_MESH_.git
-cd MESH
+cd _MESH_
 
 # Install dependencies
 npm install
@@ -261,10 +338,11 @@ npm run dev
 | Command | Description |
 |---------|-------------|
 | `npm run dev` | Start Electron in development mode |
+| `npm run dev:user2` | Start a second instance (separate user data) |
 | `npm run build` | Build for production |
-| `npm run dist` | Create distributable installer |
+| `npm run dist` | Create Windows distributable installer |
+| `npm run dist:linux` | Build Linux packages (AppImage + deb) |
 | `npm run signaling` | Run standalone signaling server |
-| `npm run dist:linux` | Build Linux packages |
 
 ### Project Structure
 
@@ -272,12 +350,13 @@ npm run dev
 MESH/
 ├── src/
 │   ├── main/                    # Electron main process
-│   │   ├── index.ts             # Entry point
+│   │   ├── index.ts             # Entry point, window creation
 │   │   ├── ipc-handlers.ts      # IPC handler registration
 │   │   ├── database.ts          # SQLite operations
-│   │   ├── identity.ts          # Cryptographic identity
+│   │   ├── identity.ts          # Ed25519 cryptographic identity
 │   │   ├── socket-client.ts     # Signaling client + multi-host routing
 │   │   ├── signaling-host.ts    # Embedded signaling host(s), per port
+│   │   ├── network-scanner.ts   # IP/CGNAT detection + UPnP
 │   │   ├── avatar.ts            # Avatar file handling
 │   │   └── file-manager.ts      # File transfer handling
 │   │
@@ -285,6 +364,14 @@ MESH/
 │   │   ├── src/
 │   │   │   ├── components/      # Reusable UI components
 │   │   │   ├── pages/           # Application pages
+│   │   │   │   ├── welcome/     # Onboarding flow
+│   │   │   │   ├── friends/     # Friends list & management
+│   │   │   │   ├── dm/          # Direct message conversations
+│   │   │   │   ├── server/      # Community server view
+│   │   │   │   ├── discovery/   # Network & server discovery
+│   │   │   │   ├── network-center/ # Hosting & connection dashboard
+│   │   │   │   ├── inbox/       # Unified inbox
+│   │   │   │   └── settings/    # User & app settings
 │   │   │   ├── stores/          # Zustand state stores
 │   │   │   ├── hooks/           # Custom React hooks
 │   │   │   ├── lib/             # Utilities (media-engine, etc.)
@@ -295,15 +382,15 @@ MESH/
 │   │   ├── index.ts             # Context bridge
 │   │   └── index.d.ts           # Type definitions
 │   │
-│   ├── server/                  # Signaling server (factory: createSignalingInstance)
-│   │   └── signaling.ts
+│   ├── server/                  # Signaling server
+│   │   └── signaling.ts         # Factory: createSignalingInstance
 │   │
 │   └── shared/                  # Shared types & permission logic
 │       ├── types.ts
 │       └── permissions.ts
 │
 ├── resources/                   # App icons and assets
-├── images/                      # Documentation images
+├── images/                      # Documentation screenshots
 ├── release/                     # Build output
 ├── package.json
 ├── electron.vite.config.ts
@@ -312,11 +399,11 @@ MESH/
 
 ---
 
-## Configuration
+## ⚙ Configuration
 
 ### Network Settings
 
-Access via Settings > Network:
+Access via **Settings → Connection Details**:
 
 | Setting | Description | Default |
 |---------|-------------|---------|
@@ -324,9 +411,15 @@ Access via Settings > Network:
 | Self-host signaling | Run an embedded signaling host | Off |
 | Extra host ports | Additional ports to host on simultaneously | — |
 
+<p align="center">
+  <img src="images/settings-network.png" alt="Network Settings" width="800" />
+  <br/>
+  <em>Connection Details — signaling URL, hosting toggle, and relay configuration</em>
+</p>
+
 ---
 
-## Security Considerations
+## 🔐 Security Considerations
 
 ### Identity Generation
 
@@ -352,12 +445,12 @@ MESH generates an Ed25519 keypair on first launch:
 
 ---
 
-## Troubleshooting
+## 🔧 Troubleshooting
 
 ### Connection Issues
 
 **Cannot connect to a host:**
-1. Verify the signaling URL in Settings > Network
+1. Verify the signaling URL in Settings → Connection Details
 2. Enable "Self-host signaling" to run your own host locally
 3. Check firewall rules for the host port (default: 3000, plus any extra host ports)
 
@@ -386,7 +479,7 @@ npx tsc --noEmit
 
 ---
 
-## Contributing
+## 🤝 Contributing
 
 Contributions are welcome! Please follow these guidelines:
 
@@ -394,6 +487,10 @@ Contributions are welcome! Please follow these guidelines:
 2. **Follow the code style** (ESLint + Prettier)
 3. **Test thoroughly** before submitting PR
 4. **Document new features** in this README
+
+### Architecture Deep Dive
+
+For maintainers and contributors interested in the inner workings of our signaling layer, media transport topology, and the roadmap for true offline-first communication (intranet, CGNAT, Wi-Fi cluster), please read the [MESH Deep Dive](docs/MESH_DEEP_DIVE.md) document.
 
 ### Areas for Contribution
 
@@ -406,18 +503,18 @@ Contributions are welcome! Please follow these guidelines:
 
 ---
 
-## License
+## 📄 License
 
-MIT License - See [LICENSE](LICENSE) for details
+MIT License — See [LICENSE](LICENSE) for details
 
 ---
 
-## Acknowledgments
+## 🙏 Acknowledgments
 
 MESH is inspired by:
-- [Discord](https://discord.com) - Server and channel structure
-- [TeamSpeak](https://www.teamspeak.com) - Self-hosted, host-centric model
-- [Session](https://getsession.org) - Privacy-focused messaging
+- [Discord](https://discord.com) — Server and channel structure
+- [TeamSpeak](https://www.teamspeak.com) — Self-hosted, host-centric model
+- [Session](https://getsession.org) — Privacy-focused messaging
 
 Built with:
 - [Electron](https://www.electronjs.org/)
@@ -425,12 +522,18 @@ Built with:
 - [Socket.IO](https://socket.io/)
 - [WebCodecs](https://developer.mozilla.org/en-US/docs/Web/API/WebCodecs_API)
 - [better-sqlite3](https://github.com/JoshuaWise/better-sqlite3)
+- [Zustand](https://zustand-demo.pmnd.rs/)
+- [Framer Motion](https://www.framer.com/motion/)
+- [Lucide Icons](https://lucide.dev/)
+- [libsodium](https://doc.libsodium.org/)
 
 ---
 
 <div align="center">
 
-**MESH** - Host it yourself. Stay private.
+**MESH** — Host it yourself. Stay private.
+
+Made with ❤️ by [MEmio3](https://github.com/MEmio3) · Contact: maruf.hossain1@g.bracu.ac.bd
 
 [Report Bug](https://github.com/MEmio3/_MESH_/issues) · [Request Feature](https://github.com/MEmio3/_MESH_/issues)
 
